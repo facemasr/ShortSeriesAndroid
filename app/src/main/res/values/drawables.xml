@@ -1,0 +1,3 @@
+<resources>
+    <item name="ic_shorts" type="drawable">@drawable/ic_movies</item>
+</resources>

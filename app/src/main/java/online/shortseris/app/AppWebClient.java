@@ -19,7 +19,7 @@ public class AppWebClient extends WebViewClient {
 
     @Override public void onPageFinished(WebView view,String url){
         activity.progress.setVisibility(android.view.View.GONE);
-        String js="(function(){var s=document.createElement('style');s.innerHTML='.topbar,.mobile-nav,.mobile-drawer{display:none!important}body{padding-top:0!important;padding-bottom:0!important}';document.head.appendChild(s)})();";
+        String js="(function(){document.documentElement.setAttribute('data-shortseries-app','1');var s=document.createElement('style');s.innerHTML='.topbar,.mobile-nav,.mobile-drawer,#ssAppDownload,.ss-app-download{display:none!important}body{padding-top:0!important;padding-bottom:0!important}';document.head.appendChild(s);var a=document.getElementById('ssAppDownload');if(a)a.remove()})();";
         view.evaluateJavascript(js,null);
     }
 }

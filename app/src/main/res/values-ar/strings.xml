@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">SHORT SERIES</string>
+    <string name="home">الرئيسية</string>
+    <string name="movies">أفلام</string>
+    <string name="series">مسلسلات</string>
+    <string name="shorts">قصيرة</string>
+    <string name="tv">تلفاز</string>
+    <string name="search">بحث</string>
+    <string name="offline_title">لا يوجد اتصال بالإنترنت</string>
+    <string name="offline_message">تحقق من اتصالك ثم حاول مرة أخرى.</string>
+    <string name="retry">إعادة المحاولة</string>
+</resources>

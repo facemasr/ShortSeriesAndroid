@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">SHORT SERIES</string>
+    <string name="home">Home</string>
+    <string name="movies">Movies</string>
+    <string name="series">Series</string>
+    <string name="shorts">Shorts</string>
+    <string name="tv">TV</string>
+    <string name="search">Search</string>
+    <string name="offline_title">No internet connection</string>
+    <string name="offline_message">Check your connection and try again.</string>
+    <string name="retry">Retry</string>
+</resources>

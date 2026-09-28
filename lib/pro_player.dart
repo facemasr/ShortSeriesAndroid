@@ -530,25 +530,6 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     if (prev != null) await _playEpisode(prev);
   }
 
-  Future<void> _openRecommendation(Map<String, dynamic> item) async {
-    final id = (item['id'] as num?)?.toInt() ?? 0;
-    if (id <= 0) return;
-    final itemType = (item['type'] ?? '').toString();
-    final itemTitle = (item['title'] ?? item['original_title'] ?? '').toString();
-
-    if (itemType == 'movie') {
-      await _loadTarget('media', id, itemTitle);
-      return;
-    }
-
-    await player.pause();
-    if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => ProDetailPage(id: id)),
-    );
-  }
-
   void _showSources() {
     showModalBottomSheet<void>(
       context: context,

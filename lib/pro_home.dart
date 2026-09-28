@@ -17,8 +17,8 @@ class _ProHomePageState extends State<ProHomePage> {
   }
 
   Future<void> _refresh() async {
-    await Api.I.loadConfig();
-    final next = Api.I.call('home');
+    await Api.I.loadConfig(forceRefresh:true);
+    final next = Api.I.call('home',forceRefresh:true);
     setState(() => _home = next);
     await next;
   }

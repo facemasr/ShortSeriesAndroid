@@ -700,21 +700,21 @@ class _DetailPageState extends State<DetailPage> {
   }
 }
 
-class PlayerPage extends StatefulWidget {
+class LegacyPlayerPage extends StatefulWidget {
   final String ownerType;
   final int ownerId;
   final String title;
-  const ProPlayerPage({
+  const LegacyPlayerPage({
     super.key,
     required this.ownerType,
     required this.ownerId,
     required this.title,
   });
   @override
-  State<PlayerPage> createState() => _PlayerPageState();
+  State<LegacyPlayerPage> createState() => _PlayerPageState();
 }
 
-class _PlayerPageState extends State<PlayerPage> {
+class _PlayerPageState extends State<LegacyPlayerPage> {
   late final Player player;
   late final VideoController controller;
   List<Map<String, dynamic>> sources = [];

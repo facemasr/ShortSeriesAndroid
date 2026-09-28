@@ -667,12 +667,14 @@ class MediaCard extends StatelessWidget {
       width: 142,
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: onTap ?? () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ProDetailPage(id: (item['id'] as num).toInt()),
-          ),
-        ),
+        onTap: onTap ?? () {
+          final id = (item['id'] as num).toInt();
+          AppNavigator.open(
+            context,
+            ProDetailPage(id: id),
+            key: 'media/$id',
+          );
+        },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -840,15 +842,14 @@ class _DetailPageState extends State<DetailPage> {
                     FilledButton.icon(
                       onPressed: () {
                         if (item['type'] == 'movie') {
-                          Navigator.push(
+                          AppNavigator.open(
                             context,
-                            MaterialPageRoute(
-                              builder: (_) => ProPlayerPage(
-                                ownerType: 'media',
-                                ownerId: widget.id,
-                                title: (item['title'] ?? '').toString(),
-                              ),
+                            ProPlayerPage(
+                              ownerType: 'media',
+                              ownerId: widget.id,
+                              title: (item['title'] ?? '').toString(),
                             ),
+                            key: 'player/media/${widget.id}',
                           );
                         } else if (seasons.isNotEmpty) {
                           final first =
@@ -858,15 +859,15 @@ class _DetailPageState extends State<DetailPage> {
                           if (episodes.isNotEmpty) {
                             final ep = Map<String, dynamic>.from(
                                 episodes.first as Map);
-                            Navigator.push(
+                            final epId = (ep['id'] as num).toInt();
+                            AppNavigator.open(
                               context,
-                              MaterialPageRoute(
-                                builder: (_) => ProPlayerPage(
-                                  ownerType: 'episode',
-                                  ownerId: (ep['id'] as num).toInt(),
-                                  title: (ep['title'] ?? '').toString(),
-                                ),
+                              ProPlayerPage(
+                                ownerType: 'episode',
+                                ownerId: epId,
+                                title: (ep['title'] ?? '').toString(),
                               ),
+                              key: 'player/episode/$epId',
                             );
                           }
                         }
@@ -894,16 +895,18 @@ class _DetailPageState extends State<DetailPage> {
                                   (ep['title'] ?? '').toString(),
                             ),
                             trailing: const Icon(Icons.play_arrow),
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ProPlayerPage(
+                            onTap: () {
+                              final epId = (ep['id'] as num).toInt();
+                              AppNavigator.open(
+                                context,
+                                ProPlayerPage(
                                   ownerType: 'episode',
-                                  ownerId: (ep['id'] as num).toInt(),
+                                  ownerId: epId,
                                   title: (ep['title'] ?? '').toString(),
                                 ),
-                              ),
-                            ),
+                                key: 'player/episode/$epId',
+                              );
+                            },
                           );
                         }).toList(),
                       );
@@ -1081,16 +1084,18 @@ class _TvPageState extends State<TvPage> {
                   Map<String, dynamic>.from(rows[i] as Map);
               return Card(
                 child: InkWell(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ProPlayerPage(
+                  onTap: () {
+                    final channelId = (channel['id'] as num).toInt();
+                    AppNavigator.open(
+                      context,
+                      ProPlayerPage(
                         ownerType: 'tv',
-                        ownerId: (channel['id'] as num).toInt(),
+                        ownerId: channelId,
                         title: (channel['name'] ?? '').toString(),
                       ),
-                    ),
-                  ),
+                      key: 'player/tv/$channelId',
+                    );
+                  },
                   child: Column(
                     children: [
                       Expanded(
@@ -1213,9 +1218,10 @@ class AccountPage extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.history),
                   title: Text(Api.I.ar ? 'متابعة المشاهدة' : 'Continue'),
-                  onTap: () => Navigator.push(
+                  onTap: () => AppNavigator.open(
                     context,
-                    MaterialPageRoute(builder: (_) => const ContinuePage()),
+                    const ContinuePage(),
+                    key: 'account/continue',
                   ),
                 ),
               ListTile(

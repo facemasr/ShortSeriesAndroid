@@ -323,7 +323,7 @@ class _ProVideoControlsState extends State<ProVideoControls> {
                               ),
                             ),
                             child: Slider(
-                              value: totalMs > 0 ? posMs.clamp(0, totalMs) : 0,
+                              value: totalMs > 0 ? posMs.clamp(0, totalMs).toDouble() : 0.0,
                               max: totalMs > 0 ? totalMs : 1,
                               onChangeStart: (_) {
                                 hideTimer?.cancel();

@@ -244,7 +244,10 @@ class OfflineDownloads {
   }
 
   void _setProgress(String key,double value){
-    progress.value=<String,double>{...progress.value,key:value.clamp(0,1)};
+    progress.value=<String,double>{
+      ...progress.value,
+      key:value.clamp(0.0,1.0).toDouble(),
+    };
   }
 
   void _setActive(String key,bool value){

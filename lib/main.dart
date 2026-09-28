@@ -1246,61 +1246,229 @@ class AccountPage extends StatelessWidget {
 }
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  final VoidCallback? onAuthenticated;
+  const LoginPage({super.key,this.onAuthenticated});
+
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final email = TextEditingController(), pass = TextEditingController();
-  bool busy = false;
+  final formKey=GlobalKey<FormState>();
+  final email=TextEditingController();
+  final pass=TextEditingController();
+
+  bool busy=false;
+  bool showPassword=false;
   String? error;
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          TextField(
-            controller: email,
-            decoration: InputDecoration(labelText: Api.I.ar ? 'البريد' : 'Email'),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: pass,
-            obscureText: true,
-            decoration:
-                InputDecoration(labelText: Api.I.ar ? 'كلمة المرور' : 'Password'),
-          ),
-          if (error != null)
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Text(error!, style: const TextStyle(color: Colors.red)),
+  void dispose(){
+    email.dispose();
+    pass.dispose();
+    super.dispose();
+  }
+
+  String? _emailValidator(String? value){
+    final v=(value??'').trim();
+    if(v.isEmpty)return Api.I.ar?'أدخل البريد الإلكتروني':'Enter your email';
+    if(!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)){
+      return Api.I.ar?'البريد الإلكتروني غير صحيح':'Enter a valid email';
+    }
+    return null;
+  }
+
+  String? _passwordValidator(String? value){
+    if((value??'').length<8){
+      return Api.I.ar?'كلمة المرور يجب أن تكون 8 أحرف على الأقل':'Password must be at least 8 characters';
+    }
+    return null;
+  }
+
+  Future<void> _submit() async{
+    FocusScope.of(context).unfocus();
+    if(!(formKey.currentState?.validate()??false))return;
+
+    setState((){busy=true;error=null;});
+    try{
+      await Api.I.login(email.text,pass.text);
+      if(!mounted)return;
+      if(widget.onAuthenticated!=null){
+        widget.onAuthenticated!();
+      }else{
+        AppNavigator.open(
+          context,
+          const AccountPage(),
+          key:'account/profile',
+        );
+      }
+    }catch(e){
+      if(!mounted)return;
+      setState((){
+        error=Api.I.ar
+          ?'تعذر تسجيل الدخول. تحقق من البريد وكلمة المرور.'
+          :'Sign in failed. Check your email and password.';
+      });
+    }finally{
+      if(mounted)setState(()=>busy=false);
+    }
+  }
+
+  Future<void> _openRegister() async{
+    final locale=Api.I.ar?'ar':'en';
+    final uri=Uri.parse('https://shortseris.online/$locale/register');
+    await launchUrl(uri,mode:LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context){
+    return SafeArea(
+      child:Center(
+        child:SingleChildScrollView(
+          padding:const EdgeInsets.fromLTRB(20,24,20,32),
+          child:ConstrainedBox(
+            constraints:const BoxConstraints(maxWidth:460),
+            child:Card(
+              elevation:0,
+              clipBehavior:Clip.antiAlias,
+              child:Padding(
+                padding:const EdgeInsets.fromLTRB(22,26,22,24),
+                child:Form(
+                  key:formKey,
+                  child:Column(
+                    crossAxisAlignment:CrossAxisAlignment.stretch,
+                    children:[
+                      Center(
+                        child:Container(
+                          width:68,
+                          height:68,
+                          decoration:BoxDecoration(
+                            color:const Color(0xFFE50914),
+                            borderRadius:BorderRadius.circular(20),
+                          ),
+                          alignment:Alignment.center,
+                          child:const Text(
+                            'S',
+                            style:TextStyle(
+                              fontSize:34,
+                              fontWeight:FontWeight.w900,
+                              color:Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height:16),
+                      Text(
+                        'SHORT SERIES TV',
+                        textAlign:TextAlign.center,
+                        style:Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight:FontWeight.w900,
+                          letterSpacing:.3,
+                        ),
+                      ),
+                      const SizedBox(height:6),
+                      Text(
+                        Api.I.ar
+                          ?'سجّل دخولك لمزامنة المشاهدة والمفضلة وقائمتك على جميع أجهزتك.'
+                          :'Sign in to sync progress, favorites and your list across devices.',
+                        textAlign:TextAlign.center,
+                        style:const TextStyle(color:Colors.white60,height:1.5),
+                      ),
+                      const SizedBox(height:24),
+                      TextFormField(
+                        controller:email,
+                        keyboardType:TextInputType.emailAddress,
+                        autofillHints:const [AutofillHints.email],
+                        textInputAction:TextInputAction.next,
+                        validator:_emailValidator,
+                        decoration:InputDecoration(
+                          labelText:Api.I.ar?'البريد الإلكتروني':'Email',
+                          hintText:'name@example.com',
+                          prefixIcon:const Icon(Icons.mail_outline_rounded),
+                        ),
+                      ),
+                      const SizedBox(height:14),
+                      TextFormField(
+                        controller:pass,
+                        obscureText:!showPassword,
+                        autofillHints:const [AutofillHints.password],
+                        textInputAction:TextInputAction.done,
+                        onFieldSubmitted:(_)=>_submit(),
+                        validator:_passwordValidator,
+                        decoration:InputDecoration(
+                          labelText:Api.I.ar?'كلمة المرور':'Password',
+                          prefixIcon:const Icon(Icons.lock_outline_rounded),
+                          suffixIcon:IconButton(
+                            onPressed:()=>setState(()=>showPassword=!showPassword),
+                            icon:Icon(showPassword?Icons.visibility_off_rounded:Icons.visibility_rounded),
+                          ),
+                        ),
+                      ),
+                      if(error!=null)...[
+                        const SizedBox(height:14),
+                        Container(
+                          padding:const EdgeInsets.all(12),
+                          decoration:BoxDecoration(
+                            color:Colors.red.withValues(alpha:.10),
+                            borderRadius:BorderRadius.circular(12),
+                            border:Border.all(color:Colors.red.withValues(alpha:.35)),
+                          ),
+                          child:Row(
+                            children:[
+                              const Icon(Icons.error_outline_rounded,color:Colors.redAccent),
+                              const SizedBox(width:10),
+                              Expanded(child:Text(error!,style:const TextStyle(color:Colors.redAccent))),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height:18),
+                      FilledButton.icon(
+                        onPressed:busy?null:_submit,
+                        icon:busy
+                          ?const SizedBox(
+                              width:18,
+                              height:18,
+                              child:CircularProgressIndicator(strokeWidth:2),
+                            )
+                          :const Icon(Icons.login_rounded),
+                        label:Text(Api.I.ar?'تسجيل الدخول':'Sign in'),
+                      ),
+                      const SizedBox(height:12),
+                      Row(
+                        children:[
+                          const Expanded(child:Divider()),
+                          Padding(
+                            padding:const EdgeInsets.symmetric(horizontal:12),
+                            child:Text(
+                              Api.I.ar?'أو':'OR',
+                              style:const TextStyle(color:Colors.white38,fontWeight:FontWeight.w700),
+                            ),
+                          ),
+                          const Expanded(child:Divider()),
+                        ],
+                      ),
+                      const SizedBox(height:12),
+                      OutlinedButton.icon(
+                        onPressed:_openRegister,
+                        icon:const Icon(Icons.person_add_alt_1_rounded),
+                        label:Text(Api.I.ar?'إنشاء حساب جديد':'Create account'),
+                      ),
+                      const SizedBox(height:12),
+                      Text(
+                        Api.I.ar
+                          ?'يتم إنشاء الحساب عبر موقع SHORT SERIES ثم يمكنك استخدام نفس الحساب داخل التطبيق.'
+                          :'Create your account on SHORT SERIES, then use the same account in the app.',
+                        textAlign:TextAlign.center,
+                        style:const TextStyle(fontSize:12,color:Colors.white38,height:1.45),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-          FilledButton(
-            onPressed: busy
-                ? null
-                : () async {
-                    setState(() => busy = true);
-                    try {
-                      await Api.I.login(email.text, pass.text);
-                      if (context.mounted) {
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(builder: (_) => const AccountPage()),
-                        );
-                      }
-                    } catch (e) {
-                      setState(() => error = e.toString());
-                    } finally {
-                      if (mounted) setState(() => busy = false);
-                    }
-                  },
-            child: Text(Api.I.ar ? 'دخول' : 'Sign in'),
-          )
-        ],
+          ),
+        ),
       ),
     );
   }

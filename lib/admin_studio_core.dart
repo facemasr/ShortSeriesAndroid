@@ -120,6 +120,3 @@ class _ImporterCenterPageState extends State<ImporterCenterPage>{
   );
 }
 
-class ImporterRunPage extends StatefulWidget{
-  final Map<String,dynamic> importer;
-  const ImporterRunPage({super.key,required this.importer});

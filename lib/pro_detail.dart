@@ -642,7 +642,17 @@ class _EpisodeTile extends StatelessWidget {
             views + ' ' + (Api.I.ar ? 'مشاهدة' : 'views'),
         style: const TextStyle(color: Colors.white54, fontSize: 12),
       ),
-      trailing: const Icon(Icons.chevron_right_rounded),
+      trailing:Row(
+        mainAxisSize:MainAxisSize.min,
+        children:[
+          IconButton(
+            tooltip:Api.I.ar?'تحميل الحلقة':'Download episode',
+            onPressed:onDownload,
+            icon:const Icon(Icons.download_for_offline_outlined),
+          ),
+          const Icon(Icons.chevron_right_rounded),
+        ],
+      ),
       onTap: onTap,
     );
   }

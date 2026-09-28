@@ -11,9 +11,12 @@ import 'package:url_launcher/url_launcher.dart';
 
 const apiUrl = 'https://shortseris.online/mobile-api/index.php';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  try {
+    await Api.I.loadConfig();
+  } catch (_) {}
   runApp(const ShortSerisApp());
 }
 

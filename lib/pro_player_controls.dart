@@ -6,12 +6,15 @@ class ProVideoControls extends StatefulWidget {
   final String subtitle;
   final bool hasSources;
   final bool hasSubtitles;
+  final bool hasQualities;
+  final String qualityLabel;
   final bool hasEpisodes;
   final bool hasPrevious;
   final bool hasNext;
   final bool refreshingSource;
   final VoidCallback onSources;
   final VoidCallback onSubtitles;
+  final VoidCallback onQualities;
   final VoidCallback onSpeed;
   final VoidCallback onEpisodes;
   final VoidCallback onPrevious;
@@ -25,12 +28,15 @@ class ProVideoControls extends StatefulWidget {
     required this.subtitle,
     required this.hasSources,
     required this.hasSubtitles,
+    required this.hasQualities,
+    required this.qualityLabel,
     required this.hasEpisodes,
     required this.hasPrevious,
     required this.hasNext,
     required this.refreshingSource,
     required this.onSources,
     required this.onSubtitles,
+    required this.onQualities,
     required this.onSpeed,
     required this.onEpisodes,
     required this.onPrevious,
@@ -237,6 +243,12 @@ class _ProVideoControlsState extends State<ProVideoControls> {
                               icon: Icons.dns_outlined,
                               onTap: widget.onSources,
                             ),
+                          if (widget.hasQualities)
+                            _ControlIcon(
+                              tooltip: Api.I.ar ? 'الجودة' : 'Quality',
+                              icon: Icons.high_quality_rounded,
+                              onTap: widget.onQualities,
+                            ),
                           if (widget.hasSubtitles)
                             _ControlIcon(
                               tooltip: Api.I.ar ? 'الترجمة' : 'Subtitles',
@@ -348,6 +360,27 @@ class _ProVideoControlsState extends State<ProVideoControls> {
                                 ),
                               ),
                               const Spacer(),
+                              if(widget.hasQualities&&widget.qualityLabel.isNotEmpty)
+                                Padding(
+                                  padding:const EdgeInsetsDirectional.only(end:6),
+                                  child:TextButton(
+                                    style:TextButton.styleFrom(
+                                      foregroundColor:Colors.white,
+                                      padding:const EdgeInsets.symmetric(horizontal:8,vertical:4),
+                                      minimumSize:Size.zero,
+                                      tapTargetSize:MaterialTapTargetSize.shrinkWrap,
+                                      backgroundColor:const Color(0x66000000),
+                                    ),
+                                    onPressed:widget.onQualities,
+                                    child:Text(
+                                      widget.qualityLabel,
+                                      style:const TextStyle(
+                                        fontSize:11,
+                                        fontWeight:FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               if (buffering)
                                 const Padding(
                                   padding: EdgeInsetsDirectional.only(end: 8),

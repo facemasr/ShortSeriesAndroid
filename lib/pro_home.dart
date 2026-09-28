@@ -188,9 +188,10 @@ class _HeroCarouselState extends State<_HeroCarousel> {
                   borderRadius: BorderRadius.circular(22),
                   onTap: mediaId <= 0
                       ? null
-                      : () => Navigator.push(
+                      : () => AppNavigator.open(
                             context,
-                            MaterialPageRoute(builder: (_) => ProDetailPage(id: mediaId)),
+                            ProDetailPage(id: mediaId),
+                            key: 'media/$mediaId',
                           ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(22),
@@ -253,9 +254,10 @@ class _HeroCarouselState extends State<_HeroCarousel> {
                                         foregroundColor: Colors.black,
                                         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                                       ),
-                                      onPressed: () => Navigator.push(
+                                      onPressed: () => AppNavigator.open(
                                         context,
-                                        MaterialPageRoute(builder: (_) => ProDetailPage(id: mediaId)),
+                                        ProDetailPage(id: mediaId),
+                                        key: 'media/$mediaId',
                                       ),
                                       icon: const Icon(Icons.play_arrow_rounded),
                                       label: Text(
@@ -399,15 +401,14 @@ class _ContinueRailState extends State<_ContinueRail> {
                       width: 230,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(16),
-                        onTap: () => Navigator.push(
+                        onTap: () => AppNavigator.open(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => ProPlayerPage(
-                              ownerType: ownerType,
-                              ownerId: ownerId,
-                              title: (media['title'] ?? media['original_title'] ?? '').toString(),
-                            ),
+                          ProPlayerPage(
+                            ownerType: ownerType,
+                            ownerId: ownerId,
+                            title: (media['title'] ?? media['original_title'] ?? '').toString(),
                           ),
+                          key: 'player/$ownerType/$ownerId',
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),

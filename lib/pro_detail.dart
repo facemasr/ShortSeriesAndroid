@@ -48,15 +48,14 @@ class _ProDetailPageState extends State<ProDetailPage> {
   Future<void> _playBest(Map<String, dynamic> item, List seasons) async {
     if (item['type'] == 'movie') {
       if (!mounted) return;
-      Navigator.push(
+      AppNavigator.open(
         context,
-        MaterialPageRoute(
-          builder: (_) => ProPlayerPage(
-            ownerType: 'media',
-            ownerId: widget.id,
-            title: (item['title'] ?? item['original_title'] ?? '').toString(),
-          ),
+        ProPlayerPage(
+          ownerType: 'media',
+          ownerId: widget.id,
+          title: (item['title'] ?? item['original_title'] ?? '').toString(),
         ),
+        key: 'player/media/${widget.id}',
       );
       return;
     }
@@ -71,15 +70,15 @@ class _ProDetailPageState extends State<ProDetailPage> {
           final episode = row['episode'];
           if ((media['id'] as num?)?.toInt() == widget.id && episode is Map) {
             if (!mounted) return;
-            Navigator.push(
+            final episodeId = (episode['id'] as num).toInt();
+            AppNavigator.open(
               context,
-              MaterialPageRoute(
-                builder: (_) => ProPlayerPage(
-                  ownerType: 'episode',
-                  ownerId: (episode['id'] as num).toInt(),
-                  title: (media['title'] ?? media['original_title'] ?? '').toString(),
-                ),
+              ProPlayerPage(
+                ownerType: 'episode',
+                ownerId: episodeId,
+                title: (media['title'] ?? media['original_title'] ?? '').toString(),
               ),
+              key: 'player/episode/$episodeId',
             );
             return;
           }
@@ -119,15 +118,15 @@ class _ProDetailPageState extends State<ProDetailPage> {
     }
     final ep = Map<String, dynamic>.from(episodes.first as Map);
     if (!mounted) return;
-    Navigator.push(
+    final epId = (ep['id'] as num).toInt();
+    AppNavigator.open(
       context,
-      MaterialPageRoute(
-        builder: (_) => ProPlayerPage(
-          ownerType: 'episode',
-          ownerId: (ep['id'] as num).toInt(),
-          title: (item['title'] ?? item['original_title'] ?? '').toString(),
-        ),
+      ProPlayerPage(
+        ownerType: 'episode',
+        ownerId: epId,
+        title: (item['title'] ?? item['original_title'] ?? '').toString(),
       ),
+      key: 'player/episode/$epId',
     );
   }
 
@@ -285,9 +284,10 @@ class _ProDetailPageState extends State<ProDetailPage> {
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(14),
                                 onTap: personId > 0
-                                    ? () => Navigator.push(
+                                    ? () => AppNavigator.open(
                                           context,
-                                          MaterialPageRoute(builder: (_) => PersonPage(id: personId)),
+                                          PersonPage(id: personId),
+                                          key: 'person/$personId',
                                         )
                                     : null,
                                 child: Column(
@@ -356,16 +356,18 @@ class _ProDetailPageState extends State<ProDetailPage> {
                               final ep = Map<String, dynamic>.from(rawEp as Map);
                               return _EpisodeTile(
                                 episode: ep,
-                                onTap: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => ProPlayerPage(
+                                onTap: () {
+                                  final epId = (ep['id'] as num).toInt();
+                                  AppNavigator.open(
+                                    context,
+                                    ProPlayerPage(
                                       ownerType: 'episode',
-                                      ownerId: (ep['id'] as num).toInt(),
+                                      ownerId: epId,
                                       title: title,
                                     ),
-                                  ),
-                                ),
+                                    key: 'player/episode/$epId',
+                                  );
+                                },
                               );
                             }).toList(),
                           ),

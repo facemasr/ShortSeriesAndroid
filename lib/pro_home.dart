@@ -52,19 +52,50 @@ class _ProHomePageState extends State<ProHomePage> {
                   title: Row(
                     children: [
                       Container(
-                        width: 34,
-                        height: 34,
+                        width: 38,
+                        height: 38,
                         decoration: BoxDecoration(
-                          color: hexColor(Api.I.config['primary_color']?.toString()),
-                          borderRadius: BorderRadius.circular(10),
+                          color: const Color(0xFFE50914),
+                          borderRadius: BorderRadius.circular(11),
                         ),
-                        child: const Icon(Icons.play_arrow_rounded, color: Colors.white),
+                        child: const Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
+                            Positioned(
+                              left: 6,
+                              right: 6,
+                              top: 5,
+                              child: Divider(color: Colors.white, thickness: 2, height: 2),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          (Api.I.config['name'] ?? 'ShortSeris').toString(),
-                          style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: -.3),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              appDisplayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -.45,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Text(
+                              'مسلسلات قصيرة',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -148,7 +179,7 @@ class _HeroCarouselState extends State<_HeroCarousel> {
             onPageChanged: (v) => setState(() => _index = v),
             itemBuilder: (_, i) {
               final s = Map<String, dynamic>.from(widget.sliders[i] as Map);
-              final image = (s['mobile_image'] ?? s['image'] ?? s['backdrop'] ?? s['poster'] ?? '').toString();
+              final image = Api.I.absoluteUrl(s['mobile_image'] ?? s['image'] ?? s['backdrop'] ?? s['poster']);
               final title = (s['title'] ?? s['original_title'] ?? '').toString();
               final mediaId = int.tryParse((s['media_id'] ?? '').toString()) ?? 0;
               return Padding(
@@ -354,9 +385,11 @@ class _ContinueRailState extends State<_ContinueRail> {
                     final ownerId = episode is Map
                         ? (episode['id'] as num).toInt()
                         : (media['id'] as num).toInt();
-                    final image = episode is Map
-                        ? (episode['still'] ?? media['backdrop'] ?? media['poster'] ?? '').toString()
-                        : (media['backdrop'] ?? media['poster'] ?? '').toString();
+                    final image = Api.I.absoluteUrl(
+                      episode is Map
+                          ? (episode['still'] ?? media['backdrop'] ?? media['poster'])
+                          : (media['backdrop'] ?? media['poster']),
+                    );
                     final subtitle = episode is Map
                         ? (Api.I.ar ? 'الموسم ' : 'S') + episode['season_number'].toString() +
                             ' • ' + (Api.I.ar ? 'الحلقة ' : 'E') + episode['episode_number'].toString()

@@ -366,21 +366,41 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     if (_routeCovered || !AppPlaybackSession.owns(player)) return false;
 
     final source = sources[currentSource];
+    final headers = _sourceHeaders(source);
+    final referer = headers.entries
+        .where((entry) => entry.key.toLowerCase() == 'referer')
+        .map((entry) => entry.value)
+        .firstOrNull;
+
     final candidates = <dynamic>[
       source['source_url'],
       source['origin_url'],
       source['page_url'],
       source['referrer_url'],
+      referer,
       source['url'],
     ];
 
     String origin = '';
     for (final candidate in candidates) {
       final value = (candidate ?? '').toString().trim();
-      if (value.isNotEmpty) {
-        origin = value;
-        break;
+      if (value.isEmpty) continue;
+
+      // Importers such as egy-ak-movie-importer may save a local
+      // /embed4/?url=<origin> wrapper. The native app needs the real
+      // source page so the resolver can generate a fresh signed URL.
+      final absolute = Api.I.absoluteUrl(value);
+      final uri = Uri.tryParse(absolute);
+      if (uri != null && uri.path.contains('/embed4/')) {
+        final wrapped = uri.queryParameters['url']?.trim() ?? '';
+        if (wrapped.isNotEmpty) {
+          origin = wrapped;
+          break;
+        }
       }
+
+      origin = value;
+      break;
     }
     if (origin.isEmpty) return false;
 

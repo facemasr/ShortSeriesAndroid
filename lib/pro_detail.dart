@@ -120,6 +120,7 @@ class _ProDetailPageState extends State<ProDetailPage> {
 
           final item = Map<String, dynamic>.from(snapshot.data!['data'] as Map);
           final seasons = item['seasons'] as List? ?? const [];
+          final cast = item['cast'] as List? ?? const [];
           final title = (item['title'] ?? item['original_title'] ?? '').toString();
           final backdrop = (item['backdrop'] ?? item['poster'] ?? '').toString();
           final overview = (item['overview'] ?? item['story'] ?? '').toString();
@@ -234,6 +235,70 @@ class _ProDetailPageState extends State<ProDetailPage> {
                       Text(
                         overview,
                         style: const TextStyle(height: 1.6, fontSize: 15.5, color: Colors.white70),
+                      ),
+                    ],
+                    if (cast.isNotEmpty) ...[
+                      const SizedBox(height: 24),
+                      Text(
+                        Api.I.ar ? 'طاقم العمل' : 'Cast',
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 154,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: cast.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 12),
+                          itemBuilder: (_, i) {
+                            final person = Map<String, dynamic>.from(cast[i] as Map);
+                            final personId = (person['id'] as num?)?.toInt() ?? 0;
+                            return SizedBox(
+                              width: 94,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: personId > 0
+                                    ? () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(builder: (_) => PersonPage(id: personId)),
+                                        )
+                                    : null,
+                                child: Column(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(14),
+                                      child: CachedNetworkImage(
+                                        imageUrl: (person['photo'] ?? '').toString(),
+                                        width: 94,
+                                        height: 106,
+                                        fit: BoxFit.cover,
+                                        errorWidget: (_, __, ___) => Container(
+                                          width: 94,
+                                          height: 106,
+                                          color: Colors.white10,
+                                          child: const Icon(Icons.person_outline_rounded, size: 40),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      (person['name'] ?? '').toString(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                                    ),
+                                    Text(
+                                      (person['character_name'] ?? person['job'] ?? '').toString(),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.white54, fontSize: 10.5),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ],
                     if (seasons.isNotEmpty) ...[

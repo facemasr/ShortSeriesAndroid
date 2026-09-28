@@ -57,3 +57,18 @@ flutter run
 ```
 
 For Android release builds ensure the INTERNET permission exists in the main Android manifest.
+
+
+## Remote control from the website
+
+The app reads `action=app_config` from the ShortSeris mobile API at launch.
+
+After installing ShortSeris **v5.8.0 App Control Center**, the website admin can remotely control:
+- App on/off and maintenance mode
+- Arabic/English app name, logo, splash and colors
+- Movies, Series, Short Series, Live TV, Search, Account and Continue Watching visibility
+- Android/iOS minimum and latest versions
+- Forced app updates and update URLs
+- Native app ads for Home, Details, Player and TV
+
+Admin path: `/admin/app-control`

@@ -109,7 +109,7 @@ class _HeroCarousel extends StatefulWidget {
 }
 
 class _HeroCarouselState extends State<_HeroCarousel> {
-  final _controller = PageController(viewportFraction: .92);
+  final _controller = PageController(viewportFraction: .96);
   Timer? _timer;
   int _index = 0;
 
@@ -139,7 +139,7 @@ class _HeroCarouselState extends State<_HeroCarousel> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 260,
+      height: 390,
       child: Stack(
         children: [
           PageView.builder(
@@ -152,9 +152,9 @@ class _HeroCarouselState extends State<_HeroCarousel> {
               final title = (s['title'] ?? s['original_title'] ?? '').toString();
               final mediaId = int.tryParse((s['media_id'] ?? '').toString()) ?? 0;
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(22),
                   onTap: mediaId <= 0
                       ? null
                       : () => Navigator.push(
@@ -162,7 +162,7 @@ class _HeroCarouselState extends State<_HeroCarousel> {
                             MaterialPageRoute(builder: (_) => ProDetailPage(id: mediaId)),
                           ),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(22),
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
@@ -184,31 +184,72 @@ class _HeroCarouselState extends State<_HeroCarousel> {
                         PositionedDirectional(
                           start: 18,
                           end: 18,
-                          bottom: 18,
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                          bottom: 26,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Text(
-                                  title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.w900,
-                                    height: 1.05,
-                                  ),
+                              Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1.02,
+                                  letterSpacing: -.4,
                                 ),
                               ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                children: [
+                                  if ((s['year'] ?? '').toString().isNotEmpty)
+                                    _HeroMeta((s['year'] ?? '').toString()),
+                                  if ((s['rating'] ?? '').toString().isNotEmpty)
+                                    _HeroMeta('★ ' + (s['rating'] ?? '').toString()),
+                                  if ((s['quality'] ?? '').toString().isNotEmpty)
+                                    _HeroMeta((s['quality'] ?? '').toString()),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
                               if (mediaId > 0)
-                                Container(
-                                  width: 46,
-                                  height: 46,
-                                  decoration: const BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 30),
+                                Row(
+                                  children: [
+                                    FilledButton.icon(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: Colors.white,
+                                        foregroundColor: Colors.black,
+                                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                      ),
+                                      onPressed: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(builder: (_) => ProDetailPage(id: mediaId)),
+                                      ),
+                                      icon: const Icon(Icons.play_arrow_rounded),
+                                      label: Text(
+                                        Api.I.ar ? 'مشاهدة' : 'Watch',
+                                        style: const TextStyle(fontWeight: FontWeight.w900),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 9),
+                                    FilledButton.tonalIcon(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: const Color(0xB31B1B1B),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                      ),
+                                      onPressed: () => Navigator.push(
+                                        context,
+                                        MaterialPageRoute(builder: (_) => ProDetailPage(id: mediaId)),
+                                      ),
+                                      icon: const Icon(Icons.info_outline_rounded),
+                                      label: Text(
+                                        Api.I.ar ? 'التفاصيل' : 'Details',
+                                        style: const TextStyle(fontWeight: FontWeight.w800),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                             ],
                           ),
@@ -404,4 +445,28 @@ class _ContinueRailState extends State<_ContinueRail> {
       },
     );
   }
+}
+
+
+class _HeroMeta extends StatelessWidget {
+  final String text;
+  const _HeroMeta(this.text);
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0x99000000),
+          borderRadius: BorderRadius.circular(99),
+          border: Border.all(color: const Color(0x22FFFFFF)),
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      );
 }

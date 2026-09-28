@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 part 'pro_home.dart';
 part 'pro_detail.dart';
 part 'pro_player.dart';
+part 'pro_player_controls.dart';
 part 'full_parity.dart';
 part 'admin_studio_core.dart';
 part 'admin_studio_import.dart';

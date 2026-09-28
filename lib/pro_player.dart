@@ -367,10 +367,13 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
 
     final source = sources[currentSource];
     final headers = _sourceHeaders(source);
-    final referer = headers.entries
-        .where((entry) => entry.key.toLowerCase() == 'referer')
-        .map((entry) => entry.value)
-        .firstOrNull;
+    String? referer;
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() == 'referer') {
+        referer = entry.value;
+        break;
+      }
+    }
 
     final candidates = <dynamic>[
       source['source_url'],

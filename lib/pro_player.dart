@@ -154,11 +154,11 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     if(lower.contains('qhd'))return '1440p';
     if(lower.contains('fhd')||lower.contains('full hd'))return '1080p';
 
-    final m=RegExp(
+    final match=RegExp(
       r'(2160|1440|1080|900|720|576|540|480|360|240)\s*p?',
       caseSensitive:false,
     ).firstMatch(lower);
-    if(m!=null)return '${m.group(1)}p';
+    if(match!=null)return '${match.group(1)}p';
 
     if(lower=='hd')return 'HD';
     if(lower=='sd')return 'SD';
@@ -176,9 +176,24 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     final label=(source['label']??'').toString().trim();
     final fromLabel=_normalizeQuality(label);
     if(fromLabel.isNotEmpty){
-      final l=label.toLowerCase();
-      if(fromLabel!=label||
-         RegExp(r'^(2160|1440|1080|900|720|576|540|480|360|240)p?
+      final lower=label.toLowerCase();
+      final exactQuality=RegExp(
+        r'^(2160|1440|1080|900|720|576|540|480|360|240)p?$',
+        caseSensitive:false,
+      ).hasMatch(label);
+      const knownLabels=<String>{
+        '4k','uhd','qhd','fhd','full hd','hd','sd','auto','adaptive',
+      };
+      if(fromLabel!=label||exactQuality||knownLabels.contains(lower)){
+        return fromLabel;
+      }
+    }
+
+    final url=Api.I.absoluteUrl(source['url']);
+    final path=Uri.tryParse(url)?.path??url;
+    final fromUrl=_normalizeQuality(path);
+    if(fromUrl.isNotEmpty&&fromUrl!=path)return fromUrl;
+
     return '';
   }
 
@@ -194,7 +209,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     if(q.contains('480')||q=='sd')return 480;
     if(q.contains('360'))return 360;
     if(q.contains('240'))return 240;
-    if(q.toLowerCase()==(Api.I.ar?'تلقائي':'auto').toLowerCase())return -1;
+    if(q==(Api.I.ar?'تلقائي':'auto').toLowerCase())return -1;
     return 0;
   }
 

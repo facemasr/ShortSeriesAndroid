@@ -39,6 +39,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
   StreamSubscription<String>? playerErrorSub;
   PageRoute<dynamic>? _pageRoute;
   bool _resumeAfterCovered = false;
+  bool _routeCovered = false;
 
   bool loading = true;
   bool transitioning = false;
@@ -64,7 +65,12 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     AppPlaybackSession.claim(player);
     controller = VideoController(player);
     playerErrorSub = player.stream.error.listen((message) {
-      if (!loading && !transitioning && !fallbackBusy && !refreshingSource) {
+      if (!loading &&
+          !transitioning &&
+          !fallbackBusy &&
+          !refreshingSource &&
+          !_routeCovered &&
+          AppPlaybackSession.owns(player)) {
         unawaited(_handlePlaybackFailure(message));
       }
     });
@@ -86,13 +92,17 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
 
   @override
   void didPushNext() {
-    _resumeAfterCovered = player.state.playing;
+    _routeCovered = true;
+    _resumeAfterCovered =
+        AppPlaybackSession.owns(player) && player.state.playing;
     unawaited(player.pause());
   }
 
   @override
   void didPopNext() {
+    _routeCovered = false;
     if (_resumeAfterCovered && mounted) {
+      AppPlaybackSession.claim(player);
       unawaited(player.play());
     }
     _resumeAfterCovered = false;
@@ -125,7 +135,10 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
   Future<void> _loadTarget(String type, int id, String fallbackTitle) async {
     if (transitioning) return;
 
+    AppPlaybackSession.claim(player);
     await player.stop();
+    if (!mounted) return;
+
     setState(() {
       loading = true;
       error = null;
@@ -258,6 +271,8 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
 
   Future<void> _openSource(int index, {int? resumeAt}) async {
     if (index < 0 || index >= sources.length) return;
+    if (!mounted || _routeCovered || !AppPlaybackSession.owns(player)) return;
+
     final oldPosition = player.state.position;
     final source = sources[index];
     final url = Api.I.absoluteUrl(source['url']);
@@ -267,6 +282,11 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     error = null;
     final headers = _sourceHeaders(source);
     try {
+      // Explicitly stop the current item before opening another one. This
+      // avoids the previous movie/episode continuing underneath the new one.
+      await player.stop();
+      if (!mounted || _routeCovered || !AppPlaybackSession.owns(player)) return;
+
       await player.open(
         Media(url, httpHeaders: headers.isEmpty ? null : headers),
         play: true,
@@ -339,12 +359,58 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     }
   }
 
+  Future<bool> _resolveCurrentSourceViaBridge({int? resumeAt}) async {
+    if (sources.isEmpty || currentSource < 0 || currentSource >= sources.length) {
+      return false;
+    }
+    if (_routeCovered || !AppPlaybackSession.owns(player)) return false;
+
+    final source = sources[currentSource];
+    final candidates = <dynamic>[
+      source['source_url'],
+      source['origin_url'],
+      source['page_url'],
+      source['referrer_url'],
+      source['url'],
+    ];
+
+    String origin = '';
+    for (final candidate in candidates) {
+      final value = (candidate ?? '').toString().trim();
+      if (value.isNotEmpty) {
+        origin = value;
+        break;
+      }
+    }
+    if (origin.isEmpty) return false;
+
+    final resolved = await Api.I.resolvePlaybackUrl(origin);
+    if (resolved.isEmpty) return false;
+
+    final currentUrl = Api.I.absoluteUrl(source['url']);
+    final nextUrl = Api.I.absoluteUrl(resolved);
+    if (nextUrl.isEmpty || nextUrl == currentUrl) return false;
+
+    final updated = Map<String, dynamic>.from(source);
+    updated['url'] = nextUrl;
+    sources[currentSource] = updated;
+
+    final position = resumeAt ?? player.state.position.inSeconds;
+    await _openSource(currentSource, resumeAt: position);
+    return true;
+  }
+
   Future<void> _handlePlaybackFailure(String reason, {int? resumeAt}) async {
     if (fallbackBusy || refreshingSource) return;
+    if (_routeCovered || !AppPlaybackSession.owns(player)) return;
+
     final position = resumeAt ?? player.state.position.inSeconds;
 
     final refreshed = await _refreshCurrentSource(resumeAt: position);
     if (refreshed) return;
+
+    final resolved = await _resolveCurrentSourceViaBridge(resumeAt: position);
+    if (resolved) return;
 
     await _fallbackSource(reason, resumeAt: position);
   }
@@ -378,7 +444,10 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
 
   Future<void> _manualRefreshSource() async {
     final position = player.state.position.inSeconds;
-    final ok = await _refreshCurrentSource(resumeAt: position, manual: true);
+    var ok = await _refreshCurrentSource(resumeAt: position, manual: true);
+    if (!ok) {
+      ok = await _resolveCurrentSourceViaBridge(resumeAt: position);
+    }
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

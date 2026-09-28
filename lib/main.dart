@@ -54,6 +54,53 @@ class AppPlaybackSession {
   }
 }
 
+class AppShellController {
+  static final ValueNotifier<int> tab=ValueNotifier<int>(0);
+
+  static List<_NavItem> items(){
+    final a=Api.I;
+    final out=<_NavItem>[
+      _NavItem(Icons.home_outlined,Icons.home,a.ar?'الرئيسية':'Home',const ProHomePage()),
+      _NavItem(Icons.video_library_outlined,Icons.video_library,a.ar?'المكتبة':'Browse',const ProBrowsePage()),
+    ];
+    if(a.section('tv')){
+      out.add(_NavItem(Icons.live_tv_outlined,Icons.live_tv,a.ar?'القنوات':'TV',const ProTvPage()));
+    }
+    if(a.section('search')){
+      out.add(_NavItem(Icons.search_rounded,Icons.search,a.ar?'بحث':'Search',const ProSearchPage()));
+    }
+    if(a.section('account')){
+      out.add(_NavItem(Icons.person_outline_rounded,Icons.person,a.ar?'حسابي':'Account',const ProAccountPage()));
+    }
+    return out;
+  }
+
+  static int indexFor(String key){
+    final nav=items();
+    if(key=='home')return 0;
+    for(var i=0;i<nav.length;i++){
+      final page=nav[i].page;
+      if(key=='browse'&&page is ProBrowsePage)return i;
+      if(key=='tv'&&page is ProTvPage)return i;
+      if(key=='search'&&page is ProSearchPage)return i;
+      if(key=='account'&&page is ProAccountPage)return i;
+    }
+    return 0;
+  }
+
+  static void go(BuildContext context,int index){
+    final nav=items();
+    if(nav.isEmpty)return;
+    final safe=index.clamp(0,nav.length-1);
+    tab.value=safe;
+    Navigator.of(context).popUntil((route)=>route.isFirst);
+  }
+
+  static void goKey(BuildContext context,String key){
+    go(context,indexFor(key));
+  }
+}
+
 class AppNavigator {
   static const _managedPrefix = '/shortseries/';
 
@@ -526,51 +573,34 @@ class Shell extends StatefulWidget {
 }
 
 class _ShellState extends State<Shell> {
-  int index = 0;
-
-  List<_NavItem> items() {
-    final a = Api.I;
-    final out = <_NavItem>[
-      _NavItem(Icons.home_outlined, Icons.home, a.ar ? 'الرئيسية' : 'Home',
-          const ProHomePage()),
-      _NavItem(Icons.video_library_outlined, Icons.video_library,
-          a.ar ? 'المكتبة' : 'Browse', const ProBrowsePage()),
-    ];
-    if (a.section('tv')) {
-      out.add(_NavItem(Icons.live_tv_outlined, Icons.live_tv,
-          a.ar ? 'القنوات' : 'TV', const ProTvPage()));
-    }
-    if (a.section('search')) {
-      out.add(_NavItem(Icons.search, Icons.search,
-          a.ar ? 'بحث' : 'Search', const ProSearchPage()));
-    }
-    if (a.section('account')) {
-      out.add(_NavItem(Icons.person_outline, Icons.person,
-          a.ar ? 'حسابي' : 'Account', const ProAccountPage()));
-    }
-    return out;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final nav = items();
-    if (index >= nav.length) index = 0;
-    return Scaffold(
-      body: IndexedStack(
-        index: index,
-        children: nav.map((e) => e.page).toList(),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: index,
-        onDestinationSelected: (v) => setState(() => index = v),
-        destinations: nav
-            .map((e) => NavigationDestination(
-                  icon: Icon(e.icon),
-                  selectedIcon: Icon(e.selected),
-                  label: e.label,
-                ))
-            .toList(),
-      ),
+    final nav=AppShellController.items();
+    return ValueListenableBuilder<int>(
+      valueListenable:AppShellController.tab,
+      builder:(_,selected,__){
+        final index=selected.clamp(0,nav.length-1);
+        if(index!=selected){
+          WidgetsBinding.instance.addPostFrameCallback((_){
+            if(AppShellController.tab.value!=index)AppShellController.tab.value=index;
+          });
+        }
+        return Scaffold(
+          body:IndexedStack(
+            index:index,
+            children:nav.map((e)=>e.page).toList(),
+          ),
+          bottomNavigationBar:NavigationBar(
+            selectedIndex:index,
+            onDestinationSelected:(v)=>AppShellController.tab.value=v,
+            destinations:nav.map((e)=>NavigationDestination(
+              icon:Icon(e.icon),
+              selectedIcon:Icon(e.selected),
+              label:e.label,
+            )).toList(),
+          ),
+        );
+      },
     );
   }
 }

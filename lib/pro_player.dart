@@ -734,6 +734,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     WidgetsBinding.instance.removeObserver(this);
     timer?.cancel();
     playerErrorSub?.cancel();
+    AppPlaybackSession.release(player);
     unawaited(_saveProgress());
     player.dispose();
     super.dispose();

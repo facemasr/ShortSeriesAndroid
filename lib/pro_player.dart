@@ -26,13 +26,16 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
 
   List<Map<String, dynamic>> sources = [];
   List<Map<String, dynamic>> subtitles = [];
+  List<Map<String, dynamic>> recommendations = [];
   Map<String, dynamic> contextData = {};
   Map<String, dynamic> playerSettings = {};
   int currentSource = 0;
   int currentSubtitle = -1;
   double playbackRate = 1.0;
   final Set<int> failedSources = <int>{};
+  final Set<int> refreshAttemptedSources = <int>{};
   bool fallbackBusy = false;
+  bool refreshingSource = false;
   StreamSubscription<String>? playerErrorSub;
 
   bool loading = true;
@@ -57,8 +60,8 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
     player = Player();
     controller = VideoController(player);
     playerErrorSub = player.stream.error.listen((message) {
-      if (!loading && !transitioning && !fallbackBusy) {
-        unawaited(_fallbackSource(message));
+      if (!loading && !transitioning && !fallbackBusy && !refreshingSource) {
+        unawaited(_handlePlaybackFailure(message));
       }
     });
     _loadTarget(ownerType, ownerId, title);
@@ -117,7 +120,11 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
       subtitles = (data['subtitles'] as List? ?? const [])
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
+      recommendations = (data['recommendations'] as List? ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
       failedSources.clear();
+      refreshAttemptedSources.clear();
       currentSubtitle = -1;
       playbackRate = 1.0;
       contextData = data['context'] is Map
@@ -217,9 +224,70 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
       }
       if (mounted) setState(() {});
     } catch (e) {
-      failedSources.add(index);
-      await _fallbackSource(e.toString(), resumeAt: resumeAt ?? oldPosition.inSeconds);
+      await _handlePlaybackFailure(
+        e.toString(),
+        resumeAt: resumeAt ?? oldPosition.inSeconds,
+      );
     }
+  }
+
+  Future<bool> _refreshCurrentSource({int? resumeAt, bool manual = false}) async {
+    if (sources.isEmpty || currentSource < 0 || currentSource >= sources.length) {
+      return false;
+    }
+    final source = sources[currentSource];
+    final sourceId = (source['id'] as num?)?.toInt() ?? 0;
+    if (!manual && sourceId > 0 && refreshAttemptedSources.contains(sourceId)) {
+      return false;
+    }
+    if (sourceId > 0) refreshAttemptedSources.add(sourceId);
+
+    final position = resumeAt ?? player.state.position.inSeconds;
+    if (mounted) setState(() => refreshingSource = true);
+    try {
+      final result = await Api.I.call(
+        'playback_refresh',
+        method: 'POST',
+        data: {
+          'owner_type': ownerType,
+          'owner_id': ownerId,
+          'source_id': sourceId,
+        },
+      );
+      final data = Map<String, dynamic>.from(result['data'] as Map);
+      final fresh = (data['sources'] as List? ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      if (fresh.isEmpty) return false;
+
+      final oldId = sourceId;
+      sources = fresh;
+      var nextIndex = 0;
+      if (oldId > 0) {
+        final match = fresh.indexWhere(
+          (row) => (row['id'] as num?)?.toInt() == oldId,
+        );
+        if (match >= 0) nextIndex = match;
+      }
+      currentSource = nextIndex;
+      failedSources.remove(nextIndex);
+      await _openSource(nextIndex, resumeAt: position);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      if (mounted) setState(() => refreshingSource = false);
+    }
+  }
+
+  Future<void> _handlePlaybackFailure(String reason, {int? resumeAt}) async {
+    if (fallbackBusy || refreshingSource) return;
+    final position = resumeAt ?? player.state.position.inSeconds;
+
+    final refreshed = await _refreshCurrentSource(resumeAt: position);
+    if (refreshed) return;
+
+    await _fallbackSource(reason, resumeAt: position);
   }
 
   Future<void> _fallbackSource(String reason, {int? resumeAt}) async {
@@ -247,6 +315,22 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
     final position = resumeAt ?? player.state.position.inSeconds;
     fallbackBusy = false;
     await _openSource(next, resumeAt: position);
+  }
+
+  Future<void> _manualRefreshSource() async {
+    final position = player.state.position.inSeconds;
+    final ok = await _refreshCurrentSource(resumeAt: position, manual: true);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            Api.I.ar
+                ? 'تعذر تحديث الرابط من المصدر.'
+                : 'Could not refresh the playback URL from source.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _selectSubtitle(int index) async {
@@ -651,7 +735,25 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
                     children: [
                       Video(
                         controller: controller,
-                        controls: AdaptiveVideoControls,
+                        controls: (state) => ProVideoControls(
+                          state: state,
+                          title: title,
+                          subtitle: episodeMeta,
+                          hasSources: sources.length > 1,
+                          hasSubtitles: subtitles.isNotEmpty,
+                          hasEpisodes: ownerType == 'episode' &&
+                              contextData['episodes'] is List,
+                          hasPrevious: previous != null,
+                          hasNext: next != null,
+                          refreshingSource: refreshingSource,
+                          onSources: _showSources,
+                          onSubtitles: _showSubtitles,
+                          onSpeed: _showSpeed,
+                          onEpisodes: _showEpisodes,
+                          onPrevious: _playPrevious,
+                          onNext: _playNext,
+                          onRefreshSource: _manualRefreshSource,
+                        ),
                       ),
                       if (loading)
                         const ColoredBox(
@@ -827,6 +929,85 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
                                   ),
                                   onSelected: (_) => _openSource(i),
                                 );
+                              },
+                            ),
+                          ),
+                        ],
+                        if (recommendations.isNotEmpty) ...[
+                          const SizedBox(height: 24),
+                          Text(
+                            ownerType == 'tv'
+                                ? (Api.I.ar ? 'قنوات مقترحة' : 'Recommended channels')
+                                : (Api.I.ar ? 'مقترح لك' : 'Recommended for you'),
+                            style: const TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            height: ownerType == 'tv' ? 132 : 238,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: recommendations.length,
+                              separatorBuilder: (_, __) => const SizedBox(width: 10),
+                              itemBuilder: (_, i) {
+                                final item = recommendations[i];
+                                if (ownerType == 'tv') {
+                                  return SizedBox(
+                                    width: 205,
+                                    child: Card(
+                                      clipBehavior: Clip.antiAlias,
+                                      child: InkWell(
+                                        onTap: () => _loadTarget(
+                                          'tv',
+                                          (item['id'] as num).toInt(),
+                                          (item['name'] ?? '').toString(),
+                                        ),
+                                        child: Stack(
+                                          fit: StackFit.expand,
+                                          children: [
+                                            CachedNetworkImage(
+                                              imageUrl: (item['backdrop'] ??
+                                                      item['logo'] ??
+                                                      '')
+                                                  .toString(),
+                                              fit: BoxFit.cover,
+                                              errorWidget: (_, __, ___) =>
+                                                  Container(color: Colors.white10),
+                                            ),
+                                            const DecoratedBox(
+                                              decoration: BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  begin: Alignment.topCenter,
+                                                  end: Alignment.bottomCenter,
+                                                  colors: [
+                                                    Colors.transparent,
+                                                    Color(0xE8000000),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                            PositionedDirectional(
+                                              start: 10,
+                                              end: 10,
+                                              bottom: 9,
+                                              child: Text(
+                                                (item['name'] ?? '').toString(),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return MediaCard(item: item);
                               },
                             ),
                           ),

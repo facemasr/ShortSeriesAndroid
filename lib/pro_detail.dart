@@ -121,6 +121,7 @@ class _ProDetailPageState extends State<ProDetailPage> {
           final item = Map<String, dynamic>.from(snapshot.data!['data'] as Map);
           final seasons = item['seasons'] as List? ?? const [];
           final cast = item['cast'] as List? ?? const [];
+          final related = item['related'] as List? ?? const [];
           final title = (item['title'] ?? item['original_title'] ?? '').toString();
           final backdrop = (item['backdrop'] ?? item['poster'] ?? '').toString();
           final overview = (item['overview'] ?? item['story'] ?? '').toString();
@@ -344,6 +345,28 @@ class _ProDetailPageState extends State<ProDetailPage> {
                           ),
                         );
                       }),
+                    ],
+                    if (related.isNotEmpty) ...[
+                      const SizedBox(height: 26),
+                      Text(
+                        Api.I.ar ? 'مقترح لك' : 'Recommended for you',
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w900),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 250,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: related.length,
+                          separatorBuilder: (_, __) => const SizedBox(width: 12),
+                          itemBuilder: (_, i) => MediaCard(
+                            item: Map<String, dynamic>.from(related[i] as Map),
+                          ),
+                        ),
+                      ),
                     ],
                   ]),
                 ),

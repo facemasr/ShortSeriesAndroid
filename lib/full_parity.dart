@@ -1133,6 +1133,16 @@ class _ProAccountPageState extends State<ProAccountPage>{
                           key:'account/downloads',
                         ),
                       ),
+                      ListTile(
+                        leading:const Icon(Icons.offline_bolt_outlined),
+                        title:Text(Api.I.ar?'الصفحات المحفوظة':'Saved pages'),
+                        subtitle:Text(Api.I.ar?'كاش سريع وصفحات للاستخدام بدون إنترنت':'Fast cache and offline page access'),
+                        onTap:()=>AppNavigator.open(
+                          context,
+                          const PageCacheSettingsPage(),
+                          key:'account/page-cache',
+                        ),
+                      ),
                     ],
                   ),
                 ),

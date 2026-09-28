@@ -742,97 +742,574 @@ class ProAccountPage extends StatefulWidget{
   @override
   State<ProAccountPage> createState()=>_ProAccountPageState();
 }
+
 class _ProAccountPageState extends State<ProAccountPage>{
   Future<Map<String,dynamic>>? future;
+  Future<Map<String,int>>? statsFuture;
+
   @override
-  void initState(){super.initState();future=Api.I.call('me');}
-  void reload()=>setState(()=>future=Api.I.call('me'));
+  void initState(){
+    super.initState();
+    _refresh();
+  }
+
+  void _refresh(){
+    future=Api.I.call('me');
+    statsFuture=_loadStats();
+  }
+
+  void reload(){
+    if(!mounted)return;
+    setState(_refresh);
+  }
+
+  Future<int> _count(String action) async{
+    try{
+      final res=await Api.I.call(action);
+      final data=res['data'];
+      if(data is List)return data.length;
+      if(data is Map){
+        final rows=data['items']??data['rows']??data['data'];
+        if(rows is List)return rows.length;
+        final count=data['count'];
+        if(count is num)return count.toInt();
+      }
+    }catch(_){}
+    return 0;
+  }
+
+  Future<Map<String,int>> _loadStats() async{
+    final values=await Future.wait<int>([
+      _count('continue'),
+      _count('favorites'),
+      _count('watchlist'),
+    ]);
+    final downloads=(await OfflineDownloads.I.all()).length;
+    return <String,int>{
+      'continue':values[0],
+      'favorites':values[1],
+      'watchlist':values[2],
+      'downloads':downloads,
+    };
+  }
+
+  String _roleLabel(String role){
+    switch(role){
+      case 'admin':return Api.I.ar?'مدير الموقع':'Administrator';
+      case 'editor':return Api.I.ar?'محرر':'Editor';
+      case 'moderator':return Api.I.ar?'مشرف':'Moderator';
+      case 'seo':return 'SEO';
+      default:return Api.I.ar?'مشترك':'Subscriber';
+    }
+  }
+
   @override
   Widget build(BuildContext context){
     return SafeArea(
-      child:FutureBuilder<Map<String,dynamic>>(
-        future:future,
-        builder:(_,s){
-          if(s.hasError)return LoginPage(key:ValueKey(DateTime.now().millisecondsSinceEpoch));
-          if(!s.hasData)return const Center(child:CircularProgressIndicator());
-          final u=Map<String,dynamic>.from(s.data!['data'] as Map);
-          final role=(u['role']??'user').toString().toLowerCase();
-          final staff=['admin','editor','moderator','seo'].contains(role);
-          final links=Api.I.config['links'];
-          return ListView(
-            padding:const EdgeInsets.all(16),
-            children:[
-              Center(
-                child:CircleAvatar(
-                  radius:44,
-                  backgroundImage:(u['avatar']??'').toString().isEmpty?null:NetworkImage(u['avatar'].toString()),
-                  child:(u['avatar']??'').toString().isEmpty?const Icon(Icons.person,size:44):null,
-                ),
-              ),
-              const SizedBox(height:12),
-              Center(child:Text((u['name']??'').toString(),
-                style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900))),
-              Center(child:Text((u['email']??'').toString(),style:const TextStyle(color:Colors.white54))),
-              const SizedBox(height:18),
-              if(staff)
+      child:RefreshIndicator(
+        onRefresh:() async{
+          _refresh();
+          setState((){});
+          try{await future;}catch(_){}
+        },
+        child:FutureBuilder<Map<String,dynamic>>(
+          future:future,
+          builder:(_,s){
+            if(s.hasError){
+              return LoginPage(onAuthenticated:reload);
+            }
+            if(!s.hasData){
+              return const ListView(
+                physics:AlwaysScrollableScrollPhysics(),
+                children:[
+                  SizedBox(height:260),
+                  Center(child:CircularProgressIndicator()),
+                ],
+              );
+            }
+
+            final u=Map<String,dynamic>.from(s.data!['data'] as Map);
+            final role=(u['role']??'user').toString().toLowerCase();
+            final isAdmin=role=='admin';
+            final isStaff=['admin','editor','moderator','seo'].contains(role);
+            final email=(u['email']??'').toString();
+            final avatar=Api.I.absoluteUrl(u['avatar']);
+            final status=(u['status']??'active').toString();
+            final links=Api.I.config['links'];
+
+            return ListView(
+              physics:const AlwaysScrollableScrollPhysics(),
+              padding:const EdgeInsets.fromLTRB(14,14,14,30),
+              children:[
                 Card(
-                  child:ListTile(
-                    leading:const CircleAvatar(child:Icon(Icons.admin_panel_settings_rounded)),
-                    title:Text(Api.I.ar?'استوديو الإدارة':'Admin Studio',
-                      style:const TextStyle(fontWeight:FontWeight.w900)),
-                    subtitle:Text(Api.I.ar?'الجلب، TMDB، المحتوى والسيرفرات':'Import, TMDB, content & servers'),
-                    trailing:const Icon(Icons.chevron_right_rounded),
-                    onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const AdminStudioPage())),
-                  ),
-                ),
-              Card(
-                child:Column(children:[
-                  ListTile(
-                    leading:const Icon(Icons.history_rounded),
-                    title:Text(Api.I.ar?'متابعة المشاهدة':'Continue watching'),
-                    onTap:()=>AppNavigator.open(context,const ContinuePage(),key:'account/continue'),
-                  ),
-                  ListTile(
-                    leading:const Icon(Icons.favorite_border_rounded),
-                    title:Text(Api.I.ar?'المفضلة':'Favorites'),
-                    onTap:()=>AppNavigator.open(context,const AccountMediaListPage(action:'favorites'),key:'account/favorites'),
-                  ),
-                  ListTile(
-                    leading:const Icon(Icons.bookmark_border_rounded),
-                    title:Text(Api.I.ar?'قائمتي':'My List'),
-                    onTap:()=>AppNavigator.open(context,const AccountMediaListPage(action:'watchlist'),key:'account/watchlist'),
-                  ),
-                  ListTile(
-                    leading:const Icon(Icons.download_for_offline_outlined),
-                    title:Text(Api.I.ar?'التنزيلات':'Downloads'),
-                    subtitle:Text(Api.I.ar?'مشاهدة بدون إنترنت':'Watch offline'),
-                    onTap:()=>AppNavigator.open(
-                      context,
-                      const OfflineLibraryPage(),
-                      key:'account/downloads',
+                  clipBehavior:Clip.antiAlias,
+                  child:Container(
+                    padding:const EdgeInsets.all(18),
+                    decoration:const BoxDecoration(
+                      gradient:LinearGradient(
+                        begin:Alignment.topLeft,
+                        end:Alignment.bottomRight,
+                        colors:[Color(0xFF181A20),Color(0xFF0C0D10)],
+                      ),
+                    ),
+                    child:Row(
+                      children:[
+                        CircleAvatar(
+                          radius:40,
+                          backgroundImage:avatar.isEmpty?null:NetworkImage(avatar),
+                          child:avatar.isEmpty?const Icon(Icons.person_rounded,size:40):null,
+                        ),
+                        const SizedBox(width:14),
+                        Expanded(
+                          child:Column(
+                            crossAxisAlignment:CrossAxisAlignment.start,
+                            children:[
+                              Text(
+                                (u['name']??'').toString(),
+                                maxLines:1,
+                                overflow:TextOverflow.ellipsis,
+                                style:const TextStyle(fontSize:21,fontWeight:FontWeight.w900),
+                              ),
+                              if(email.isNotEmpty)...[
+                                const SizedBox(height:2),
+                                Text(
+                                  email,
+                                  maxLines:1,
+                                  overflow:TextOverflow.ellipsis,
+                                  style:const TextStyle(color:Colors.white60),
+                                ),
+                              ],
+                              const SizedBox(height:9),
+                              Wrap(
+                                spacing:7,
+                                runSpacing:7,
+                                children:[
+                                  Chip(
+                                    avatar:Icon(
+                                      isAdmin
+                                        ?Icons.admin_panel_settings_rounded
+                                        :isStaff
+                                          ?Icons.verified_user_outlined
+                                          :Icons.workspace_premium_outlined,
+                                      size:16,
+                                    ),
+                                    label:Text(_roleLabel(role)),
+                                  ),
+                                  Chip(
+                                    avatar:Icon(
+                                      status=='active'?Icons.check_circle_outline:Icons.info_outline,
+                                      size:16,
+                                    ),
+                                    label:Text(
+                                      status=='active'
+                                        ?(Api.I.ar?'نشط':'Active')
+                                        :status,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip:Api.I.ar?'تفاصيل الحساب':'Account details',
+                          onPressed:()=>AppNavigator.open(
+                            context,
+                            AccountDetailsPage(user:u),
+                            key:'account/details',
+                          ),
+                          icon:const Icon(Icons.manage_accounts_outlined),
+                        ),
+                      ],
                     ),
                   ),
-                ]),
-              ),
-              if(links is Map)...[
-                if((links['support']??'').toString().isNotEmpty)ListTile(
-                  leading:const Icon(Icons.support_agent_rounded),title:Text(Api.I.ar?'الدعم':'Support'),
-                  onTap:()=>launchUrl(Uri.parse(links['support'].toString()),mode:LaunchMode.externalApplication),
                 ),
-                if((links['privacy']??'').toString().isNotEmpty)ListTile(
-                  leading:const Icon(Icons.privacy_tip_outlined),title:Text(Api.I.ar?'الخصوصية':'Privacy'),
-                  onTap:()=>launchUrl(Uri.parse(links['privacy'].toString()),mode:LaunchMode.externalApplication),
+                const SizedBox(height:14),
+
+                FutureBuilder<Map<String,int>>(
+                  future:statsFuture,
+                  builder:(_,stats){
+                    final data=stats.data??const <String,int>{};
+                    return GridView.count(
+                      crossAxisCount:4,
+                      shrinkWrap:true,
+                      physics:const NeverScrollableScrollPhysics(),
+                      childAspectRatio:.78,
+                      crossAxisSpacing:8,
+                      mainAxisSpacing:8,
+                      children:[
+                        _AccountStat(
+                          icon:Icons.history_rounded,
+                          label:Api.I.ar?'متابعة':'Continue',
+                          value:data['continue'],
+                          onTap:()=>AppNavigator.open(
+                            context,
+                            const ContinuePage(),
+                            key:'account/continue',
+                          ),
+                        ),
+                        _AccountStat(
+                          icon:Icons.favorite_rounded,
+                          label:Api.I.ar?'المفضلة':'Favorites',
+                          value:data['favorites'],
+                          onTap:()=>AppNavigator.open(
+                            context,
+                            const AccountMediaListPage(action:'favorites'),
+                            key:'account/favorites',
+                          ),
+                        ),
+                        _AccountStat(
+                          icon:Icons.bookmark_rounded,
+                          label:Api.I.ar?'قائمتي':'My List',
+                          value:data['watchlist'],
+                          onTap:()=>AppNavigator.open(
+                            context,
+                            const AccountMediaListPage(action:'watchlist'),
+                            key:'account/watchlist',
+                          ),
+                        ),
+                        _AccountStat(
+                          icon:Icons.download_done_rounded,
+                          label:Api.I.ar?'التنزيلات':'Downloads',
+                          value:data['downloads'],
+                          onTap:()=>AppNavigator.open(
+                            context,
+                            const OfflineLibraryPage(),
+                            key:'account/downloads',
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+
+                if(isAdmin)...[
+                  const SizedBox(height:18),
+                  Text(
+                    Api.I.ar?'إدارة الموقع':'Website Administration',
+                    style:Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.w900),
+                  ),
+                  const SizedBox(height:9),
+                  Card(
+                    clipBehavior:Clip.antiAlias,
+                    child:Column(
+                      children:[
+                        ListTile(
+                          contentPadding:const EdgeInsets.symmetric(horizontal:14,vertical:7),
+                          leading:const CircleAvatar(
+                            backgroundColor:Color(0x22E50914),
+                            child:Icon(Icons.dashboard_customize_rounded,color:Color(0xFFE50914)),
+                          ),
+                          title:Text(
+                            Api.I.ar?'لوحة التحكم الكاملة':'Full Website Control Panel',
+                            style:const TextStyle(fontWeight:FontWeight.w900),
+                          ),
+                          subtitle:Text(
+                            Api.I.ar
+                              ?'كل أقسام إدارة الموقع كما في نسخة الويب'
+                              :'Every website admin section, embedded in the app',
+                          ),
+                          trailing:const Icon(Icons.chevron_right_rounded),
+                          onTap:()=>AppNavigator.open(
+                            context,
+                            AdminWebHubPage(userEmail:email),
+                            key:'admin/web-hub',
+                          ),
+                        ),
+                        const Divider(height:1),
+                        ListTile(
+                          contentPadding:const EdgeInsets.symmetric(horizontal:14,vertical:7),
+                          leading:const CircleAvatar(child:Icon(Icons.bolt_rounded)),
+                          title:Text(
+                            Api.I.ar?'استوديو الإدارة السريع':'Native Admin Studio',
+                            style:const TextStyle(fontWeight:FontWeight.w900),
+                          ),
+                          subtitle:Text(
+                            Api.I.ar
+                              ?'الجلب، TMDB، المحتوى والقنوات مباشرة من التطبيق'
+                              :'Import, TMDB, content and TV tools',
+                          ),
+                          trailing:const Icon(Icons.chevron_right_rounded),
+                          onTap:()=>AppNavigator.open(
+                            context,
+                            AdminStudioPage(userEmail:email),
+                            key:'admin/studio',
+                          ),
+                        ),
+                        const Divider(height:1),
+                        ListTile(
+                          leading:const Icon(Icons.group_rounded),
+                          title:Text(Api.I.ar?'المشتركون والمستخدمون':'Subscribers & Users'),
+                          subtitle:Text(Api.I.ar?'إدارة الأدوار والحالة والحسابات':'Roles, account status and users'),
+                          trailing:const Icon(Icons.chevron_right_rounded),
+                          onTap:()=>AppNavigator.open(
+                            context,
+                            AdminWebPanelPage(
+                              initialPath:'/admin/users',
+                              title:Api.I.ar?'المشتركون':'Users',
+                              userEmail:email,
+                            ),
+                            key:'admin/web/users',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ]else if(isStaff)...[
+                  const SizedBox(height:18),
+                  Card(
+                    child:ListTile(
+                      leading:const CircleAvatar(child:Icon(Icons.admin_panel_settings_rounded)),
+                      title:Text(
+                        Api.I.ar?'استوديو الإدارة':'Admin Studio',
+                        style:const TextStyle(fontWeight:FontWeight.w900),
+                      ),
+                      subtitle:Text(
+                        Api.I.ar
+                          ?'الأدوات المتاحة حسب صلاحيات حسابك'
+                          :'Tools available for your account role',
+                      ),
+                      trailing:const Icon(Icons.chevron_right_rounded),
+                      onTap:()=>AppNavigator.open(
+                        context,
+                        AdminStudioPage(userEmail:email),
+                        key:'admin/studio',
+                      ),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height:18),
+                Text(
+                  Api.I.ar?'حساب المشترك':'Subscriber Center',
+                  style:Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.w900),
+                ),
+                const SizedBox(height:9),
+                Card(
+                  child:Column(
+                    children:[
+                      ListTile(
+                        leading:const Icon(Icons.manage_accounts_outlined),
+                        title:Text(Api.I.ar?'معلومات الحساب':'Account information'),
+                        subtitle:Text(Api.I.ar?'البيانات والدور وحالة الحساب':'Profile, role and account status'),
+                        trailing:const Icon(Icons.chevron_right_rounded),
+                        onTap:()=>AppNavigator.open(
+                          context,
+                          AccountDetailsPage(user:u),
+                          key:'account/details',
+                        ),
+                      ),
+                      const Divider(height:1),
+                      ListTile(
+                        leading:const Icon(Icons.history_rounded),
+                        title:Text(Api.I.ar?'متابعة المشاهدة':'Continue watching'),
+                        onTap:()=>AppNavigator.open(context,const ContinuePage(),key:'account/continue'),
+                      ),
+                      ListTile(
+                        leading:const Icon(Icons.favorite_border_rounded),
+                        title:Text(Api.I.ar?'المفضلة':'Favorites'),
+                        onTap:()=>AppNavigator.open(
+                          context,
+                          const AccountMediaListPage(action:'favorites'),
+                          key:'account/favorites',
+                        ),
+                      ),
+                      ListTile(
+                        leading:const Icon(Icons.bookmark_border_rounded),
+                        title:Text(Api.I.ar?'قائمتي':'My List'),
+                        onTap:()=>AppNavigator.open(
+                          context,
+                          const AccountMediaListPage(action:'watchlist'),
+                          key:'account/watchlist',
+                        ),
+                      ),
+                      ListTile(
+                        leading:const Icon(Icons.download_for_offline_outlined),
+                        title:Text(Api.I.ar?'التنزيلات':'Downloads'),
+                        subtitle:Text(Api.I.ar?'المحتوى المشفّر للمشاهدة بدون إنترنت':'Encrypted offline media'),
+                        onTap:()=>AppNavigator.open(
+                          context,
+                          const OfflineLibraryPage(),
+                          key:'account/downloads',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                if(links is Map)...[
+                  const SizedBox(height:14),
+                  Card(
+                    child:Column(
+                      children:[
+                        if((links['support']??'').toString().isNotEmpty)
+                          ListTile(
+                            leading:const Icon(Icons.support_agent_rounded),
+                            title:Text(Api.I.ar?'الدعم':'Support'),
+                            trailing:const Icon(Icons.open_in_new_rounded,size:18),
+                            onTap:()=>launchUrl(
+                              Uri.parse(links['support'].toString()),
+                              mode:LaunchMode.externalApplication,
+                            ),
+                          ),
+                        if((links['privacy']??'').toString().isNotEmpty)
+                          ListTile(
+                            leading:const Icon(Icons.privacy_tip_outlined),
+                            title:Text(Api.I.ar?'الخصوصية':'Privacy'),
+                            trailing:const Icon(Icons.open_in_new_rounded,size:18),
+                            onTap:()=>launchUrl(
+                              Uri.parse(links['privacy'].toString()),
+                              mode:LaunchMode.externalApplication,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height:14),
+                OutlinedButton.icon(
+                  onPressed:() async{
+                    await Api.I.logout();
+                    reload();
+                  },
+                  icon:const Icon(Icons.logout_rounded),
+                  label:Text(Api.I.ar?'تسجيل الخروج':'Logout'),
                 ),
               ],
-              const SizedBox(height:10),
-              OutlinedButton.icon(
-                onPressed:() async {await Api.I.logout();reload();},
-                icon:const Icon(Icons.logout_rounded),
-                label:Text(Api.I.ar?'تسجيل الخروج':'Logout'),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountStat extends StatelessWidget{
+  final IconData icon;
+  final String label;
+  final int? value;
+  final VoidCallback onTap;
+
+  const _AccountStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context){
+    return Card(
+      clipBehavior:Clip.antiAlias,
+      child:InkWell(
+        onTap:onTap,
+        child:Padding(
+          padding:const EdgeInsets.symmetric(horizontal:6,vertical:10),
+          child:Column(
+            mainAxisAlignment:MainAxisAlignment.center,
+            children:[
+              Icon(icon,size:24),
+              const SizedBox(height:6),
+              Text(
+                value?.toString()??'—',
+                style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900),
+              ),
+              const SizedBox(height:2),
+              Text(
+                label,
+                maxLines:1,
+                overflow:TextOverflow.ellipsis,
+                textAlign:TextAlign.center,
+                style:const TextStyle(fontSize:10.5,color:Colors.white60),
               ),
             ],
-          );
-        },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class AccountDetailsPage extends StatelessWidget{
+  final Map<String,dynamic> user;
+  const AccountDetailsPage({super.key,required this.user});
+
+  String _value(String key)=>(user[key]??'').toString().trim();
+
+  @override
+  Widget build(BuildContext context){
+    final role=_value('role').isEmpty?'user':_value('role');
+    final fields=<({IconData icon,String label,String value})>[
+      (icon:Icons.person_outline_rounded,label:Api.I.ar?'الاسم':'Name',value:_value('name')),
+      (icon:Icons.mail_outline_rounded,label:Api.I.ar?'البريد الإلكتروني':'Email',value:_value('email')),
+      (icon:Icons.badge_outlined,label:Api.I.ar?'نوع الحساب':'Role',value:role),
+      (icon:Icons.verified_user_outlined,label:Api.I.ar?'الحالة':'Status',value:_value('status')),
+      (icon:Icons.language_rounded,label:Api.I.ar?'اللغة':'Locale',value:_value('locale')),
+      (icon:Icons.login_rounded,label:Api.I.ar?'آخر دخول':'Last login',value:_value('last_login_at')),
+      (icon:Icons.calendar_month_outlined,label:Api.I.ar?'تاريخ إنشاء الحساب':'Created',value:_value('created_at')),
+    ].where((row)=>row.value.isNotEmpty).toList();
+
+    return Scaffold(
+      appBar:AppBar(title:Text(Api.I.ar?'تفاصيل الحساب':'Account Details')),
+      body:ListView(
+        padding:const EdgeInsets.fromLTRB(14,14,14,28),
+        children:[
+          Card(
+            child:Padding(
+              padding:const EdgeInsets.all(18),
+              child:Column(
+                children:[
+                  CircleAvatar(
+                    radius:42,
+                    backgroundImage:_value('avatar').isEmpty
+                      ?null
+                      :NetworkImage(Api.I.absoluteUrl(_value('avatar'))),
+                    child:_value('avatar').isEmpty
+                      ?const Icon(Icons.person_rounded,size:42)
+                      :null,
+                  ),
+                  const SizedBox(height:12),
+                  Text(
+                    _value('name'),
+                    style:const TextStyle(fontSize:21,fontWeight:FontWeight.w900),
+                  ),
+                  if(_value('email').isNotEmpty)
+                    Text(_value('email'),style:const TextStyle(color:Colors.white60)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height:12),
+          Card(
+            child:Column(
+              children:[
+                for(var i=0;i<fields.length;i++)...[
+                  ListTile(
+                    leading:Icon(fields[i].icon),
+                    title:Text(fields[i].label),
+                    subtitle:Text(fields[i].value),
+                  ),
+                  if(i<fields.length-1)const Divider(height:1),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height:12),
+          FutureBuilder<PackageInfo>(
+            future:PackageInfo.fromPlatform(),
+            builder:(_,s){
+              if(!s.hasData)return const SizedBox.shrink();
+              return ListTile(
+                leading:const Icon(Icons.android_rounded),
+                title:const Text('SHORT SERIES TV'),
+                subtitle:Text(
+                  'v${s.data!.version} (${s.data!.buildNumber})',
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }

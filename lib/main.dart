@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
@@ -8,6 +9,10 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+part 'pro_home.dart';
+part 'pro_detail.dart';
+part 'pro_player.dart';
 
 const apiUrl = 'https://shortseris.online/mobile-api/index.php';
 
@@ -99,6 +104,44 @@ class Api {
       await call('logout', method: 'POST');
     } catch (_) {}
     await store.delete(key: 'token');
+  }
+
+  Future<bool> hasToken() async => (await store.read(key: 'token'))?.isNotEmpty == true;
+
+  Future<String> deviceId() async {
+    var id = await store.read(key: 'device_id');
+    if (id != null && id.isNotEmpty) return id;
+    final rnd = Random.secure();
+    id = '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-${rnd.nextInt(1 << 32).toRadixString(36)}-${rnd.nextInt(1 << 32).toRadixString(36)}';
+    await store.write(key: 'device_id', value: id);
+    return id;
+  }
+
+  Future<int> localResume(String type, int id) async {
+    final raw = await store.read(key: 'resume_${type}_$id');
+    if (raw == null) return 0;
+    final parts = raw.split('|');
+    return int.tryParse(parts.first) ?? 0;
+  }
+
+  Future<void> saveLocalProgress(String type, int id, int position, int duration) async {
+    if (type == 'tv' || id <= 0 || duration <= 0) return;
+    if (position / duration >= .92) {
+      await store.delete(key: 'resume_${type}_$id');
+      return;
+    }
+    await store.write(key: 'resume_${type}_$id', value: '$position|$duration');
+  }
+
+  Future<void> recordView(String type, int id) async {
+    if (type == 'tv' || id <= 0) return;
+    try {
+      await call(
+        'view',
+        method: 'POST',
+        data: {'owner_type': type, 'owner_id': id, 'device_id': await deviceId()},
+      );
+    } catch (_) {}
   }
 }
 
@@ -230,7 +273,7 @@ class _ShellState extends State<Shell> {
     final a = Api.I;
     final out = <_NavItem>[
       _NavItem(Icons.home_outlined, Icons.home, a.ar ? 'الرئيسية' : 'Home',
-          const HomePage()),
+          const ProHomePage()),
       _NavItem(Icons.video_library_outlined, Icons.video_library,
           a.ar ? 'المكتبة' : 'Browse', const BrowsePage()),
     ];
@@ -408,7 +451,7 @@ class MediaCard extends StatelessWidget {
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => DetailPage(id: (item['id'] as num).toInt()),
+            builder: (_) => ProDetailPage(id: (item['id'] as num).toInt()),
           ),
         ),
         child: Column(
@@ -581,7 +624,7 @@ class _DetailPageState extends State<DetailPage> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => PlayerPage(
+                              builder: (_) => ProPlayerPage(
                                 ownerType: 'media',
                                 ownerId: widget.id,
                                 title: (item['title'] ?? '').toString(),
@@ -599,7 +642,7 @@ class _DetailPageState extends State<DetailPage> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => PlayerPage(
+                                builder: (_) => ProPlayerPage(
                                   ownerType: 'episode',
                                   ownerId: (ep['id'] as num).toInt(),
                                   title: (ep['title'] ?? '').toString(),
@@ -635,7 +678,7 @@ class _DetailPageState extends State<DetailPage> {
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => PlayerPage(
+                                builder: (_) => ProPlayerPage(
                                   ownerType: 'episode',
                                   ownerId: (ep['id'] as num).toInt(),
                                   title: (ep['title'] ?? '').toString(),
@@ -661,7 +704,7 @@ class PlayerPage extends StatefulWidget {
   final String ownerType;
   final int ownerId;
   final String title;
-  const PlayerPage({
+  const ProPlayerPage({
     super.key,
     required this.ownerType,
     required this.ownerId,
@@ -822,7 +865,7 @@ class _TvPageState extends State<TvPage> {
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => PlayerPage(
+                      builder: (_) => ProPlayerPage(
                         ownerType: 'tv',
                         ownerId: (channel['id'] as num).toInt(),
                         title: (channel['name'] ?? '').toString(),

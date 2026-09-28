@@ -19,6 +19,7 @@ part 'full_parity.dart';
 part 'admin_studio_core.dart';
 part 'admin_studio_import.dart';
 part 'admin_studio_content.dart';
+part 'pro_import_center.dart';
 part 'import_bridge_ui.dart';
 
 const apiUrl = 'https://shortseris.online/mobile-api/index.php';

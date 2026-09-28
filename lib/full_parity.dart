@@ -213,7 +213,10 @@ class _PeopleGridPageState extends State<PeopleGridPage>{
             final p=Map<String,dynamic>.from(rows[i] as Map);
             return InkWell(
               borderRadius:BorderRadius.circular(16),
-              onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>PersonPage(id:(p['id'] as num).toInt()))),
+              onTap:(){
+                final personId=(p['id'] as num).toInt();
+                AppNavigator.open(context,PersonPage(id:personId),key:'person/$personId');
+              },
               child:Column(
                 children:[
                   Expanded(
@@ -249,57 +252,249 @@ class PersonPage extends StatefulWidget{
   @override
   State<PersonPage> createState()=>_PersonPageState();
 }
+
 class _PersonPageState extends State<PersonPage>{
   late Future<Map<String,dynamic>> future;
+
   @override
-  void initState(){super.initState();future=Api.I.call('person',query:{'id':widget.id});}
+  void initState(){
+    super.initState();
+    future=Api.I.call('person',query:{'id':widget.id});
+  }
+
+  Map<String,dynamic> _rawJson(Map<String,dynamic> work){
+    final raw=(work['raw_json']??'').toString().trim();
+    if(raw.isEmpty)return const {};
+    try{
+      final decoded=jsonDecode(raw);
+      return decoded is Map ? Map<String,dynamic>.from(decoded) : const {};
+    }catch(_){
+      return const {};
+    }
+  }
+
+  String _poster(Map<String,dynamic> work){
+    final direct=(work['poster']??'').toString().trim();
+    if(direct.isNotEmpty)return Api.I.absoluteUrl(direct);
+    final raw=_rawJson(work);
+    final path=(raw['poster_path']??'').toString().trim();
+    if(path.isNotEmpty){
+      return 'https://image.tmdb.org/t/p/w342${path.startsWith('/')?path:'/$path'}';
+    }
+    return '';
+  }
+
+  int _localMediaId(Map<String,dynamic> work){
+    return int.tryParse((work['local_media_id']??work['media_id']??'').toString())??0;
+  }
+
+  List<Map<String,dynamic>> _dedupeWorks(List rawWorks){
+    final byKey=<String,Map<String,dynamic>>{};
+    for(final raw in rawWorks){
+      if(raw is! Map)continue;
+      final w=Map<String,dynamic>.from(raw);
+      final tmdb=(w['tmdb_id']??'').toString();
+      final type=(w['media_type']??w['type']??'').toString();
+      final title=(w['title']??w['original_title']??'').toString();
+      final key=tmdb.isNotEmpty?'$type:$tmdb':'$type:$title';
+      final existing=byKey[key];
+      if(existing==null){
+        byKey[key]=w;
+        continue;
+      }
+
+      final existingLocal=_localMediaId(existing);
+      final nextLocal=_localMediaId(w);
+      if(existingLocal<=0&&nextLocal>0){
+        byKey[key]=w;
+        continue;
+      }
+
+      final roles=<String>{};
+      for(final value in [
+        existing['character_name'],existing['job'],
+        w['character_name'],w['job'],
+      ]){
+        final text=(value??'').toString().trim();
+        if(text.isNotEmpty)roles.add(text);
+      }
+      if(roles.isNotEmpty){
+        existing['_roles']=roles.join(' • ');
+      }
+    }
+
+    final out=byKey.values.toList();
+    out.sort((a,b){
+      final ay=int.tryParse((a['year']??'0').toString())??0;
+      final by=int.tryParse((b['year']??'0').toString())??0;
+      if(ay!=by)return by.compareTo(ay);
+      final ad=(a['release_date']??'').toString();
+      final bd=(b['release_date']??'').toString();
+      return bd.compareTo(ad);
+    });
+    return out;
+  }
+
   @override
   Widget build(BuildContext context){
     return Scaffold(
       body:FutureBuilder<Map<String,dynamic>>(
         future:future,
         builder:(_,s){
+          if(s.hasError){
+            return Center(child:Text(Api.I.ar?'تعذر تحميل بيانات الفنان':'Could not load artist'));
+          }
           if(!s.hasData)return const Center(child:CircularProgressIndicator());
+
           final root=Map<String,dynamic>.from(s.data!['data'] as Map);
           final p=Map<String,dynamic>.from(root['person'] as Map);
-          final works=root['works'] as List? ?? const[];
+          final works=_dedupeWorks(root['works'] as List? ?? const[]);
+          final biography=(p['biography']??'').toString().trim();
+          final knownFor=(p['known_for']??'').toString().trim();
+          final birthday=(p['birthday']??'').toString().trim();
+          final birthplace=(p['place_of_birth']??'').toString().trim();
+
           return CustomScrollView(
             slivers:[
               SliverAppBar(
-                pinned:true,expandedHeight:320,
+                pinned:true,
+                expandedHeight:340,
                 flexibleSpace:FlexibleSpaceBar(
-                  title:Text((p['name']??'').toString(),maxLines:1,overflow:TextOverflow.ellipsis),
-                  background:CachedNetworkImage(
-                    imageUrl:Api.I.absoluteUrl(p['photo']),fit:BoxFit.cover,
-                    errorWidget:(_,__,___)=>Container(color:Colors.white10),
+                  title:Text(
+                    (p['name']??'').toString(),
+                    maxLines:1,
+                    overflow:TextOverflow.ellipsis,
+                  ),
+                  background:Stack(
+                    fit:StackFit.expand,
+                    children:[
+                      CachedNetworkImage(
+                        imageUrl:Api.I.absoluteUrl(p['photo']),
+                        fit:BoxFit.cover,
+                        errorWidget:(_,__,___)=>Container(
+                          color:Colors.white10,
+                          child:const Icon(Icons.person,size:84),
+                        ),
+                      ),
+                      const DecoratedBox(
+                        decoration:BoxDecoration(
+                          gradient:LinearGradient(
+                            begin:Alignment.topCenter,
+                            end:Alignment.bottomCenter,
+                            colors:[Colors.transparent,Color(0xE6000000)],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
               SliverPadding(
-                padding:const EdgeInsets.all(16),
-                sliver:SliverList(delegate:SliverChildListDelegate([
-                  if((p['biography']??'').toString().isNotEmpty)
-                    Text((p['biography']??'').toString(),style:const TextStyle(height:1.55)),
-                  const SizedBox(height:18),
-                  Text(Api.I.ar?'الأعمال':'Filmography',
-                    style:Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.w900)),
-                  const SizedBox(height:10),
-                  ...works.map((raw){
-                    final w=Map<String,dynamic>.from(raw as Map);
-                    final mediaId=(w['media_id'] as num?)?.toInt()??0;
-                    return ListTile(
-                      contentPadding:EdgeInsets.zero,
-                      leading:SizedBox(width:54,child:CachedNetworkImage(
-                        imageUrl:Api.I.absoluteUrl(w['poster']),fit:BoxFit.cover,
-                        errorWidget:(_,__,___)=>const Icon(Icons.movie_outlined),
-                      )),
-                      title:Text((w['title']??w['original_title']??'').toString()),
-                      subtitle:Text([(w['year']??'').toString(),(w['character_name']??w['job']??'').toString()]
-                        .where((x)=>x.isNotEmpty).join(' • ')),
-                      onTap:mediaId>0?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>ProDetailPage(id:mediaId))):null,
-                    );
-                  }),
-                ])),
+                padding:const EdgeInsets.fromLTRB(16,16,16,28),
+                sliver:SliverList(
+                  delegate:SliverChildListDelegate([
+                    Wrap(
+                      spacing:8,
+                      runSpacing:8,
+                      children:[
+                        if(knownFor.isNotEmpty)Chip(label:Text(knownFor)),
+                        if(birthday.isNotEmpty)Chip(label:Text(birthday)),
+                        if(birthplace.isNotEmpty)Chip(label:Text(birthplace)),
+                      ],
+                    ),
+                    if(biography.isNotEmpty)...[
+                      const SizedBox(height:14),
+                      Text(
+                        biography,
+                        style:const TextStyle(height:1.6,color:Colors.white70),
+                      ),
+                    ],
+                    const SizedBox(height:22),
+                    Row(
+                      children:[
+                        Expanded(
+                          child:Text(
+                            Api.I.ar?'أعمال الفنان':'Filmography',
+                            style:Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.w900),
+                          ),
+                        ),
+                        Text(
+                          works.length.toString(),
+                          style:const TextStyle(color:Colors.white54,fontWeight:FontWeight.w700),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height:10),
+                    if(works.isEmpty)
+                      Card(
+                        child:Padding(
+                          padding:const EdgeInsets.all(18),
+                          child:Text(
+                            Api.I.ar
+                              ?'لا توجد أعمال محفوظة لهذا الفنان حتى الآن.'
+                              :'No saved filmography is available for this artist yet.',
+                            textAlign:TextAlign.center,
+                          ),
+                        ),
+                      ),
+                    ...works.map((w){
+                      final mediaId=_localMediaId(w);
+                      final poster=_poster(w);
+                      final title=(w['title']??w['original_title']??'').toString();
+                      final roles=(w['_roles']??w['character_name']??w['job']??'').toString().trim();
+                      final year=(w['year']??'').toString().trim();
+                      final mediaType=(w['media_type']??w['type']??'').toString();
+                      final meta=<String>[
+                        if(year.isNotEmpty)year,
+                        if(mediaType.isNotEmpty)(mediaType=='tv'?(Api.I.ar?'مسلسل':'Series'):(Api.I.ar?'فيلم':'Movie')),
+                        if(roles.isNotEmpty)roles,
+                      ];
+
+                      return Card(
+                        margin:const EdgeInsets.only(bottom:10),
+                        clipBehavior:Clip.antiAlias,
+                        child:ListTile(
+                          minVerticalPadding:8,
+                          leading:ClipRRect(
+                            borderRadius:BorderRadius.circular(8),
+                            child:SizedBox(
+                              width:54,
+                              height:78,
+                              child:poster.isEmpty
+                                ?Container(color:Colors.white10,child:const Icon(Icons.movie_outlined))
+                                :CachedNetworkImage(
+                                    imageUrl:poster,
+                                    fit:BoxFit.cover,
+                                    errorWidget:(_,__,___)=>Container(
+                                      color:Colors.white10,
+                                      child:const Icon(Icons.movie_outlined),
+                                    ),
+                                  ),
+                            ),
+                          ),
+                          title:Text(title,maxLines:2,overflow:TextOverflow.ellipsis),
+                          subtitle:Text(
+                            meta.join(' • '),
+                            maxLines:2,
+                            overflow:TextOverflow.ellipsis,
+                          ),
+                          trailing:mediaId>0
+                            ?const Icon(Icons.chevron_right_rounded)
+                            :const Icon(Icons.info_outline_rounded,color:Colors.white38),
+                          onTap:mediaId>0
+                            ?(){
+                                AppNavigator.open(
+                                  context,
+                                  ProDetailPage(id:mediaId),
+                                  key:'media/$mediaId',
+                                );
+                              }
+                            :null,
+                        ),
+                      );
+                    }),
+                  ]),
+                ),
               ),
             ],
           );

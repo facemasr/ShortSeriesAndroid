@@ -25,9 +25,15 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
   late String title;
 
   List<Map<String, dynamic>> sources = [];
+  List<Map<String, dynamic>> subtitles = [];
   Map<String, dynamic> contextData = {};
   Map<String, dynamic> playerSettings = {};
   int currentSource = 0;
+  int currentSubtitle = -1;
+  double playbackRate = 1.0;
+  final Set<int> failedSources = <int>{};
+  bool fallbackBusy = false;
+  StreamSubscription<String>? playerErrorSub;
 
   bool loading = true;
   bool transitioning = false;
@@ -50,6 +56,11 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
 
     player = Player();
     controller = VideoController(player);
+    playerErrorSub = player.stream.error.listen((message) {
+      if (!loading && !transitioning && !fallbackBusy) {
+        unawaited(_fallbackSource(message));
+      }
+    });
     _loadTarget(ownerType, ownerId, title);
 
     timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
@@ -103,6 +114,12 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
       ownerType = type;
       ownerId = id;
       sources = nextSources;
+      subtitles = (data['subtitles'] as List? ?? const [])
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      failedSources.clear();
+      currentSubtitle = -1;
+      playbackRate = 1.0;
       contextData = data['context'] is Map
           ? Map<String, dynamic>.from(data['context'] as Map)
           : <String, dynamic>{};
@@ -158,6 +175,22 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
     }
   }
 
+  Map<String, String> _sourceHeaders(Map<String, dynamic> source) {
+    final raw = source['headers_json'];
+    if (raw is Map) {
+      return raw.map((key, value) => MapEntry(key.toString(), value.toString()));
+    }
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          return decoded.map((key, value) => MapEntry(key.toString(), value.toString()));
+        }
+      } catch (_) {}
+    }
+    return const <String, String>{};
+  }
+
   Future<void> _openSource(int index, {int? resumeAt}) async {
     if (index < 0 || index >= sources.length) return;
     final oldPosition = player.state.position;
@@ -166,15 +199,79 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
     if (url.isEmpty) return;
 
     currentSource = index;
-    await player.open(Media(url), play: true);
+    error = null;
+    final headers = _sourceHeaders(source);
+    try {
+      await player.open(
+        Media(url, httpHeaders: headers.isEmpty ? null : headers),
+        play: true,
+      );
 
-    final seekSeconds = resumeAt ?? oldPosition.inSeconds;
-    if (seekSeconds > 8) {
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      await player.seek(Duration(seconds: seekSeconds));
+      final seekSeconds = resumeAt ?? oldPosition.inSeconds;
+      if (seekSeconds > 8) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+        await player.seek(Duration(seconds: seekSeconds));
+      }
+      if (playbackRate != 1.0) {
+        await player.setRate(playbackRate);
+      }
+      if (mounted) setState(() {});
+    } catch (e) {
+      failedSources.add(index);
+      await _fallbackSource(e.toString(), resumeAt: resumeAt ?? oldPosition.inSeconds);
     }
+  }
 
-    if (mounted) setState(() {});
+  Future<void> _fallbackSource(String reason, {int? resumeAt}) async {
+    if (fallbackBusy || sources.length < 2) return;
+    fallbackBusy = true;
+    failedSources.add(currentSource);
+    int next = -1;
+    for (var i = 0; i < sources.length; i++) {
+      if (!failedSources.contains(i)) {
+        next = i;
+        break;
+      }
+    }
+    if (next < 0) {
+      fallbackBusy = false;
+      if (mounted) {
+        setState(() {
+          error = Api.I.ar
+              ? 'تعذر تشغيل جميع السيرفرات المتاحة.'
+              : 'All available playback servers failed.';
+        });
+      }
+      return;
+    }
+    final position = resumeAt ?? player.state.position.inSeconds;
+    fallbackBusy = false;
+    await _openSource(next, resumeAt: position);
+  }
+
+  Future<void> _selectSubtitle(int index) async {
+    if (index < 0) {
+      await player.setSubtitleTrack(SubtitleTrack.no());
+      if (mounted) setState(() => currentSubtitle = -1);
+      return;
+    }
+    if (index >= subtitles.length) return;
+    final track = subtitles[index];
+    final url = (track['url'] ?? '').toString();
+    if (url.isEmpty) return;
+    await player.setSubtitleTrack(
+      SubtitleTrack.uri(
+        url,
+        title: (track['label'] ?? track['language'] ?? 'Subtitle').toString(),
+        language: (track['language'] ?? '').toString(),
+      ),
+    );
+    if (mounted) setState(() => currentSubtitle = index);
+  }
+
+  Future<void> _setSpeed(double value) async {
+    await player.setRate(value);
+    if (mounted) setState(() => playbackRate = value);
   }
 
   Future<void> _tick() async {
@@ -327,6 +424,78 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
     );
   }
 
+  void _showSubtitles() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF14161D),
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+          children: [
+            ListTile(
+              leading: const Icon(Icons.subtitles_off_outlined),
+              title: Text(Api.I.ar ? 'إيقاف الترجمة' : 'Subtitles off'),
+              trailing: currentSubtitle < 0 ? const Icon(Icons.check_circle_rounded) : null,
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                await _selectSubtitle(-1);
+              },
+            ),
+            ...List.generate(subtitles.length, (i) {
+              final track = subtitles[i];
+              final label = (track['label'] ?? track['language'] ?? 'Subtitle').toString();
+              final language = (track['language'] ?? '').toString();
+              return ListTile(
+                leading: const Icon(Icons.subtitles_rounded),
+                title: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: language.isEmpty ? null : Text(language),
+                trailing: currentSubtitle == i ? const Icon(Icons.check_circle_rounded) : null,
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  await _selectSubtitle(i);
+                },
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSpeed() {
+    const values = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF14161D),
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                Api.I.ar ? 'سرعة التشغيل' : 'Playback speed',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+              ),
+            ),
+            ...values.map((value) => ListTile(
+                  title: Text(value == 1.0 ? (Api.I.ar ? 'عادي' : 'Normal') : value.toString() + '×'),
+                  trailing: playbackRate == value ? const Icon(Icons.check_circle_rounded) : null,
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await _setSpeed(value);
+                  },
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showEpisodes() {
     final episodesRaw = contextData['episodes'];
     if (episodesRaw is! List || episodesRaw.isEmpty) return;
@@ -400,6 +569,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
   @override
   void dispose() {
     timer?.cancel();
+    playerErrorSub?.cancel();
     unawaited(_saveProgress());
     player.dispose();
     super.dispose();
@@ -440,6 +610,17 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: Api.I.ar ? 'السرعة' : 'Speed',
+            onPressed: _showSpeed,
+            icon: const Icon(Icons.speed_rounded),
+          ),
+          if (subtitles.isNotEmpty)
+            IconButton(
+              tooltip: Api.I.ar ? 'الترجمة' : 'Subtitles',
+              onPressed: _showSubtitles,
+              icon: const Icon(Icons.subtitles_rounded),
+            ),
           if (sources.length > 1)
             IconButton(
               tooltip: Api.I.ar ? 'السيرفرات' : 'Servers',

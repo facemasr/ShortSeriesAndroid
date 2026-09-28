@@ -38,7 +38,7 @@ class _AdminStudioPageState extends State<AdminStudioPage>{
                 ],
               ),
               const SizedBox(height:18),
-              _AdminAction(icon:Icons.cloud_download_outlined,title:Api.I.ar?'الجلب من المصدر':'Source Importers',subtitle:Api.I.ar?'تشغيل المستوردات المفعلة على السيرفر':'Run enabled server-side importers',onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const ImporterCenterPage()))),
+              _AdminAction(icon:Icons.cloud_download_outlined,title:Api.I.ar?'الجلب من المصدر':'Source Importers',subtitle:Api.I.ar?'تشغيل المستوردات المفعلة على السيرفر':'Run enabled server-side importers',onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const ImportBridgePage()))),
               _AdminAction(icon:Icons.travel_explore_rounded,title:'TMDB',subtitle:Api.I.ar?'بحث واستيراد أفلام ومسلسلات ومسلسلات قصيرة وفنانين':'Search and import media & artists',onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const TmdbStudioPage()))),
               _AdminAction(icon:Icons.video_library_outlined,title:Api.I.ar?'إدارة المحتوى':'Content Manager',subtitle:Api.I.ar?'المحتوى والمواسم والحلقات وسيرفرات التشغيل':'Media, seasons, episodes & playback servers',onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const AdminContentPage()))),
               _AdminAction(icon:Icons.live_tv_rounded,title:Api.I.ar?'إدارة القنوات':'TV Manager',subtitle:Api.I.ar?'القنوات ومصادر البث':'Channels & stream sources',onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const AdminChannelsPage()))),

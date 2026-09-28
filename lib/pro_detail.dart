@@ -11,6 +11,10 @@ class ProDetailPage extends StatefulWidget {
 class _ProDetailPageState extends State<ProDetailPage> {
   late Future<Map<String, dynamic>> _future;
   bool _busyAction = false;
+  bool _busyDownload = false;
+  double _downloadProgress = 0;
+  int _downloadDone = 0;
+  int _downloadTotal = 0;
 
   @override
   void initState() {
@@ -43,6 +47,119 @@ class _ProDetailPageState extends State<ProDetailPage> {
     } finally {
       if (mounted) setState(() => _busyAction = false);
     }
+  }
+
+  Future<void> _downloadOne(String type,int id,String title) async {
+    if(_busyDownload)return;
+    setState((){
+      _busyDownload=true;
+      _downloadProgress=0;
+      _downloadDone=0;
+      _downloadTotal=1;
+    });
+    try{
+      await OfflineDownloads.I.downloadOwner(
+        type,
+        id,
+        title,
+        onProgress:(value){
+          if(mounted)setState(()=>_downloadProgress=value);
+        },
+      );
+      if(!mounted)return;
+      setState((){
+        _downloadDone=1;
+        _downloadProgress=1;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:Text(
+            Api.I.ar
+              ?'تم حفظ المحتوى مشفّرًا للمشاهدة بدون إنترنت.'
+              :'Encrypted offline download completed.',
+          ),
+        ),
+      );
+    }catch(e){
+      if(mounted){
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content:Text(e.toString().replaceFirst('Exception: ',''))),
+        );
+      }
+    }finally{
+      if(mounted)setState(()=>_busyDownload=false);
+    }
+  }
+
+  Future<void> _downloadEpisodes(List episodes,String mediaTitle) async {
+    if(_busyDownload)return;
+    final rows=episodes.whereType<Map>().map((e)=>Map<String,dynamic>.from(e)).toList();
+    if(rows.isEmpty)return;
+
+    setState((){
+      _busyDownload=true;
+      _downloadDone=0;
+      _downloadTotal=rows.length;
+      _downloadProgress=0;
+    });
+
+    var done=0;
+    try{
+      for(final ep in rows){
+        final id=(ep['id'] as num?)?.toInt()??0;
+        if(id<=0)continue;
+        final epTitle=(ep['title']??'').toString().trim();
+        final label=epTitle.isNotEmpty
+          ?epTitle
+          :'$mediaTitle • ${Api.I.ar?'حلقة':'Episode'} ${ep['episode_number']??''}';
+        try{
+          await OfflineDownloads.I.downloadOwner(
+            'episode',
+            id,
+            label,
+            onProgress:(value){
+              if(!mounted)return;
+              final total=rows.length;
+              setState((){
+                _downloadProgress=(done+value)/total;
+              });
+            },
+          );
+        }catch(_){}
+        done++;
+        if(mounted){
+          setState((){
+            _downloadDone=done;
+            _downloadProgress=done/rows.length;
+          });
+        }
+      }
+      if(mounted){
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:Text(
+              Api.I.ar
+                ?'اكتمل تنزيل $done من ${rows.length} حلقة.'
+                :'Downloaded $done of ${rows.length} episodes.',
+            ),
+          ),
+        );
+      }
+    }finally{
+      if(mounted)setState(()=>_busyDownload=false);
+    }
+  }
+
+  Future<void> _downloadSeries(List seasons,String mediaTitle) async {
+    final episodes=<Map<String,dynamic>>[];
+    for(final rawSeason in seasons){
+      if(rawSeason is! Map)continue;
+      final season=Map<String,dynamic>.from(rawSeason);
+      for(final rawEp in season['episodes'] as List? ?? const[]){
+        if(rawEp is Map)episodes.add(Map<String,dynamic>.from(rawEp));
+      }
+    }
+    await _downloadEpisodes(episodes,mediaTitle);
   }
 
   Future<void> _playBest(Map<String, dynamic> item, List seasons) async {
@@ -88,15 +205,14 @@ class _ProDetailPageState extends State<ProDetailPage> {
 
     if (seasons.isEmpty) {
       if (!mounted) return;
-      Navigator.push(
+      AppNavigator.open(
         context,
-        MaterialPageRoute(
-          builder: (_) => ProPlayerPage(
-            ownerType: 'media',
-            ownerId: widget.id,
-            title: (item['title'] ?? item['original_title'] ?? '').toString(),
-          ),
+        ProPlayerPage(
+          ownerType:'media',
+          ownerId:widget.id,
+          title:(item['title']??item['original_title']??'').toString(),
         ),
+        key:'player/media/${widget.id}',
       );
       return;
     }
@@ -104,15 +220,14 @@ class _ProDetailPageState extends State<ProDetailPage> {
     final episodes = firstSeason['episodes'] as List? ?? const [];
     if (episodes.isEmpty) {
       if (!mounted) return;
-      Navigator.push(
+      AppNavigator.open(
         context,
-        MaterialPageRoute(
-          builder: (_) => ProPlayerPage(
-            ownerType: 'media',
-            ownerId: widget.id,
-            title: (item['title'] ?? item['original_title'] ?? '').toString(),
-          ),
+        ProPlayerPage(
+          ownerType:'media',
+          ownerId:widget.id,
+          title:(item['title']??item['original_title']??'').toString(),
         ),
+        key:'player/media/${widget.id}',
       );
       return;
     }
@@ -255,6 +370,37 @@ class _ProDetailPageState extends State<ProDetailPage> {
                             : (Api.I.ar ? 'إضافة إلى قائمتي' : 'Add to My List'),
                       ),
                     ),
+                    const SizedBox(height:10),
+                    FilledButton.tonalIcon(
+                      onPressed:_busyDownload
+                        ?null
+                        :(){
+                            if(item['type']=='movie'){
+                              _downloadOne('media',widget.id,title);
+                            }else{
+                              _downloadSeries(seasons,title);
+                            }
+                          },
+                      icon:_busyDownload
+                        ?SizedBox(
+                            width:18,
+                            height:18,
+                            child:CircularProgressIndicator(
+                              strokeWidth:2,
+                              value:_downloadProgress>0?_downloadProgress:null,
+                            ),
+                          )
+                        :const Icon(Icons.download_for_offline_rounded),
+                      label:Text(
+                        _busyDownload
+                          ?(Api.I.ar
+                              ?'جاري التحميل ${(_downloadProgress*100).round()}% ($_downloadDone/$_downloadTotal)'
+                              :'Downloading ${(_downloadProgress*100).round()}% ($_downloadDone/$_downloadTotal)')
+                          :item['type']=='movie'
+                            ?(Api.I.ar?'تحميل الفيلم':'Download movie')
+                            :(Api.I.ar?'تحميل المسلسل':'Download series'),
+                      ),
+                    ),
                     const AppAd('app_details'),
                     if (overview.isNotEmpty) ...[
                       const SizedBox(height: 18),
@@ -352,6 +498,11 @@ class _ProDetailPageState extends State<ProDetailPage> {
                               episodes.length.toString() + ' ' + (Api.I.ar ? 'حلقة' : 'episodes'),
                               style: const TextStyle(color: Colors.white54),
                             ),
+                            trailing:IconButton(
+                              tooltip:Api.I.ar?'تحميل الموسم':'Download season',
+                              onPressed:_busyDownload?null:()=>_downloadEpisodes(episodes,title),
+                              icon:const Icon(Icons.download_for_offline_outlined),
+                            ),
                             children: episodes.map((rawEp) {
                               final ep = Map<String, dynamic>.from(rawEp as Map);
                               return _EpisodeTile(
@@ -368,6 +519,17 @@ class _ProDetailPageState extends State<ProDetailPage> {
                                     key: 'player/episode/$epId',
                                   );
                                 },
+                                onDownload:_busyDownload
+                                  ?null
+                                  :(){
+                                      final epId=(ep['id'] as num).toInt();
+                                      final epTitle=(ep['title']??'').toString().trim();
+                                      _downloadOne(
+                                        'episode',
+                                        epId,
+                                        epTitle.isNotEmpty?epTitle:title,
+                                      );
+                                    },
                               );
                             }).toList(),
                           ),
@@ -428,7 +590,12 @@ class _MetaChip extends StatelessWidget {
 class _EpisodeTile extends StatelessWidget {
   final Map<String, dynamic> episode;
   final VoidCallback onTap;
-  const _EpisodeTile({required this.episode, required this.onTap});
+  final VoidCallback? onDownload;
+  const _EpisodeTile({
+    required this.episode,
+    required this.onTap,
+    this.onDownload,
+  });
 
   @override
   Widget build(BuildContext context) {

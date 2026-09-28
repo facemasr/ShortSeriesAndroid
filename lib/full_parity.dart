@@ -425,7 +425,6 @@ class _ProSearchPageState extends State<ProSearchPage>{
             padding:const EdgeInsets.all(12),
             child:SearchBar(
               controller:controller,
-              autofocus:false,
               hintText:Api.I.ar?'ابحث عن فيلم، مسلسل، قناة أو فنان':'Movies, series, TV or artists',
               leading:const Icon(Icons.search_rounded),
               trailing:[

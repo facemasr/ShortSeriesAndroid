@@ -210,3 +210,125 @@ class AppPageCache {
     }catch(_){}
   }
 }
+
+
+class PageCacheSettingsPage extends StatefulWidget{
+  const PageCacheSettingsPage({super.key});
+
+  @override
+  State<PageCacheSettingsPage> createState()=>_PageCacheSettingsPageState();
+}
+
+class _PageCacheSettingsPageState extends State<PageCacheSettingsPage>{
+  late Future<({int count,int bytes})> future;
+
+  @override
+  void initState(){
+    super.initState();
+    future=_stats();
+  }
+
+  Future<({int count,int bytes})> _stats() async{
+    final values=await Future.wait<int>([
+      AppPageCache.I.count(),
+      AppPageCache.I.sizeBytes(),
+    ]);
+    return (count:values[0],bytes:values[1]);
+  }
+
+  String _size(int bytes){
+    if(bytes>=1024*1024)return '${(bytes/(1024*1024)).toStringAsFixed(1)} MB';
+    if(bytes>=1024)return '${(bytes/1024).toStringAsFixed(0)} KB';
+    return '$bytes B';
+  }
+
+  Future<void> _clear() async{
+    await AppPageCache.I.clear();
+    if(!mounted)return;
+    setState(()=>future=_stats());
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content:Text(
+          Api.I.ar?'تم مسح كاش الصفحات. التنزيلات لم يتم حذفها.':'Page cache cleared. Downloads were not deleted.',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context){
+    return Scaffold(
+      appBar:AppBar(title:Text(Api.I.ar?'الصفحات المحفوظة':'Saved Pages')),
+      body:FutureBuilder<({int count,int bytes})>(
+        future:future,
+        builder:(_,s){
+          if(!s.hasData)return const Center(child:CircularProgressIndicator());
+          final stats=s.data!;
+          return ListView(
+            padding:const EdgeInsets.all(16),
+            children:[
+              Card(
+                child:Padding(
+                  padding:const EdgeInsets.all(18),
+                  child:Column(
+                    children:[
+                      const Icon(Icons.offline_bolt_rounded,size:54),
+                      const SizedBox(height:12),
+                      Text(
+                        Api.I.ar?'تصفح أسرع ووضع بدون إنترنت':'Faster browsing & offline pages',
+                        textAlign:TextAlign.center,
+                        style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900),
+                      ),
+                      const SizedBox(height:8),
+                      Text(
+                        Api.I.ar
+                          ?'يعيد التطبيق استخدام الصفحات العامة التي فتحتها مؤخرًا. عند انقطاع الإنترنت يمكن استخدام آخر نسخة محفوظة لمدة تصل إلى 14 يومًا.'
+                          :'Recently opened public pages are reused for faster loading. Offline fallback keeps the last saved copy for up to 14 days.',
+                        textAlign:TextAlign.center,
+                        style:const TextStyle(color:Colors.white60,height:1.5),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height:12),
+              Card(
+                child:Column(
+                  children:[
+                    ListTile(
+                      leading:const Icon(Icons.description_outlined),
+                      title:Text(Api.I.ar?'عدد الصفحات المحفوظة':'Cached pages'),
+                      trailing:Text(stats.count.toString(),style:const TextStyle(fontWeight:FontWeight.w900)),
+                    ),
+                    const Divider(height:1),
+                    ListTile(
+                      leading:const Icon(Icons.storage_rounded),
+                      title:Text(Api.I.ar?'مساحة الكاش':'Cache size'),
+                      trailing:Text(_size(stats.bytes),style:const TextStyle(fontWeight:FontWeight.w900)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height:12),
+              ListTile(
+                leading:const Icon(Icons.security_rounded),
+                title:Text(Api.I.ar?'الخصوصية':'Privacy'),
+                subtitle:Text(
+                  Api.I.ar
+                    ?'بيانات الحساب ولوحة الإدارة وبيانات تسجيل الدخول لا يتم حفظها في كاش الصفحات.'
+                    :'Account, admin and sign-in data are excluded from the page cache.',
+                ),
+              ),
+              const SizedBox(height:8),
+              OutlinedButton.icon(
+                onPressed:stats.count==0?null:_clear,
+                icon:const Icon(Icons.delete_sweep_outlined),
+                label:Text(Api.I.ar?'مسح كاش الصفحات':'Clear page cache'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}

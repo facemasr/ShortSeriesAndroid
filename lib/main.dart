@@ -55,7 +55,7 @@ class Api {
   final dio = Dio(BaseOptions(
     baseUrl: apiUrl,
     connectTimeout: const Duration(seconds: 15),
-    receiveTimeout: const Duration(seconds: 30),
+    receiveTimeout: const Duration(seconds: 45),
   ));
   final store = const FlutterSecureStorage();
   String locale = 'ar';
@@ -86,6 +86,11 @@ class Api {
       data: data,
       options: Options(
         method: method,
+        receiveTimeout: Duration(
+          seconds: action.startsWith('admin_import')
+              ? 120
+              : (action == 'playback' || action == 'playback_refresh' ? 90 : 45),
+        ),
         headers: token == null ? null : {'Authorization': 'Bearer ' + token},
       ),
     );

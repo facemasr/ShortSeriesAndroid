@@ -23,7 +23,7 @@ part 'pro_import_center.dart';
 part 'import_bridge_ui.dart';
 
 const apiUrl = 'https://shortseris.online/mobile-api/index.php';
-const appBrandName = 'SHORT SERIES TV';
+const appDisplayName = 'SHORT SERIES TV';
 final RouteObserver<PageRoute<dynamic>> appRouteObserver = RouteObserver<PageRoute<dynamic>>();
 
 class AppPlaybackSession {
@@ -39,8 +39,6 @@ class AppPlaybackSession {
     if (identical(_active, player)) _active = null;
   }
 }
-const appDisplayName = 'SHORT SERIES TV';
-final RouteObserver<PageRoute<dynamic>> appRouteObserver = RouteObserver<PageRoute<dynamic>>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

@@ -1,7 +1,8 @@
 part of 'main.dart';
 
 class AdminStudioPage extends StatefulWidget {
-  const AdminStudioPage({super.key});
+  final String userEmail;
+  const AdminStudioPage({super.key,this.userEmail=''});
   @override
   State<AdminStudioPage> createState()=>_AdminStudioPageState();
 }
@@ -38,10 +39,34 @@ class _AdminStudioPageState extends State<AdminStudioPage>{
                 ],
               ),
               const SizedBox(height:18),
-              _AdminAction(icon:Icons.cloud_download_outlined,title:Api.I.ar?'الجلب من المصدر':'Source Importers',subtitle:Api.I.ar?'تشغيل المستوردات المفعلة على السيرفر':'Run enabled server-side importers',onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const ImportBridgePage()))),
-              _AdminAction(icon:Icons.travel_explore_rounded,title:'TMDB',subtitle:Api.I.ar?'بحث واستيراد أفلام ومسلسلات ومسلسلات قصيرة وفنانين':'Search and import media & artists',onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const TmdbStudioPage()))),
-              _AdminAction(icon:Icons.video_library_outlined,title:Api.I.ar?'إدارة المحتوى':'Content Manager',subtitle:Api.I.ar?'المحتوى والمواسم والحلقات وسيرفرات التشغيل':'Media, seasons, episodes & playback servers',onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const AdminContentPage()))),
-              _AdminAction(icon:Icons.live_tv_rounded,title:Api.I.ar?'إدارة القنوات':'TV Manager',subtitle:Api.I.ar?'القنوات ومصادر البث':'Channels & stream sources',onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const AdminChannelsPage()))),
+              _AdminAction(
+                icon:Icons.dashboard_customize_rounded,
+                title:Api.I.ar?'لوحة تحكم الموقع الكاملة':'Full Website Control Panel',
+                subtitle:Api.I.ar?'كل أقسام إدارة الموقع كما في الويب':'All website admin sections inside the app',
+                onTap:()=>AppNavigator.open(
+                  context,
+                  AdminWebHubPage(userEmail:widget.userEmail),
+                  key:'admin/web-hub',
+                ),
+              ),
+              _AdminAction(
+                icon:Icons.group_rounded,
+                title:Api.I.ar?'المشتركون والمستخدمون':'Subscribers & Users',
+                subtitle:Api.I.ar?'إدارة الحسابات والأدوار والحالة':'Manage accounts, roles and status',
+                onTap:()=>AppNavigator.open(
+                  context,
+                  AdminWebPanelPage(
+                    initialPath:'/admin/users',
+                    title:Api.I.ar?'المشتركون':'Users',
+                    userEmail:widget.userEmail,
+                  ),
+                  key:'admin/web/users',
+                ),
+              ),
+              _AdminAction(icon:Icons.cloud_download_outlined,title:Api.I.ar?'الجلب من المصدر':'Source Importers',subtitle:Api.I.ar?'تشغيل المستوردات المفعلة على السيرفر':'Run enabled server-side importers',onTap:()=>AppNavigator.open(context,const ImportBridgePage(),key:'admin/import-bridge')),
+              _AdminAction(icon:Icons.travel_explore_rounded,title:'TMDB',subtitle:Api.I.ar?'بحث واستيراد أفلام ومسلسلات ومسلسلات قصيرة وفنانين':'Search and import media & artists',onTap:()=>AppNavigator.open(context,const TmdbStudioPage(),key:'admin/tmdb')),
+              _AdminAction(icon:Icons.video_library_outlined,title:Api.I.ar?'إدارة المحتوى':'Content Manager',subtitle:Api.I.ar?'المحتوى والمواسم والحلقات وسيرفرات التشغيل':'Media, seasons, episodes & playback servers',onTap:()=>AppNavigator.open(context,const AdminContentPage(),key:'admin/content')),
+              _AdminAction(icon:Icons.live_tv_rounded,title:Api.I.ar?'إدارة القنوات':'TV Manager',subtitle:Api.I.ar?'القنوات ومصادر البث':'Channels & stream sources',onTap:()=>AppNavigator.open(context,const AdminChannelsPage(),key:'admin/channels')),
               const SizedBox(height:20),
               Row(children:[Expanded(child:Text(Api.I.ar?'آخر عمليات الاستيراد':'Recent import jobs',style:Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.w900))),Text(jobs.length.toString(),style:const TextStyle(color:Colors.white54))]),
               const SizedBox(height:8),

@@ -61,6 +61,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
 
     WidgetsBinding.instance.addObserver(this);
     player = Player();
+    AppPlaybackSession.claim(player);
     controller = VideoController(player);
     playerErrorSub = player.stream.error.listen((message) {
       if (!loading && !transitioning && !fallbackBusy && !refreshingSource) {
@@ -124,6 +125,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
   Future<void> _loadTarget(String type, int id, String fallbackTitle) async {
     if (transitioning) return;
 
+    await player.stop();
     setState(() {
       loading = true;
       error = null;
@@ -526,6 +528,25 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
   Future<void> _playPrevious() async {
     final prev = _mapValue('previous');
     if (prev != null) await _playEpisode(prev);
+  }
+
+  Future<void> _openRecommendation(Map<String, dynamic> item) async {
+    final id = (item['id'] as num?)?.toInt() ?? 0;
+    if (id <= 0) return;
+    final itemType = (item['type'] ?? '').toString();
+    final itemTitle = (item['title'] ?? item['original_title'] ?? '').toString();
+
+    if (itemType == 'movie') {
+      await _loadTarget('media', id, itemTitle);
+      return;
+    }
+
+    await player.pause();
+    if (!mounted) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ProDetailPage(id: id)),
+    );
   }
 
   void _showSources() {

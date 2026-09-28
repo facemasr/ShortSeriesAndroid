@@ -37,11 +37,30 @@ jobs:
           p = Path("android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
           if "android.permission.INTERNET" not in s:
-              s = s.replace("<manifest", '<manifest', 1)
               marker = ">"
               pos = s.find(marker)
               s = s[:pos+1] + '\n    <uses-permission android:name="android.permission.INTERNET"/>' + s[pos+1:]
-              p.write_text(s)
+          import re
+          s = re.sub(r'android:label="[^"]*"', 'android:label="SHORT SERIES TV"', s, count=1)
+          s = re.sub(r'android:icon="[^"]*"', 'android:icon="@drawable/short_series_tv_icon"', s, count=1)
+          if 'android:roundIcon=' in s:
+              s = re.sub(r'android:roundIcon="[^"]*"', 'android:roundIcon="@drawable/short_series_tv_icon"', s, count=1)
+          p.write_text(s)
+
+          drawable = Path("android/app/src/main/res/drawable")
+          drawable.mkdir(parents=True, exist_ok=True)
+          (drawable / "short_series_tv_icon.xml").write_text("""<?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path android:fillColor="#E50914" android:pathData="M0,0h108v108h-108z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M18,20h72v7h-72z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M39,34L39,78L76,56z"/>
+              <path android:fillColor="#FFFFFF" android:pathData="M18,84h72v5h-72z"/>
+          </vector>
+          """)
           PY
 
       - name: Install packages
@@ -56,7 +75,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ShortSeris-Android
+          name: SHORT-SERIES-TV-Android
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30

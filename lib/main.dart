@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 part 'offline_downloads.dart';
+part 'page_cache.dart';
 part 'admin_web_portal.dart';
 part 'pro_home.dart';
 part 'pro_detail.dart';
@@ -87,6 +88,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   await OfflineDownloads.I.cleanupPlaybackCache();
+  await AppPageCache.I.cleanup();
   runApp(const ShortSerisApp());
 }
 
@@ -221,29 +223,64 @@ class Api {
     Map<String, dynamic>? query,
     Map<String, dynamic>? data,
     String method = 'GET',
+    bool forceRefresh = false,
   }) async {
+    final normalizedMethod=method.toUpperCase();
+    final cacheable=AppPageCache.I.canCache(action,normalizedMethod);
+
+    if(cacheable&&!forceRefresh){
+      final fresh=await AppPageCache.I.read(
+        action,
+        locale,
+        query,
+        maxAge:AppPageCache.I.freshFor(action),
+      );
+      if(fresh!=null){
+        return AppPageCache.I.mark(fresh,offline:false);
+      }
+    }
+
     final token = await store.read(key: 'token');
-    final response = await dio.request(
-      '',
-      queryParameters: {'action': action, 'locale': locale, ...?query},
-      data: data,
-      options: Options(
-        method: method,
-        receiveTimeout: Duration(
-          seconds: action.startsWith('admin_import')
-              ? 120
-              : (action == 'playback' || action == 'playback_refresh' ? 90 : 45),
+    try{
+      final response = await dio.request(
+        '',
+        queryParameters: {'action': action, 'locale': locale, ...?query},
+        data: data,
+        options: Options(
+          method: normalizedMethod,
+          receiveTimeout: Duration(
+            seconds: action.startsWith('admin_import')
+                ? 120
+                : (action == 'playback' || action == 'playback_refresh' ? 90 : 45),
+          ),
+          headers: token == null ? null : {'Authorization': 'Bearer ' + token},
         ),
-        headers: token == null ? null : {'Authorization': 'Bearer ' + token},
-      ),
-    );
-    final map = Map<String, dynamic>.from(response.data as Map);
-    if (map['ok'] != true) throw Exception(map['error'] ?? 'Request failed');
-    return map;
+      );
+      final map = Map<String, dynamic>.from(response.data as Map);
+      if (map['ok'] != true) throw Exception(map['error'] ?? 'Request failed');
+
+      if(cacheable){
+        unawaited(AppPageCache.I.write(action,locale,query,map));
+      }
+      return map;
+    }catch(e){
+      if(cacheable){
+        final stale=await AppPageCache.I.read(
+          action,
+          locale,
+          query,
+          maxAge:AppPageCache.offlineMaxAge,
+        );
+        if(stale!=null){
+          return AppPageCache.I.mark(stale,offline:true);
+        }
+      }
+      rethrow;
+    }
   }
 
-  Future<Map<String, dynamic>> loadConfig() async {
-    final result = await call('app_config');
+  Future<Map<String, dynamic>> loadConfig({bool forceRefresh=false}) async {
+    final result = await call('app_config',forceRefresh:forceRefresh);
     config = Map<String, dynamic>.from(result['data'] as Map);
     return config;
   }

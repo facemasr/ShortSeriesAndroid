@@ -4,6 +4,7 @@ class OfflineMediaRecord {
   final String ownerType;
   final int ownerId;
   final String title;
+  final String groupTitle;
   final String encryptedPath;
   final String extension;
   final int plainBytes;
@@ -13,6 +14,7 @@ class OfflineMediaRecord {
     required this.ownerType,
     required this.ownerId,
     required this.title,
+    this.groupTitle='',
     required this.encryptedPath,
     required this.extension,
     required this.plainBytes,
@@ -25,6 +27,7 @@ class OfflineMediaRecord {
     'owner_type':ownerType,
     'owner_id':ownerId,
     'title':title,
+    'group_title':groupTitle,
     'encrypted_path':encryptedPath,
     'extension':extension,
     'plain_bytes':plainBytes,
@@ -36,6 +39,7 @@ class OfflineMediaRecord {
       ownerType:(json['owner_type']??'').toString(),
       ownerId:int.tryParse((json['owner_id']??'0').toString())??0,
       title:(json['title']??'').toString(),
+      groupTitle:(json['group_title']??'').toString(),
       encryptedPath:(json['encrypted_path']??'').toString(),
       extension:(json['extension']??'.mp4').toString(),
       plainBytes:int.tryParse((json['plain_bytes']??'0').toString())??0,
@@ -260,6 +264,7 @@ class OfflineDownloads {
     String type,
     int id,
     String title, {
+    String groupTitle='',
     void Function(double value)? onProgress,
   }) async{
     if(type!='media'&&type!='episode'){
@@ -349,6 +354,7 @@ class OfflineDownloads {
         ownerType:type,
         ownerId:id,
         title:title,
+        groupTitle:groupTitle,
         encryptedPath:encrypted.path,
         extension:ext,
         plainBytes:plainBytes,

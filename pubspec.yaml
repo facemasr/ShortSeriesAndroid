@@ -1,7 +1,7 @@
 name: shortseris_app
 description: Native ShortSeris streaming app powered by the ShortSeris JSON API.
 publish_to: "none"
-version: 1.3.0+4
+version: 1.4.0+5
 
 environment:
   sdk: ">=3.8.0 <4.0.0"

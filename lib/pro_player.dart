@@ -1234,6 +1234,19 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
                   title:Text(Api.I.ar?'سرعة التشغيل':'Playback speed'),
                 ),
               ),
+              if(_hasQualityOptions)
+                PopupMenuItem(
+                  value:'quality',
+                  child:ListTile(
+                    dense:true,
+                    leading:const Icon(Icons.high_quality_rounded),
+                    title:Text(
+                      _currentQualityLabel.isEmpty
+                        ?(Api.I.ar?'الجودة':'Quality')
+                        :'${Api.I.ar?'الجودة':'Quality'} • $_currentQualityLabel',
+                    ),
+                  ),
+                ),
               if(subtitles.isNotEmpty)
                 PopupMenuItem(
                   value:'subtitles',
@@ -1296,6 +1309,8 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
                           subtitle: episodeMeta,
                           hasSources: sources.length > 1,
                           hasSubtitles: subtitles.isNotEmpty,
+                          hasQualities: _hasQualityOptions,
+                          qualityLabel: _currentQualityLabel,
                           hasEpisodes: ownerType == 'episode' &&
                               contextData['episodes'] is List,
                           hasPrevious: previous != null,
@@ -1303,6 +1318,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
                           refreshingSource: refreshingSource,
                           onSources: _showSources,
                           onSubtitles: _showSubtitles,
+                          onQualities: _showQualities,
                           onSpeed: _showSpeed,
                           onEpisodes: _showEpisodes,
                           onPrevious: _playPrevious,

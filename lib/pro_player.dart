@@ -40,6 +40,10 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
   PageRoute<dynamic>? _pageRoute;
   bool _resumeAfterCovered = false;
   bool _routeCovered = false;
+  String? _offlinePlaybackPath;
+  bool offlineAvailable = false;
+  bool downloadingOffline = false;
+  double offlineDownloadProgress = 0;
 
   bool loading = true;
   bool transitioning = false;
@@ -132,6 +136,100 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     return value == true || value == 1 || value == '1';
   }
 
+  Future<bool> _tryOfflineTarget(String type,int id,String fallbackTitle) async {
+    final record=await OfflineDownloads.I.record(type,id);
+    if(record==null)return false;
+
+    await OfflineDownloads.I.releasePlayback(_offlinePlaybackPath);
+    _offlinePlaybackPath=null;
+
+    final path=await OfflineDownloads.I.preparePlayback(type,id);
+    if(path==null||path.isEmpty)return false;
+    if(!mounted){
+      await OfflineDownloads.I.releasePlayback(path);
+      return false;
+    }
+
+    _offlinePlaybackPath=path;
+    ownerType=type;
+    ownerId=id;
+    title=record.title.isNotEmpty?record.title:fallbackTitle;
+    sources=<Map<String,dynamic>>[
+      <String,dynamic>{
+        'id':-1,
+        'label':Api.I.ar?'بدون إنترنت':'Offline',
+        'source_type':'offline',
+        'url':Uri.file(path).toString(),
+      },
+    ];
+    subtitles=<Map<String,dynamic>>[];
+    recommendations=<Map<String,dynamic>>[];
+    currentSource=0;
+    currentSubtitle=-1;
+    failedSources.clear();
+    refreshAttemptedSources.clear();
+    contextData=<String,dynamic>{
+      'media':<String,dynamic>{'title':title,'original_title':title},
+      if(type=='episode')'current':<String,dynamic>{'title':title},
+    };
+    playerSettings=<String,dynamic>{
+      'resume_enabled':true,
+      'autoplay_next':false,
+      'show_episode_list':false,
+    };
+    autoplayNext=false;
+    offlineAvailable=true;
+
+    final resumeAt=await Api.I.localResume(type,id);
+    await _openSource(0,resumeAt:resumeAt);
+    return true;
+  }
+
+  Future<void> _downloadCurrent() async {
+    if(ownerType=='tv'||downloadingOffline)return;
+    if(await OfflineDownloads.I.has(ownerType,ownerId)){
+      if(mounted)setState(()=>offlineAvailable=true);
+      return;
+    }
+
+    setState((){
+      downloadingOffline=true;
+      offlineDownloadProgress=0;
+    });
+
+    try{
+      await OfflineDownloads.I.downloadOwner(
+        ownerType,
+        ownerId,
+        title,
+        onProgress:(value){
+          if(mounted)setState(()=>offlineDownloadProgress=value);
+        },
+      );
+      if(!mounted)return;
+      setState((){
+        offlineAvailable=true;
+        offlineDownloadProgress=1;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:Text(
+            Api.I.ar
+              ?'تم حفظ المحتوى مشفّرًا للمشاهدة بدون إنترنت.'
+              :'Encrypted offline download completed.',
+          ),
+        ),
+      );
+    }catch(e){
+      if(!mounted)return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content:Text(e.toString().replaceFirst('Exception: ',''))),
+      );
+    }finally{
+      if(mounted)setState(()=>downloadingOffline=false);
+    }
+  }
+
   Future<void> _loadTarget(String type, int id, String fallbackTitle) async {
     if (transitioning) return;
 
@@ -151,6 +249,23 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     });
 
     try {
+      await OfflineDownloads.I.releasePlayback(_offlinePlaybackPath);
+      _offlinePlaybackPath=null;
+      offlineAvailable=await OfflineDownloads.I.has(type,id);
+
+      if(offlineAvailable){
+        final loadedOffline=await _tryOfflineTarget(type,id,fallbackTitle);
+        if(loadedOffline){
+          if(mounted){
+            setState((){
+              loading=false;
+              transitioning=false;
+            });
+          }
+          return;
+        }
+      }
+
       final result = await Api.I.call(
         'playback',
         query: {'owner_type': type, 'owner_id': id},
@@ -426,6 +541,18 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
   Future<void> _handlePlaybackFailure(String reason, {int? resumeAt}) async {
     if (fallbackBusy || refreshingSource) return;
     if (_routeCovered || !AppPlaybackSession.owns(player)) return;
+
+    if(sources.isNotEmpty &&
+       (sources[currentSource]['source_type']??'').toString()=='offline'){
+      if(mounted){
+        setState((){
+          error=Api.I.ar
+            ?'تعذر تشغيل النسخة المحفوظة. احذف التنزيل وحمّله من جديد.'
+            :'The offline copy could not be played. Delete it and download again.';
+        });
+      }
+      return;
+    }
 
     final position = resumeAt ?? player.state.position.inSeconds;
 
@@ -809,6 +936,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     playerErrorSub?.cancel();
     AppPlaybackSession.release(player);
     unawaited(_saveProgress());
+    unawaited(OfflineDownloads.I.releasePlayback(_offlinePlaybackPath));
     player.dispose();
     super.dispose();
   }
@@ -1008,6 +1136,35 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
                         if (episodeMeta.isNotEmpty) ...[
                           const SizedBox(height: 3),
                           Text(episodeMeta, style: const TextStyle(color: Colors.white60)),
+                        ],
+                        if(ownerType!='tv')...[
+                          const SizedBox(height:12),
+                          OutlinedButton.icon(
+                            onPressed:offlineAvailable||downloadingOffline?null:_downloadCurrent,
+                            icon:downloadingOffline
+                              ?SizedBox(
+                                  width:18,
+                                  height:18,
+                                  child:CircularProgressIndicator(
+                                    strokeWidth:2,
+                                    value:offlineDownloadProgress>0?offlineDownloadProgress:null,
+                                  ),
+                                )
+                              :Icon(
+                                  offlineAvailable
+                                    ?Icons.download_done_rounded
+                                    :Icons.download_for_offline_outlined,
+                                ),
+                            label:Text(
+                              downloadingOffline
+                                ?(Api.I.ar
+                                    ?'جاري التحميل ${(offlineDownloadProgress*100).round()}%'
+                                    :'Downloading ${(offlineDownloadProgress*100).round()}%')
+                                :offlineAvailable
+                                  ?(Api.I.ar?'محفوظ بدون إنترنت':'Available offline')
+                                  :(Api.I.ar?'تحميل للمشاهدة بدون إنترنت':'Download for offline'),
+                            ),
+                          ),
                         ],
                         if (ownerType == 'episode') ...[
                           const SizedBox(height: 14),

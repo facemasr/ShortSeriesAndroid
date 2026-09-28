@@ -109,14 +109,16 @@ class _ProDetailPageState extends State<ProDetailPage> {
         final id=(ep['id'] as num?)?.toInt()??0;
         if(id<=0)continue;
         final epTitle=(ep['title']??'').toString().trim();
-        final label=epTitle.isNotEmpty
+        final episodeLabel=epTitle.isNotEmpty
           ?epTitle
-          :'$mediaTitle • ${Api.I.ar?'حلقة':'Episode'} ${ep['episode_number']??''}';
+          :'${Api.I.ar?'حلقة':'Episode'} ${ep['episode_number']??''}';
+        final label='$mediaTitle • $episodeLabel';
         try{
           await OfflineDownloads.I.downloadOwner(
             'episode',
             id,
             label,
+            groupTitle:mediaTitle,
             onProgress:(value){
               if(!mounted)return;
               final total=rows.length;

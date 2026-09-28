@@ -802,6 +802,16 @@ class _ProAccountPageState extends State<ProAccountPage>{
                     title:Text(Api.I.ar?'قائمتي':'My List'),
                     onTap:()=>AppNavigator.open(context,const AccountMediaListPage(action:'watchlist'),key:'account/watchlist'),
                   ),
+                  ListTile(
+                    leading:const Icon(Icons.download_for_offline_outlined),
+                    title:Text(Api.I.ar?'التنزيلات':'Downloads'),
+                    subtitle:Text(Api.I.ar?'مشاهدة بدون إنترنت':'Watch offline'),
+                    onTap:()=>AppNavigator.open(
+                      context,
+                      const OfflineLibraryPage(),
+                      key:'account/downloads',
+                    ),
+                  ),
                 ]),
               ),
               if(links is Map)...[

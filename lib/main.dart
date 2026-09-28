@@ -13,6 +13,10 @@ import 'package:url_launcher/url_launcher.dart';
 part 'pro_home.dart';
 part 'pro_detail.dart';
 part 'pro_player.dart';
+part 'full_parity.dart';
+part 'admin_studio_core.dart';
+part 'admin_studio_import.dart';
+part 'admin_studio_content.dart';
 
 const apiUrl = 'https://shortseris.online/mobile-api/index.php';
 
@@ -275,19 +279,19 @@ class _ShellState extends State<Shell> {
       _NavItem(Icons.home_outlined, Icons.home, a.ar ? 'الرئيسية' : 'Home',
           const ProHomePage()),
       _NavItem(Icons.video_library_outlined, Icons.video_library,
-          a.ar ? 'المكتبة' : 'Browse', const BrowsePage()),
+          a.ar ? 'المكتبة' : 'Browse', const ProBrowsePage()),
     ];
     if (a.section('tv')) {
       out.add(_NavItem(Icons.live_tv_outlined, Icons.live_tv,
-          a.ar ? 'القنوات' : 'TV', const TvPage()));
+          a.ar ? 'القنوات' : 'TV', const ProTvPage()));
     }
     if (a.section('search')) {
       out.add(_NavItem(Icons.search, Icons.search,
-          a.ar ? 'بحث' : 'Search', const SearchPage()));
+          a.ar ? 'بحث' : 'Search', const ProSearchPage()));
     }
     if (a.section('account')) {
       out.add(_NavItem(Icons.person_outline, Icons.person,
-          a.ar ? 'حسابي' : 'Account', const AccountPage()));
+          a.ar ? 'حسابي' : 'Account', const ProAccountPage()));
     }
     return out;
   }

@@ -749,6 +749,37 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     if (prev != null) await _playEpisode(prev);
   }
 
+  Future<void> _leaveToTab(int index) async {
+    try{await _saveProgress();}catch(_){}
+    try{await player.pause();}catch(_){}
+    if(!mounted)return;
+    AppShellController.go(context,index);
+  }
+
+  Future<void> _leaveToKey(String key) async {
+    await _leaveToTab(AppShellController.indexFor(key));
+  }
+
+  void _handleTopTool(String value){
+    switch(value){
+      case 'speed':
+        _showSpeed();
+        break;
+      case 'subtitles':
+        _showSubtitles();
+        break;
+      case 'sources':
+        _showSources();
+        break;
+      case 'episodes':
+        _showEpisodes();
+        break;
+      case 'refresh':
+        unawaited(_manualRefreshSource());
+        break;
+    }
+  }
+
   void _showSources() {
     showModalBottomSheet<void>(
       context: context,
@@ -977,30 +1008,74 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
         ),
         actions: [
           IconButton(
-            tooltip: Api.I.ar ? 'السرعة' : 'Speed',
-            onPressed: _showSpeed,
-            icon: const Icon(Icons.speed_rounded),
+            tooltip:Api.I.ar?'الرئيسية':'Home',
+            onPressed:()=>unawaited(_leaveToKey('home')),
+            icon:const Icon(Icons.home_outlined),
           ),
-          if (subtitles.isNotEmpty)
+          if(Api.I.section('search'))
             IconButton(
-              tooltip: Api.I.ar ? 'الترجمة' : 'Subtitles',
-              onPressed: _showSubtitles,
-              icon: const Icon(Icons.subtitles_rounded),
+              tooltip:Api.I.ar?'بحث':'Search',
+              onPressed:()=>unawaited(_leaveToKey('search')),
+              icon:const Icon(Icons.search_rounded),
             ),
-          if (sources.length > 1)
+          if(Api.I.section('account'))
             IconButton(
-              tooltip: Api.I.ar ? 'السيرفرات' : 'Servers',
-              onPressed: _showSources,
-              icon: const Icon(Icons.dns_outlined),
+              tooltip:Api.I.ar?'حسابي':'Account',
+              onPressed:()=>unawaited(_leaveToKey('account')),
+              icon:const Icon(Icons.person_outline_rounded),
             ),
-          if (ownerType == 'episode' &&
-              _boolSetting('show_episode_list', true) &&
-              contextData['episodes'] is List)
-            IconButton(
-              tooltip: Api.I.ar ? 'الحلقات' : 'Episodes',
-              onPressed: _showEpisodes,
-              icon: const Icon(Icons.format_list_numbered_rounded),
-            ),
+          PopupMenuButton<String>(
+            tooltip:Api.I.ar?'أدوات المشاهدة':'Playback tools',
+            onSelected:_handleTopTool,
+            itemBuilder:(_)=>[
+              PopupMenuItem(
+                value:'speed',
+                child:ListTile(
+                  dense:true,
+                  leading:const Icon(Icons.speed_rounded),
+                  title:Text(Api.I.ar?'سرعة التشغيل':'Playback speed'),
+                ),
+              ),
+              if(subtitles.isNotEmpty)
+                PopupMenuItem(
+                  value:'subtitles',
+                  child:ListTile(
+                    dense:true,
+                    leading:const Icon(Icons.subtitles_rounded),
+                    title:Text(Api.I.ar?'الترجمة':'Subtitles'),
+                  ),
+                ),
+              if(sources.length>1)
+                PopupMenuItem(
+                  value:'sources',
+                  child:ListTile(
+                    dense:true,
+                    leading:const Icon(Icons.dns_outlined),
+                    title:Text(Api.I.ar?'السيرفرات':'Servers'),
+                  ),
+                ),
+              if(ownerType=='episode'&&
+                  _boolSetting('show_episode_list',true)&&
+                  contextData['episodes'] is List)
+                PopupMenuItem(
+                  value:'episodes',
+                  child:ListTile(
+                    dense:true,
+                    leading:const Icon(Icons.format_list_numbered_rounded),
+                    title:Text(Api.I.ar?'الحلقات':'Episodes'),
+                  ),
+                ),
+              PopupMenuItem(
+                value:'refresh',
+                enabled:!refreshingSource,
+                child:ListTile(
+                  dense:true,
+                  leading:Icon(refreshingSource?Icons.sync_rounded:Icons.refresh_rounded),
+                  title:Text(Api.I.ar?'تحديث المصدر':'Refresh source'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: error != null
@@ -1335,11 +1410,10 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
                                     }
 
                                     if (!mounted) return;
-                                    Navigator.pushReplacement(
+                                    AppNavigator.open(
                                       context,
-                                      MaterialPageRoute(
-                                        builder: (_) => ProDetailPage(id: id),
-                                      ),
+                                      ProDetailPage(id:id),
+                                      key:'media/$id',
                                     );
                                   },
                                 );
@@ -1353,6 +1427,22 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
                 ),
               ],
             ),
+      bottomNavigationBar:ValueListenableBuilder<int>(
+        valueListenable:AppShellController.tab,
+        builder:(_,selected,__){
+          final nav=AppShellController.items();
+          final safe=selected.clamp(0,nav.length-1);
+          return NavigationBar(
+            selectedIndex:safe,
+            onDestinationSelected:(index)=>unawaited(_leaveToTab(index)),
+            destinations:nav.map((item)=>NavigationDestination(
+              icon:Icon(item.icon),
+              selectedIcon:Icon(item.selected),
+              label:item.label,
+            )).toList(),
+          );
+        },
+      ),
     );
   }
 }

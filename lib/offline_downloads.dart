@@ -536,6 +536,7 @@ class OfflineLibraryPage extends StatefulWidget{
 
 class _OfflineLibraryPageState extends State<OfflineLibraryPage>{
   late Future<List<OfflineMediaRecord>> future;
+  String filter='all';
 
   @override
   void initState(){
@@ -597,43 +598,100 @@ class _OfflineLibraryPageState extends State<OfflineLibraryPage>{
             );
           }
 
-          return ListView.separated(
-            padding:const EdgeInsets.all(12),
-            itemCount:items.length,
-            separatorBuilder:(_,__)=>const SizedBox(height:8),
-            itemBuilder:(_,i){
-              final item=items[i];
-              return Card(
-                child:ListTile(
-                  leading:const CircleAvatar(
-                    child:Icon(Icons.download_done_rounded),
-                  ),
-                  title:Text(item.title,maxLines:2,overflow:TextOverflow.ellipsis),
-                  subtitle:Text(
-                    '${item.ownerType=='episode'?(Api.I.ar?'حلقة':'Episode'):(Api.I.ar?'فيلم':'Movie')} • ${_size(item.plainBytes)}',
-                  ),
-                  onTap:(){
-                    AppNavigator.open(
-                      context,
-                      ProPlayerPage(
-                        ownerType:item.ownerType,
-                        ownerId:item.ownerId,
-                        title:item.title,
+          final movies=items.where((x)=>x.ownerType=='media').toList();
+          final episodes=items.where((x)=>x.ownerType=='episode').toList();
+          final shown=filter=='movies'
+            ?movies
+            :filter=='series'
+              ?episodes
+              :items;
+
+          return Column(
+            children:[
+              Padding(
+                padding:const EdgeInsets.fromLTRB(12,10,12,4),
+                child:SingleChildScrollView(
+                  scrollDirection:Axis.horizontal,
+                  child:SegmentedButton<String>(
+                    segments:[
+                      ButtonSegment(
+                        value:'all',
+                        icon:const Icon(Icons.grid_view_rounded),
+                        label:Text('${Api.I.ar?'الكل':'All'} (${items.length})'),
                       ),
-                      key:'player/${item.ownerType}/${item.ownerId}',
-                    );
-                  },
-                  trailing:IconButton(
-                    tooltip:Api.I.ar?'حذف التنزيل':'Delete download',
-                    onPressed:() async{
-                      await OfflineDownloads.I.delete(item.ownerType,item.ownerId);
-                      if(mounted)reload();
-                    },
-                    icon:const Icon(Icons.delete_outline_rounded),
+                      ButtonSegment(
+                        value:'movies',
+                        icon:const Icon(Icons.movie_outlined),
+                        label:Text('${Api.I.ar?'الأفلام':'Movies'} (${movies.length})'),
+                      ),
+                      ButtonSegment(
+                        value:'series',
+                        icon:const Icon(Icons.tv_rounded),
+                        label:Text('${Api.I.ar?'المسلسلات':'Series'} (${episodes.length})'),
+                      ),
+                    ],
+                    selected:<String>{filter},
+                    onSelectionChanged:(value)=>setState(()=>filter=value.first),
                   ),
                 ),
-              );
-            },
+              ),
+              Expanded(
+                child:shown.isEmpty
+                  ?Center(
+                      child:Text(
+                        filter=='movies'
+                          ?(Api.I.ar?'لا توجد أفلام محمّلة':'No downloaded movies')
+                          :(Api.I.ar?'لا توجد حلقات محمّلة':'No downloaded episodes'),
+                      ),
+                    )
+                  :ListView.separated(
+                      padding:const EdgeInsets.all(12),
+                      itemCount:shown.length,
+                      separatorBuilder:(_,__)=>const SizedBox(height:8),
+                      itemBuilder:(_,i){
+                        final item=shown[i];
+                        final isEpisode=item.ownerType=='episode';
+                        final group=item.groupTitle.trim();
+                        return Card(
+                          child:ListTile(
+                            leading:CircleAvatar(
+                              child:Icon(isEpisode?Icons.tv_rounded:Icons.movie_rounded),
+                            ),
+                            title:Text(item.title,maxLines:2,overflow:TextOverflow.ellipsis),
+                            subtitle:Text(
+                              [
+                                if(isEpisode&&group.isNotEmpty)group,
+                                isEpisode?(Api.I.ar?'حلقة':'Episode'):(Api.I.ar?'فيلم':'Movie'),
+                                _size(item.plainBytes),
+                              ].join(' • '),
+                              maxLines:2,
+                              overflow:TextOverflow.ellipsis,
+                            ),
+                            onTap:(){
+                              AppNavigator.open(
+                                context,
+                                ProPlayerPage(
+                                  ownerType:item.ownerType,
+                                  ownerId:item.ownerId,
+                                  title:item.title,
+                                ),
+                                key:'player/${item.ownerType}/${item.ownerId}',
+                              );
+                            },
+                            trailing:IconButton(
+                              tooltip:Api.I.ar?'حذف التنزيل':'Delete download',
+                              onPressed:() async{
+                                await OfflineDownloads.I.delete(item.ownerType,item.ownerId);
+                                if(mounted)reload();
+                              },
+                              icon:const Icon(Icons.delete_outline_rounded),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+              ),
+            ],
           );
         },
       ),

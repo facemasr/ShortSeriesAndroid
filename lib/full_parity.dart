@@ -816,6 +816,11 @@ class _ProAccountPageState extends State<ProAccountPage>{
           future:future,
           builder:(_,s){
             if(s.hasError){
+              final err=s.error;
+              final networkError=err is DioException&&err.response==null;
+              if(networkError){
+                return OfflineAccountPage(onRetry:reload);
+              }
               return LoginPage(onAuthenticated:reload);
             }
             if(!s.hasData){
@@ -1191,6 +1196,80 @@ class _ProAccountPageState extends State<ProAccountPage>{
           },
         ),
       ),
+    );
+  }
+}
+
+class OfflineAccountPage extends StatelessWidget{
+  final VoidCallback onRetry;
+  const OfflineAccountPage({super.key,required this.onRetry});
+
+  @override
+  Widget build(BuildContext context){
+    return ListView(
+      physics:const AlwaysScrollableScrollPhysics(),
+      padding:const EdgeInsets.fromLTRB(16,26,16,30),
+      children:[
+        const Icon(Icons.cloud_off_rounded,size:62,color:Colors.white38),
+        const SizedBox(height:14),
+        Text(
+          Api.I.ar?'أنت تستخدم التطبيق بدون إنترنت':'You are offline',
+          textAlign:TextAlign.center,
+          style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900),
+        ),
+        const SizedBox(height:7),
+        Text(
+          Api.I.ar
+            ?'يمكنك تشغيل المحتوى الذي تم تنزيله وفتح الصفحات المحفوظة محليًا.'
+            :'You can play downloaded media and open locally cached pages.',
+          textAlign:TextAlign.center,
+          style:const TextStyle(color:Colors.white60,height:1.5),
+        ),
+        const SizedBox(height:22),
+        Card(
+          child:Column(
+            children:[
+              ListTile(
+                contentPadding:const EdgeInsets.symmetric(horizontal:14,vertical:8),
+                leading:const CircleAvatar(child:Icon(Icons.download_done_rounded)),
+                title:Text(
+                  Api.I.ar?'الأفلام والمسلسلات المحمّلة':'Downloaded movies & series',
+                  style:const TextStyle(fontWeight:FontWeight.w900),
+                ),
+                subtitle:Text(Api.I.ar?'تشغيل بدون إنترنت':'Play without internet'),
+                trailing:const Icon(Icons.chevron_right_rounded),
+                onTap:()=>AppNavigator.open(
+                  context,
+                  const OfflineLibraryPage(),
+                  key:'account/downloads',
+                ),
+              ),
+              const Divider(height:1),
+              ListTile(
+                contentPadding:const EdgeInsets.symmetric(horizontal:14,vertical:8),
+                leading:const CircleAvatar(child:Icon(Icons.offline_bolt_outlined)),
+                title:Text(
+                  Api.I.ar?'الصفحات المحفوظة':'Saved pages',
+                  style:const TextStyle(fontWeight:FontWeight.w900),
+                ),
+                subtitle:Text(Api.I.ar?'المحتوى الذي سبق فتحه':'Previously opened content'),
+                trailing:const Icon(Icons.chevron_right_rounded),
+                onTap:()=>AppNavigator.open(
+                  context,
+                  const PageCacheSettingsPage(),
+                  key:'account/page-cache',
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height:14),
+        FilledButton.icon(
+          onPressed:onRetry,
+          icon:const Icon(Icons.wifi_rounded),
+          label:Text(Api.I.ar?'إعادة الاتصال':'Reconnect'),
+        ),
+      ],
     );
   }
 }

@@ -85,9 +85,6 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   await OfflineDownloads.I.cleanupPlaybackCache();
-  try {
-    await Api.I.loadConfig();
-  } catch (_) {}
   runApp(const ShortSerisApp());
 }
 
@@ -436,9 +433,8 @@ class _BootstrapState extends State<Bootstrap> {
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           if (snapshot.hasError) {
-            return ErrorPage(
-              error: snapshot.error,
-              retry: () => setState(() => future = Api.I.loadConfig()),
+            return OfflineLibraryPage(
+              onRetry: () => setState(() => future = Api.I.loadConfig()),
             );
           }
           return const Scaffold(body: Center(child: CircularProgressIndicator()));

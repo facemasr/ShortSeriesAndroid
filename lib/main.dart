@@ -14,8 +14,10 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 part 'offline_downloads.dart';
+part 'admin_web_portal.dart';
 part 'pro_home.dart';
 part 'pro_detail.dart';
 part 'pro_player.dart';

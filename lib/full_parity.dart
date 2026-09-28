@@ -220,7 +220,7 @@ class _PeopleGridPageState extends State<PeopleGridPage>{
                     child:ClipRRect(
                       borderRadius:BorderRadius.circular(16),
                       child:CachedNetworkImage(
-                        imageUrl:(p['photo']??'').toString(),
+                        imageUrl:Api.I.absoluteUrl(p['photo']),
                         width:double.infinity,fit:BoxFit.cover,
                         errorWidget:(_,__,___)=>Container(color:Colors.white10,child:const Icon(Icons.person,size:52)),
                       ),
@@ -270,7 +270,7 @@ class _PersonPageState extends State<PersonPage>{
                 flexibleSpace:FlexibleSpaceBar(
                   title:Text((p['name']??'').toString(),maxLines:1,overflow:TextOverflow.ellipsis),
                   background:CachedNetworkImage(
-                    imageUrl:(p['photo']??'').toString(),fit:BoxFit.cover,
+                    imageUrl:Api.I.absoluteUrl(p['photo']),fit:BoxFit.cover,
                     errorWidget:(_,__,___)=>Container(color:Colors.white10),
                   ),
                 ),
@@ -290,7 +290,7 @@ class _PersonPageState extends State<PersonPage>{
                     return ListTile(
                       contentPadding:EdgeInsets.zero,
                       leading:SizedBox(width:54,child:CachedNetworkImage(
-                        imageUrl:(w['poster']??'').toString(),fit:BoxFit.cover,
+                        imageUrl:Api.I.absoluteUrl(w['poster']),fit:BoxFit.cover,
                         errorWidget:(_,__,___)=>const Icon(Icons.movie_outlined),
                       )),
                       title:Text((w['title']??w['original_title']??'').toString()),
@@ -364,7 +364,7 @@ class _ProTvPageState extends State<ProTvPage>{
                           fit:StackFit.expand,
                           children:[
                             CachedNetworkImage(
-                              imageUrl:(ch['backdrop']??ch['logo']??'').toString(),
+                              imageUrl:Api.I.absoluteUrl(ch['backdrop']??ch['logo']),
                               fit:BoxFit.cover,
                               errorWidget:(_,__,___)=>Container(color:Colors.white10),
                             ),
@@ -375,7 +375,7 @@ class _ProTvPageState extends State<ProTvPage>{
                             PositionedDirectional(start:12,end:12,bottom:10,
                               child:Row(children:[
                                 SizedBox(width:38,height:38,child:CachedNetworkImage(
-                                  imageUrl:(ch['logo']??'').toString(),fit:BoxFit.contain,
+                                  imageUrl:Api.I.absoluteUrl(ch['logo']),fit:BoxFit.contain,
                                   errorWidget:(_,__,___)=>const Icon(Icons.live_tv),
                                 )),
                                 const SizedBox(width:9),
@@ -468,7 +468,7 @@ class _ProSearchPageState extends State<ProSearchPage>{
                           ...channels.map((raw){
                             final ch=Map<String,dynamic>.from(raw as Map);
                             return ListTile(
-                              leading:CircleAvatar(backgroundImage:(ch['logo']??'').toString().isEmpty?null:NetworkImage(ch['logo'].toString()),
+                              leading:CircleAvatar(backgroundImage:(ch['logo']??'').toString().isEmpty?null:NetworkImage(Api.I.absoluteUrl(ch['logo'])),
                                 child:(ch['logo']??'').toString().isEmpty?const Icon(Icons.live_tv):null),
                               title:Text((ch['name']??'').toString()),
                               subtitle:Text([(ch['category']??'').toString(),(ch['country']??'').toString()]

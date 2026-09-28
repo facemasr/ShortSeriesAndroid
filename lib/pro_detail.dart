@@ -233,7 +233,7 @@ class _ProDetailPageState extends State<ProDetailPage> {
                       const SizedBox(height: 18),
                       Text(
                         overview,
-                        style: const TextStyle(height: 1.6, fontSize: 15.5, color: Colors.white88),
+                        style: const TextStyle(height: 1.6, fontSize: 15.5, color: Colors.white70),
                       ),
                     ],
                     if (seasons.isNotEmpty) ...[

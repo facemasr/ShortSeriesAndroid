@@ -28,13 +28,19 @@ final RouteObserver<PageRoute<dynamic>> appRouteObserver = RouteObserver<PageRou
 
 class AppPlaybackSession {
   static Player? _active;
+
+  static bool owns(Player player) => identical(_active, player);
+
   static void claim(Player player) {
     final previous = _active;
     if (previous != null && !identical(previous, player)) {
-      unawaited(previous.stop());
+      // Keep the previous route resumable, but never let two players
+      // produce audio/video at the same time.
+      unawaited(previous.pause());
     }
     _active = player;
   }
+
   static void release(Player player) {
     if (identical(_active, player)) _active = null;
   }
@@ -71,6 +77,108 @@ class Api {
     if (raw.startsWith('//')) return 'https:$raw';
     final clean = raw.replaceFirst(RegExp(r'^/+'), '');
     return 'https://shortseris.online/$clean';
+  }
+
+  String _extractResolvedPlaybackUrl(dynamic value) {
+    if (value == null) return '';
+
+    if (value is String) {
+      final text = value.trim();
+      if (text.isEmpty) return '';
+
+      if ((text.startsWith('{') && text.endsWith('}')) ||
+          (text.startsWith('[') && text.endsWith(']'))) {
+        try {
+          return _extractResolvedPlaybackUrl(jsonDecode(text));
+        } catch (_) {}
+      }
+
+      final uri = Uri.tryParse(text);
+      if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+        return text;
+      }
+      return '';
+    }
+
+    if (value is Map) {
+      const directKeys = <String>[
+        'resolved_url',
+        'playback_url',
+        'video_url',
+        'media_url',
+        'stream_url',
+        'stream',
+        'file',
+        'src',
+        'url',
+      ];
+      for (final key in directKeys) {
+        if (!value.containsKey(key)) continue;
+        final found = _extractResolvedPlaybackUrl(value[key]);
+        if (found.isNotEmpty) return found;
+      }
+
+      const nestedKeys = <String>['data', 'result', 'source', 'sources', 'media'];
+      for (final key in nestedKeys) {
+        if (!value.containsKey(key)) continue;
+        final found = _extractResolvedPlaybackUrl(value[key]);
+        if (found.isNotEmpty) return found;
+      }
+      return '';
+    }
+
+    if (value is List) {
+      for (final item in value) {
+        final found = _extractResolvedPlaybackUrl(item);
+        if (found.isNotEmpty) return found;
+      }
+    }
+
+    return '';
+  }
+
+  Future<String> resolvePlaybackUrl(String sourceUrl) async {
+    final normalized = absoluteUrl(sourceUrl);
+    if (normalized.isEmpty) return '';
+
+    final client = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 45),
+        followRedirects: true,
+      ),
+    );
+
+    final payload = <String, dynamic>{
+      'url': normalized,
+      'src': normalized,
+      'source': normalized,
+    };
+
+    try {
+      final response = await client.post(
+        'https://shortseris.online/media-resolve.php',
+        data: payload,
+        options: Options(
+          contentType: Headers.jsonContentType,
+          headers: const {'Accept': 'application/json'},
+        ),
+      );
+      final resolved = _extractResolvedPlaybackUrl(response.data);
+      if (resolved.isNotEmpty) return resolved;
+    } catch (_) {}
+
+    try {
+      final response = await client.post(
+        'https://shortseris.online/media-resolve.php',
+        data: FormData.fromMap(payload),
+        options: Options(headers: const {'Accept': 'application/json'}),
+      );
+      final resolved = _extractResolvedPlaybackUrl(response.data);
+      if (resolved.isNotEmpty) return resolved;
+    } catch (_) {}
+
+    return '';
   }
 
   Future<Map<String, dynamic>> call(

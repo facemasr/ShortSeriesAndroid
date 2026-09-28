@@ -19,6 +19,7 @@ part 'full_parity.dart';
 part 'admin_studio_core.dart';
 part 'admin_studio_import.dart';
 part 'admin_studio_content.dart';
+part 'import_bridge_ui.dart';
 
 const apiUrl = 'https://shortseris.online/mobile-api/index.php';
 
@@ -185,8 +186,48 @@ class ShortSerisApp extends StatelessWidget {
       theme: ThemeData(
         brightness: Brightness.dark,
         useMaterial3: true,
-        colorSchemeSeed: hexColor(Api.I.config['primary_color']?.toString()),
-        scaffoldBackgroundColor: const Color(0xFF08090C),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: hexColor(Api.I.config['primary_color']?.toString()),
+          brightness: Brightness.dark,
+          surface: const Color(0xFF111214),
+        ),
+        scaffoldBackgroundColor: const Color(0xFF050505),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF050505),
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: false,
+        ),
+        cardTheme: CardThemeData(
+          color: const Color(0xFF111214),
+          elevation: 0,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          backgroundColor: Color(0xF20A0A0A),
+          indicatorColor: Color(0x22E50914),
+          elevation: 0,
+          height: 68,
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: const Color(0xFF151619),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0x22FFFFFF)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0xFFE50914)),
+          ),
+        ),
       ),
       builder: (context, child) => Directionality(
         textDirection: Api.I.ar ? TextDirection.rtl : TextDirection.ltr,

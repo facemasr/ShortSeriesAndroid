@@ -87,10 +87,36 @@ class _ProDetailPageState extends State<ProDetailPage> {
       } catch (_) {}
     }
 
-    if (seasons.isEmpty) return;
+    if (seasons.isEmpty) {
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProPlayerPage(
+            ownerType: 'media',
+            ownerId: widget.id,
+            title: (item['title'] ?? item['original_title'] ?? '').toString(),
+          ),
+        ),
+      );
+      return;
+    }
     final firstSeason = Map<String, dynamic>.from(seasons.first as Map);
     final episodes = firstSeason['episodes'] as List? ?? const [];
-    if (episodes.isEmpty) return;
+    if (episodes.isEmpty) {
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProPlayerPage(
+            ownerType: 'media',
+            ownerId: widget.id,
+            title: (item['title'] ?? item['original_title'] ?? '').toString(),
+          ),
+        ),
+      );
+      return;
+    }
     final ep = Map<String, dynamic>.from(episodes.first as Map);
     if (!mounted) return;
     Navigator.push(
@@ -123,7 +149,7 @@ class _ProDetailPageState extends State<ProDetailPage> {
           final cast = item['cast'] as List? ?? const [];
           final related = item['related'] as List? ?? const [];
           final title = (item['title'] ?? item['original_title'] ?? '').toString();
-          final backdrop = (item['backdrop'] ?? item['poster'] ?? '').toString();
+          final backdrop = Api.I.absoluteUrl(item['backdrop'] ?? item['poster']);
           final overview = (item['overview'] ?? item['story'] ?? '').toString();
           final favorite = item['in_favorites'] == true;
           final watchlist = item['in_watchlist'] == true;
@@ -269,7 +295,7 @@ class _ProDetailPageState extends State<ProDetailPage> {
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(14),
                                       child: CachedNetworkImage(
-                                        imageUrl: (person['photo'] ?? '').toString(),
+                                        imageUrl: Api.I.absoluteUrl(person['photo']),
                                         width: 94,
                                         height: 106,
                                         fit: BoxFit.cover,

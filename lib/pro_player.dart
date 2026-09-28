@@ -512,49 +512,109 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     if (sources.isEmpty || currentSource < 0 || currentSource >= sources.length) {
       return false;
     }
-    final source = sources[currentSource];
-    final sourceId = (source['id'] as num?)?.toInt() ?? 0;
-    if (!manual && sourceId > 0 && refreshAttemptedSources.contains(sourceId)) {
+
+    final source=Map<String,dynamic>.from(sources[currentSource]);
+    final sourceId=_sourceId(source);
+    final wantedQuality=_sourceQuality(source);
+    final wantedLabel=(source['label']??'').toString().trim();
+    final oldUrl=Api.I.absoluteUrl(source['url']);
+
+    if(!manual&&sourceId>0&&refreshAttemptedSources.contains(sourceId)){
       return false;
     }
-    if (sourceId > 0) refreshAttemptedSources.add(sourceId);
+    if(sourceId>0)refreshAttemptedSources.add(sourceId);
 
-    final position = resumeAt ?? player.state.position.inSeconds;
-    if (mounted) setState(() => refreshingSource = true);
-    try {
-      final result = await Api.I.call(
-        'playback_refresh',
-        method: 'POST',
-        data: {
-          'owner_type': ownerType,
-          'owner_id': ownerId,
-          'source_id': sourceId,
-        },
-      );
-      final data = Map<String, dynamic>.from(result['data'] as Map);
-      final fresh = (data['sources'] as List? ?? const [])
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
-      if (fresh.isEmpty) return false;
+    final position=resumeAt??player.state.position.inSeconds;
+    if(mounted)setState(()=>refreshingSource=true);
 
-      final oldId = sourceId;
-      sources = fresh;
-      var nextIndex = 0;
-      if (oldId > 0) {
-        final match = fresh.indexWhere(
-          (row) => (row['id'] as num?)?.toInt() == oldId,
+    List<Map<String,dynamic>> extractSources(dynamic payload){
+      if(payload is! Map)return <Map<String,dynamic>>[];
+      final map=Map<String,dynamic>.from(payload);
+      final rows=map['sources'];
+      if(rows is! List)return <Map<String,dynamic>>[];
+      return rows.whereType<Map>()
+        .map((e)=>Map<String,dynamic>.from(e))
+        .toList();
+    }
+
+    try{
+      List<Map<String,dynamic>> fresh=<Map<String,dynamic>>[];
+
+      try{
+        final result=await Api.I.call(
+          'playback_refresh',
+          method:'POST',
+          data:{
+            'owner_type':ownerType,
+            'owner_id':ownerId,
+            'source_id':sourceId,
+            'force_refresh':1,
+            'refresh_from_source':1,
+            'quality':wantedQuality,
+            'failed_url':oldUrl,
+            'source_url':source['source_url']??source['origin_url']??source['page_url']??'',
+          },
         );
-        if (match >= 0) nextIndex = match;
+        fresh=extractSources(result['data']);
+      }catch(_){}
+
+      // The plugin may refresh the database owner-wide. Re-read playback
+      // sources after the refresh so the app receives every new URL/quality.
+      if(fresh.isEmpty){
+        try{
+          final reread=await Api.I.call(
+            'playback',
+            query:{
+              'owner_type':ownerType,
+              'owner_id':ownerId,
+              'refresh':1,
+            },
+            forceRefresh:true,
+          );
+          fresh=extractSources(reread['data']);
+        }catch(_){}
       }
-      currentSource = nextIndex;
-      failedSources.remove(nextIndex);
-      if (mounted) setState(() => refreshingSource = false);
-      await _openSource(nextIndex, resumeAt: position);
+
+      if(fresh.isEmpty)return false;
+
+      var nextIndex=-1;
+
+      if(sourceId>0){
+        nextIndex=fresh.indexWhere((row)=>
+          _sourceId(row)==sourceId&&
+          (wantedQuality.isEmpty||_sourceQuality(row)==wantedQuality)
+        );
+        if(nextIndex<0){
+          nextIndex=fresh.indexWhere((row)=>_sourceId(row)==sourceId);
+        }
+      }
+
+      if(nextIndex<0&&wantedQuality.isNotEmpty){
+        nextIndex=fresh.indexWhere((row)=>_sourceQuality(row)==wantedQuality);
+      }
+
+      if(nextIndex<0&&wantedLabel.isNotEmpty){
+        nextIndex=fresh.indexWhere((row)=>
+          (row['label']??'').toString().trim().toLowerCase()==wantedLabel.toLowerCase()
+        );
+      }
+
+      if(nextIndex<0)nextIndex=0;
+
+      sources=fresh;
+      currentSource=nextIndex;
+      failedSources.clear();
+
+      final newUrl=Api.I.absoluteUrl(fresh[nextIndex]['url']);
+      if(newUrl.isEmpty)return false;
+
+      if(mounted)setState(()=>refreshingSource=false);
+      await _openSource(nextIndex,resumeAt:position);
       return true;
-    } catch (_) {
+    }catch(_){
       return false;
-    } finally {
-      if (mounted) setState(() => refreshingSource = false);
+    }finally{
+      if(mounted)setState(()=>refreshingSource=false);
     }
   }
 

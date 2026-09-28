@@ -23,6 +23,8 @@ part 'pro_import_center.dart';
 part 'import_bridge_ui.dart';
 
 const apiUrl = 'https://shortseris.online/mobile-api/index.php';
+const appDisplayName = 'SHORT SERIES TV';
+final RouteObserver<PageRoute<dynamic>> appRouteObserver = RouteObserver<PageRoute<dynamic>>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +48,16 @@ class Api {
   Map<String, dynamic> config = {};
 
   bool get ar => locale == 'ar';
+
+  String absoluteUrl(dynamic value) {
+    final raw = (value ?? '').toString().trim();
+    if (raw.isEmpty) return '';
+    final uri = Uri.tryParse(raw);
+    if (uri != null && uri.hasScheme) return raw;
+    if (raw.startsWith('//')) return 'https:$raw';
+    final clean = raw.replaceFirst(RegExp(r'^/+'), '');
+    return 'https://shortseris.online/$clean';
+  }
 
   Future<Map<String, dynamic>> call(
     String action, {
@@ -100,7 +112,7 @@ class Api {
       data: {
         'email': email.trim(),
         'password': password,
-        'device_name': 'ShortSeris Android'
+        'device_name': 'SHORT SERIES TV Android'
       },
     );
     final data = Map<String, dynamic>.from(result['data'] as Map);
@@ -182,8 +194,9 @@ class ShortSerisApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ShortSeris',
+      title: appDisplayName,
       debugShowCheckedModeBanner: false,
+      navigatorObservers: [appRouteObserver],
       theme: ThemeData(
         brightness: Brightness.dark,
         useMaterial3: true,
@@ -414,7 +427,7 @@ class _HomePageState extends State<HomePage> {
                 SliverAppBar(
                   floating: true,
                   title: Text(
-                    (Api.I.config['name'] ?? 'ShortSeris').toString(),
+                    (Api.I.config['name'] ?? appDisplayName).toString(),
                     style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                   actions: [
@@ -509,7 +522,7 @@ class MediaCard extends StatelessWidget {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
                 child: CachedNetworkImage(
-                  imageUrl: (item['poster'] ?? '').toString(),
+                  imageUrl: Api.I.absoluteUrl(item['poster']),
                   width: 142,
                   fit: BoxFit.cover,
                   errorWidget: (_, __, ___) =>

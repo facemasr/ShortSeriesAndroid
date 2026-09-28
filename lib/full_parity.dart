@@ -819,9 +819,9 @@ class _ProAccountPageState extends State<ProAccountPage>{
               return LoginPage(onAuthenticated:reload);
             }
             if(!s.hasData){
-              return const ListView(
-                physics:AlwaysScrollableScrollPhysics(),
-                children:[
+              return ListView(
+                physics:const AlwaysScrollableScrollPhysics(),
+                children:const [
                   SizedBox(height:260),
                   Center(child:CircularProgressIndicator()),
                 ],

@@ -271,6 +271,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
       }
       currentSource = nextIndex;
       failedSources.remove(nextIndex);
+      if (mounted) setState(() => refreshingSource = false);
       await _openSource(nextIndex, resumeAt: position);
       return true;
     } catch (_) {

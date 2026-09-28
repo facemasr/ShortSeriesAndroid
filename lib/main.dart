@@ -46,6 +46,36 @@ class AppPlaybackSession {
   }
 }
 
+class AppNavigator {
+  static const _managedPrefix = '/shortseries/';
+
+  static bool _isManaged(BuildContext context) {
+    final name = ModalRoute.of(context)?.settings.name ?? '';
+    return name.startsWith(_managedPrefix);
+  }
+
+  static void open(
+    BuildContext context,
+    Widget page, {
+    required String key,
+  }) {
+    final navigator = Navigator.of(context);
+    final route = MaterialPageRoute<void>(
+      settings: RouteSettings(name: '$_managedPrefix$key'),
+      builder: (_) => page,
+    );
+
+    // Keep the Shell as the only page underneath the active content page.
+    // Moving between details/player/person/TV replaces the current content
+    // route instead of stacking another page over it.
+    if (_isManaged(context)) {
+      navigator.pushReplacement(route);
+    } else {
+      navigator.push(route);
+    }
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();

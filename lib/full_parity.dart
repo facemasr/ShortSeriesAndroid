@@ -38,9 +38,10 @@ class _ProBrowsePageState extends State<ProBrowsePage>
                   ),
                 ),
                 IconButton(
-                  onPressed: ()=>Navigator.push(
+                  onPressed: ()=>AppNavigator.open(
                     context,
-                    MaterialPageRoute(builder:(_)=>const GenrePage()),
+                    const GenrePage(),
+                    key:'browse/genres',
                   ),
                   icon: const Icon(Icons.tune_rounded),
                   tooltip: a.ar ? 'التصنيفات' : 'Genres',
@@ -552,9 +553,14 @@ class _ProTvPageState extends State<ProTvPage>{
                     return Card(
                       clipBehavior:Clip.antiAlias,
                       child:InkWell(
-                        onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>ProPlayerPage(
-                          ownerType:'tv',ownerId:(ch['id'] as num).toInt(),title:(ch['name']??'').toString(),
-                        ))),
+                        onTap:(){
+                          final id=(ch['id'] as num).toInt();
+                          AppNavigator.open(
+                            context,
+                            ProPlayerPage(ownerType:'tv',ownerId:id,title:(ch['name']??'').toString()),
+                            key:'player/tv/$id',
+                          );
+                        },
                         child:Stack(
                           fit:StackFit.expand,
                           children:[
@@ -669,9 +675,14 @@ class _ProSearchPageState extends State<ProSearchPage>{
                               subtitle:Text([(ch['category']??'').toString(),(ch['country']??'').toString()]
                                 .where((x)=>x.isNotEmpty).join(' • ')),
                               trailing:const Icon(Icons.play_arrow_rounded),
-                              onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>ProPlayerPage(
-                                ownerType:'tv',ownerId:(ch['id'] as num).toInt(),title:(ch['name']??'').toString(),
-                              ))),
+                              onTap:(){
+                                final id=(ch['id'] as num).toInt();
+                                AppNavigator.open(
+                                  context,
+                                  ProPlayerPage(ownerType:'tv',ownerId:id,title:(ch['name']??'').toString()),
+                                  key:'player/tv/$id',
+                                );
+                              },
                             );
                           }),
                         ],
@@ -684,7 +695,10 @@ class _ProSearchPageState extends State<ProSearchPage>{
                                 child:(p['photo']??'').toString().isEmpty?const Icon(Icons.person):null),
                               title:Text((p['name']??'').toString()),
                               subtitle:Text((p['known_for']??'').toString()),
-                              onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>PersonPage(id:(p['id'] as num).toInt()))),
+                              onTap:(){
+                                final id=(p['id'] as num).toInt();
+                                AppNavigator.open(context,PersonPage(id:id),key:'person/$id');
+                              },
                             );
                           }),
                         ],
@@ -776,17 +790,17 @@ class _ProAccountPageState extends State<ProAccountPage>{
                   ListTile(
                     leading:const Icon(Icons.history_rounded),
                     title:Text(Api.I.ar?'متابعة المشاهدة':'Continue watching'),
-                    onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const ContinuePage())),
+                    onTap:()=>AppNavigator.open(context,const ContinuePage(),key:'account/continue'),
                   ),
                   ListTile(
                     leading:const Icon(Icons.favorite_border_rounded),
                     title:Text(Api.I.ar?'المفضلة':'Favorites'),
-                    onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const AccountMediaListPage(action:'favorites'))),
+                    onTap:()=>AppNavigator.open(context,const AccountMediaListPage(action:'favorites'),key:'account/favorites'),
                   ),
                   ListTile(
                     leading:const Icon(Icons.bookmark_border_rounded),
                     title:Text(Api.I.ar?'قائمتي':'My List'),
-                    onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const AccountMediaListPage(action:'watchlist'))),
+                    onTap:()=>AppNavigator.open(context,const AccountMediaListPage(action:'watchlist'),key:'account/watchlist'),
                   ),
                 ]),
               ),

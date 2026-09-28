@@ -852,6 +852,9 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
       case 'subtitles':
         _showSubtitles();
         break;
+      case 'quality':
+        _showQualities();
+        break;
       case 'sources':
         _showSources();
         break;
@@ -862,6 +865,57 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
         unawaited(_manualRefreshSource());
         break;
     }
+  }
+
+  void _showQualities(){
+    final indices=_qualitySourceIndices;
+    if(indices.isEmpty)return;
+
+    showModalBottomSheet<void>(
+      context:context,
+      backgroundColor:const Color(0xFF14161D),
+      showDragHandle:true,
+      builder:(sheetContext)=>SafeArea(
+        child:ListView.separated(
+          shrinkWrap:true,
+          padding:const EdgeInsets.fromLTRB(12,0,12,20),
+          itemCount:indices.length,
+          separatorBuilder:(_,__)=>const Divider(height:1),
+          itemBuilder:(_,row){
+            final index=indices[row];
+            final source=sources[index];
+            final quality=_sourceQuality(source);
+            final label=(source['label']??'').toString().trim();
+            final language=(source['language']??'').toString().trim();
+            final details=<String>[
+              if(label.isNotEmpty&&label.toLowerCase()!=quality.toLowerCase())label,
+              if(language.isNotEmpty)language,
+            ];
+            return ListTile(
+              leading:CircleAvatar(
+                child:Text(
+                  quality.replaceAll('p',''),
+                  style:const TextStyle(fontSize:11,fontWeight:FontWeight.w900),
+                ),
+              ),
+              title:Text(
+                quality,
+                style:const TextStyle(fontWeight:FontWeight.w900),
+              ),
+              subtitle:details.isEmpty?null:Text(details.join(' • ')),
+              trailing:index==currentSource
+                ?const Icon(Icons.check_circle_rounded)
+                :const Icon(Icons.chevron_right_rounded),
+              onTap:() async{
+                Navigator.pop(sheetContext);
+                final position=player.state.position.inSeconds;
+                await _openSource(index,resumeAt:position);
+              },
+            );
+          },
+        ),
+      ),
+    );
   }
 
   void _showSources() {
@@ -878,7 +932,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
           itemBuilder: (_, i) {
             final s = sources[i];
             final label = (s['label'] ?? 'Server ' + (i + 1).toString()).toString();
-            final quality = (s['quality'] ?? '').toString();
+            final quality = _sourceQuality(s);
             final language = (s['language'] ?? '').toString();
             final meta = [quality, language].where((e) => e.isNotEmpty).join(' • ');
             return ListTile(

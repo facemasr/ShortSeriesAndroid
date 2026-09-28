@@ -136,6 +136,90 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
     return value == true || value == 1 || value == '1';
   }
 
+  int _sourceId(Map<String,dynamic> source){
+    final raw=source['id'];
+    if(raw is num)return raw.toInt();
+    return int.tryParse((raw??'').toString())??0;
+  }
+
+  String _normalizeQuality(String raw){
+    final value=raw.trim();
+    if(value.isEmpty)return '';
+    final lower=value.toLowerCase();
+
+    if(lower=='auto'||lower=='adaptive'||lower=='original'){
+      return Api.I.ar?'تلقائي':'Auto';
+    }
+    if(lower.contains('4k')||lower.contains('uhd'))return '2160p';
+    if(lower.contains('qhd'))return '1440p';
+    if(lower.contains('fhd')||lower.contains('full hd'))return '1080p';
+
+    final m=RegExp(
+      r'(2160|1440|1080|900|720|576|540|480|360|240)\s*p?',
+      caseSensitive:false,
+    ).firstMatch(lower);
+    if(m!=null)return '${m.group(1)}p';
+
+    if(lower=='hd')return 'HD';
+    if(lower=='sd')return 'SD';
+
+    return value.length<=18?value:'';
+  }
+
+  String _sourceQuality(Map<String,dynamic> source){
+    for(final key in const ['quality','resolution','height']){
+      final value=(source[key]??'').toString().trim();
+      final normalized=_normalizeQuality(value);
+      if(normalized.isNotEmpty)return normalized;
+    }
+
+    final label=(source['label']??'').toString();
+    final fromLabel=_normalizeQuality(label);
+    if(fromLabel.isNotEmpty&&fromLabel!=label)return fromLabel;
+
+    final url=Api.I.absoluteUrl(source['url']);
+    final path=Uri.tryParse(url)?.path??url;
+    final fromUrl=_normalizeQuality(path);
+    if(fromUrl.isNotEmpty&&fromUrl!=path)return fromUrl;
+
+    return '';
+  }
+
+  int _qualityRank(String quality){
+    final q=quality.toLowerCase();
+    if(q.contains('2160')||q.contains('4k'))return 2160;
+    if(q.contains('1440'))return 1440;
+    if(q.contains('1080')||q.contains('fhd'))return 1080;
+    if(q.contains('900'))return 900;
+    if(q.contains('720')||q=='hd')return 720;
+    if(q.contains('576'))return 576;
+    if(q.contains('540'))return 540;
+    if(q.contains('480')||q=='sd')return 480;
+    if(q.contains('360'))return 360;
+    if(q.contains('240'))return 240;
+    if(q.toLowerCase()==(Api.I.ar?'تلقائي':'auto').toLowerCase())return -1;
+    return 0;
+  }
+
+  List<int> get _qualitySourceIndices{
+    final byQuality=<String,int>{};
+    for(var i=0;i<sources.length;i++){
+      final quality=_sourceQuality(sources[i]);
+      if(quality.isEmpty)continue;
+      byQuality.putIfAbsent(quality,()=>i);
+    }
+    final entries=byQuality.entries.toList()
+      ..sort((a,b)=>_qualityRank(b.key).compareTo(_qualityRank(a.key)));
+    return entries.map((e)=>e.value).toList();
+  }
+
+  bool get _hasQualityOptions=>_qualitySourceIndices.isNotEmpty;
+
+  String get _currentQualityLabel{
+    if(currentSource<0||currentSource>=sources.length)return '';
+    return _sourceQuality(sources[currentSource]);
+  }
+
   Future<bool> _tryOfflineTarget(String type,int id,String fallbackTitle) async {
     final record=await OfflineDownloads.I.record(type,id);
     if(record==null)return false;

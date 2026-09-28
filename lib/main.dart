@@ -23,6 +23,22 @@ part 'pro_import_center.dart';
 part 'import_bridge_ui.dart';
 
 const apiUrl = 'https://shortseris.online/mobile-api/index.php';
+const appBrandName = 'SHORT SERIES TV';
+final RouteObserver<PageRoute<dynamic>> appRouteObserver = RouteObserver<PageRoute<dynamic>>();
+
+class AppPlaybackSession {
+  static Player? _active;
+  static void claim(Player player) {
+    final previous = _active;
+    if (previous != null && !identical(previous, player)) {
+      unawaited(previous.stop());
+    }
+    _active = player;
+  }
+  static void release(Player player) {
+    if (identical(_active, player)) _active = null;
+  }
+}
 const appDisplayName = 'SHORT SERIES TV';
 final RouteObserver<PageRoute<dynamic>> appRouteObserver = RouteObserver<PageRoute<dynamic>>();
 

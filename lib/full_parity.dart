@@ -104,7 +104,7 @@ class _ProPagedMediaGridState extends State<ProPagedMediaGrid> {
     super.didUpdateWidget(oldWidget);
     if(oldWidget.type!=widget.type||oldWidget.query!=widget.query) _load(reset:true);
   }
-  Future<void> _load({bool reset=false}) async {
+  Future<void> _load({bool reset=false,bool forceRefresh=false}) async {
     if(loading) return;
     if(reset){
       rows.clear(); page=1; done=false;
@@ -115,7 +115,7 @@ class _ProPagedMediaGridState extends State<ProPagedMediaGrid> {
     try{
       final res=await Api.I.call('media',query:{
         'type':widget.type,'q':widget.query,'page':page,'limit':30,
-      });
+      },forceRefresh:forceRefresh);
       final list=(res['data'] as List? ?? const [])
           .map((e)=>Map<String,dynamic>.from(e as Map)).toList();
       rows.addAll(list);
@@ -133,7 +133,7 @@ class _ProPagedMediaGridState extends State<ProPagedMediaGrid> {
     if(rows.isEmpty&&loading)return const Center(child:CircularProgressIndicator());
     if(rows.isEmpty)return Center(child:Text(Api.I.ar?'لا يوجد محتوى':'No content'));
     return RefreshIndicator(
-      onRefresh:()=>_load(reset:true),
+      onRefresh:()=>_load(reset:true,forceRefresh:true),
       child:GridView.builder(
         controller:scroll,
         padding:const EdgeInsets.all(12),

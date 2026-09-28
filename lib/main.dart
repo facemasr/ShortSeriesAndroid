@@ -502,14 +502,15 @@ class MediaSection extends StatelessWidget {
 
 class MediaCard extends StatelessWidget {
   final Map<String, dynamic> item;
-  const MediaCard({super.key, required this.item});
+  final VoidCallback? onTap;
+  const MediaCard({super.key, required this.item, this.onTap});
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: 142,
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: () => Navigator.push(
+        onTap: onTap ?? () => Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => ProDetailPage(id: (item['id'] as num).toInt()),

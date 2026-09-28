@@ -23,7 +23,7 @@ class _ProDetailPageState extends State<ProDetailPage> {
   }
 
   Future<void> _reload() async {
-    final next = Api.I.call('media_detail', query: {'id': widget.id});
+    final next = Api.I.call('media_detail', query: {'id': widget.id},forceRefresh:true);
     setState(() => _future = next);
     await next;
   }

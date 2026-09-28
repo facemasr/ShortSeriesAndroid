@@ -521,7 +521,8 @@ class OfflineDownloads {
 }
 
 class OfflineLibraryPage extends StatefulWidget{
-  const OfflineLibraryPage({super.key});
+  final VoidCallback? onRetry;
+  const OfflineLibraryPage({super.key,this.onRetry});
 
   @override
   State<OfflineLibraryPage> createState()=>_OfflineLibraryPageState();
@@ -549,6 +550,14 @@ class _OfflineLibraryPageState extends State<OfflineLibraryPage>{
     return Scaffold(
       appBar:AppBar(
         title:Text(Api.I.ar?'التنزيلات':'Downloads'),
+        actions:[
+          if(widget.onRetry!=null)
+            IconButton(
+              tooltip:Api.I.ar?'إعادة الاتصال':'Retry connection',
+              onPressed:widget.onRetry,
+              icon:const Icon(Icons.wifi_rounded),
+            ),
+        ],
       ),
       body:FutureBuilder<List<OfflineMediaRecord>>(
         future:future,

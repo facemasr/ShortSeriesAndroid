@@ -16,7 +16,7 @@ class ProPlayerPage extends StatefulWidget {
   State<ProPlayerPage> createState() => _ProPlayerPageState();
 }
 
-class _ProPlayerPageState extends State<ProPlayerPage> {
+class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsBindingObserver {
   late final Player player;
   late final VideoController controller;
 
@@ -37,6 +37,8 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
   bool fallbackBusy = false;
   bool refreshingSource = false;
   StreamSubscription<String>? playerErrorSub;
+  PageRoute<dynamic>? _pageRoute;
+  bool _resumeAfterCovered = false;
 
   bool loading = true;
   bool transitioning = false;
@@ -57,6 +59,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
     ownerId = widget.ownerId;
     title = widget.title;
 
+    WidgetsBinding.instance.addObserver(this);
     player = Player();
     controller = VideoController(player);
     playerErrorSub = player.stream.error.listen((message) {
@@ -67,6 +70,38 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
     _loadTarget(ownerType, ownerId, title);
 
     timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic> && route != _pageRoute) {
+      if (_pageRoute != null) appRouteObserver.unsubscribe(this);
+      _pageRoute = route;
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    _resumeAfterCovered = player.state.playing;
+    unawaited(player.pause());
+  }
+
+  @override
+  void didPopNext() {
+    if (_resumeAfterCovered && mounted) {
+      unawaited(player.play());
+    }
+    _resumeAfterCovered = false;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      unawaited(player.pause());
+    }
   }
 
   Map<String, dynamic>? _mapValue(String key) {
@@ -183,26 +218,47 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
   }
 
   Map<String, String> _sourceHeaders(Map<String, dynamic> source) {
-    final raw = source['headers_json'];
+    dynamic raw = source['headers'];
+    raw ??= source['headers_json'];
+
+    Map<dynamic, dynamic>? decoded;
     if (raw is Map) {
-      return raw.map((key, value) => MapEntry(key.toString(), value.toString()));
-    }
-    if (raw is String && raw.trim().isNotEmpty) {
+      decoded = raw;
+    } else if (raw is String && raw.trim().isNotEmpty) {
       try {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) {
-          return decoded.map((key, value) => MapEntry(key.toString(), value.toString()));
-        }
+        final value = jsonDecode(raw);
+        if (value is Map) decoded = value;
       } catch (_) {}
     }
-    return const <String, String>{};
+    if (decoded == null) return const <String, String>{};
+
+    const allowed = <String>{
+      'referer',
+      'origin',
+      'user-agent',
+      'authorization',
+      'cookie',
+      'accept',
+      'accept-language',
+      'range',
+    };
+
+    final out = <String, String>{};
+    for (final entry in decoded.entries) {
+      final key = entry.key.toString().trim();
+      final value = entry.value?.toString().trim() ?? '';
+      if (key.isEmpty || value.isEmpty) continue;
+      if (!allowed.contains(key.toLowerCase())) continue;
+      out[key] = value;
+    }
+    return out;
   }
 
   Future<void> _openSource(int index, {int? resumeAt}) async {
     if (index < 0 || index >= sources.length) return;
     final oldPosition = player.state.position;
     final source = sources[index];
-    final url = (source['url'] ?? '').toString();
+    final url = Api.I.absoluteUrl(source['url']);
     if (url.isEmpty) return;
 
     currentSource = index;
@@ -342,7 +398,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
     }
     if (index >= subtitles.length) return;
     final track = subtitles[index];
-    final url = (track['url'] ?? '').toString();
+    final url = Api.I.absoluteUrl(track['url']);
     if (url.isEmpty) return;
     await player.setSubtitleTrack(
       SubtitleTrack.uri(
@@ -616,7 +672,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: CachedNetworkImage(
-                      imageUrl: (ep['still'] ?? '').toString(),
+                      imageUrl: Api.I.absoluteUrl(ep['still']),
                       fit: BoxFit.cover,
                       errorWidget: (_, __, ___) => Container(
                         color: Colors.white10,
@@ -653,6 +709,8 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
+    WidgetsBinding.instance.removeObserver(this);
     timer?.cancel();
     playerErrorSub?.cancel();
     unawaited(_saveProgress());
@@ -791,7 +849,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(9),
                                       child: CachedNetworkImage(
-                                        imageUrl: (next['still'] ?? '').toString(),
+                                        imageUrl: Api.I.absoluteUrl(next['still']),
                                         fit: BoxFit.cover,
                                         errorWidget: (_, __, ___) => Container(color: Colors.white10),
                                       ),
@@ -969,10 +1027,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
                                           fit: StackFit.expand,
                                           children: [
                                             CachedNetworkImage(
-                                              imageUrl: (item['backdrop'] ??
-                                                      item['logo'] ??
-                                                      '')
-                                                  .toString(),
+                                              imageUrl: Api.I.absoluteUrl(item['backdrop'] ?? item['logo']),
                                               fit: BoxFit.cover,
                                               errorWidget: (_, __, ___) =>
                                                   Container(color: Colors.white10),
@@ -1008,7 +1063,34 @@ class _ProPlayerPageState extends State<ProPlayerPage> {
                                     ),
                                   );
                                 }
-                                return MediaCard(item: item);
+                                return MediaCard(
+                                  item: item,
+                                  onTap: () async {
+                                    final id = (item['id'] as num?)?.toInt() ?? 0;
+                                    if (id <= 0 || transitioning) return;
+                                    final itemType = (item['type'] ?? '').toString();
+                                    final itemTitle = (item['title'] ??
+                                            item['original_title'] ??
+                                            '')
+                                        .toString();
+
+                                    await _saveProgress();
+                                    await player.pause();
+
+                                    if (itemType == 'movie') {
+                                      await _loadTarget('media', id, itemTitle);
+                                      return;
+                                    }
+
+                                    if (!mounted) return;
+                                    Navigator.pushReplacement(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => ProDetailPage(id: id),
+                                      ),
+                                    );
+                                  },
+                                );
                               },
                             ),
                           ),

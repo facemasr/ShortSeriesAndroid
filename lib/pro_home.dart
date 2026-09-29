@@ -283,7 +283,7 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
   Widget build(BuildContext context){
     final size=MediaQuery.sizeOf(context);
     final compact=size.width<430;
-    final heroHeight=(size.width*(compact?.78:.56))
+    final heroHeight=(size.width*(compact ? .78 : .56))
       .clamp(compact?292.0:320.0,compact?370.0:420.0)
       .toDouble();
 

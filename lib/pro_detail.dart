@@ -404,6 +404,7 @@ class _ProDetailPageState extends State<ProDetailPage> {
                       ),
                     ),
                     const AppAd('app_details'),
+                    const AdMobNativeCard(placement:'details'),
                     if (overview.isNotEmpty) ...[
                       const SizedBox(height: 18),
                       Text(

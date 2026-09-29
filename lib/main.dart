@@ -754,8 +754,11 @@ class MediaSection extends StatelessWidget {
   const MediaSection({super.key, required this.data});
   @override
   Widget build(BuildContext context) {
-    final items = data['items'] as List? ?? const [];
-    if (items.isEmpty) return const SizedBox.shrink();
+    final items=Api.I.rowsFrom(
+      data['items']??data['rows']??data['media']??const [],
+      keys:const ['items','rows','media','data','results'],
+    );
+    if(items.isEmpty)return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(top: 18),
       child: Column(
@@ -779,9 +782,7 @@ class MediaSection extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: items.length,
               separatorBuilder: (_, __) => const SizedBox(width: 10),
-              itemBuilder: (_, i) => MediaCard(
-                item: Map<String, dynamic>.from(items[i] as Map),
-              ),
+              itemBuilder:(_,i)=>MediaCard(item:items[i]),
             ),
           ),
         ],

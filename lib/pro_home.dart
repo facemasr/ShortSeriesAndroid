@@ -13,7 +13,7 @@ class _ProHomePageState extends State<ProHomePage> {
   @override
   void initState() {
     super.initState();
-    _home = Api.I.call('home');
+    _home = Api.I.call('home',forceRefresh:true);
   }
 
   Future<void> _refresh() async {

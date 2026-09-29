@@ -35,61 +35,59 @@ jobs:
         run: |
           flutter create . --platforms=android --org online.shortseris --project-name shortseris_app
 
-          # Google Mobile Ads currently brings an old WorkManager/Room chain on
-          # some Android builds. Force a current WorkManager and keep release
-          # shrinking off until the startup path is verified on real devices.
+          # Fix AdMob/AndroidX startup compatibility on release builds.
           python3 - <<'PY_GRADLE'
           from pathlib import Path
           import re
 
           app_gradle = Path("android/app/build.gradle.kts")
-          if app_gradle.exists():
-              g = app_gradle.read_text()
+          g = app_gradle.read_text()
 
-              if 'androidx.work:work-runtime:2.11.2' not in g:
-                  g += '\n\ndependencies {\n    implementation("androidx.work:work-runtime:2.11.2")\n}\n'
+          if 'androidx.work:work-runtime:2.11.2' not in g:
+              g += '\n\ndependencies {\n    implementation("androidx.work:work-runtime:2.11.2")\n}\n'
 
-              release_pattern = re.compile(
-                  r'(release\s*\{)(.*?)(\n\s*\})',
-                  re.S,
-              )
+          release_pattern = re.compile(
+              r'(release\s*\{)(.*?)(\n\s*\})',
+              re.S,
+          )
 
-              def patch_release(match):
-                  body = match.group(2)
-                  if 'isMinifyEnabled' not in body:
-                      body += '\n            isMinifyEnabled = false'
-                  else:
-                      body = re.sub(
-                          r'isMinifyEnabled\s*=\s*true',
-                          'isMinifyEnabled = false',
-                          body,
-                      )
-                  if 'isShrinkResources' not in body:
-                      body += '\n            isShrinkResources = false'
-                  else:
-                      body = re.sub(
-                          r'isShrinkResources\s*=\s*true',
-                          'isShrinkResources = false',
-                          body,
-                      )
-                  return match.group(1) + body + match.group(3)
+          def patch_release(match):
+              body = match.group(2)
+              if 'isMinifyEnabled' not in body:
+                  body += '\n            isMinifyEnabled = false'
+              else:
+                  body = re.sub(
+                      r'isMinifyEnabled\s*=\s*true',
+                      'isMinifyEnabled = false',
+                      body,
+                  )
+              if 'isShrinkResources' not in body:
+                  body += '\n            isShrinkResources = false'
+              else:
+                  body = re.sub(
+                      r'isShrinkResources\s*=\s*true',
+                      'isShrinkResources = false',
+                      body,
+                  )
+              return match.group(1) + body + match.group(3)
 
-              g, count = release_pattern.subn(patch_release, g, count=1)
-              if count == 0:
-                  raise SystemExit("Could not find Android release buildType")
-              app_gradle.write_text(g)
+          g, count = release_pattern.subn(patch_release, g, count=1)
+          if count == 0:
+              raise SystemExit("Could not find Android release buildType")
+          app_gradle.write_text(g)
 
-          # Keep rules are included for when shrinking is re-enabled later.
-          rules = Path("android/app/proguard-rules.pro")
-          rules.write_text("""# SHORT SERIES TV - Android startup/AdMob compatibility
--keep class androidx.room.** { *; }
--keep class * extends androidx.room.RoomDatabase { *; }
--keep class androidx.work.** { *; }
--keep class androidx.startup.** { *; }
--keep class com.google.android.gms.ads.** { *; }
--keep class com.google.android.ump.** { *; }
--dontwarn androidx.work.**
-""")
+          rules = [
+              "# SHORT SERIES TV - Android startup/AdMob compatibility",
+              "-keep class androidx.room.** { *; }",
+              "-keep class * extends androidx.room.RoomDatabase { *; }",
+              "-keep class androidx.work.** { *; }",
+              "-keep class androidx.startup.** { *; }",
+              "-keep class com.google.android.gms.ads.** { *; }",
+              "-keep class com.google.android.ump.** { *; }",
+              "-dontwarn androidx.work.**",
+              "",
+          ]
+          Path("android/app/proguard-rules.pro").write_text("\n".join(rules))
           PY_GRADLE
           python3 - <<'PY'
           from pathlib import Path

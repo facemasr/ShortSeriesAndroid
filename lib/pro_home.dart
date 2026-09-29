@@ -139,178 +139,301 @@ class _HeroCarousel extends StatefulWidget {
   State<_HeroCarousel> createState() => _HeroCarouselState();
 }
 
-class _HeroCarouselState extends State<_HeroCarousel> {
-  final _controller = PageController(viewportFraction: .96);
+class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserver {
+  late final PageController _controller;
   Timer? _timer;
-  int _index = 0;
+  int _index=0;
+  bool _interacting=false;
 
   @override
-  void initState() {
+  void initState(){
     super.initState();
-    if (widget.sliders.length > 1) {
-      _timer = Timer.periodic(const Duration(seconds: 6), (_) {
-        if (!_controller.hasClients) return;
-        final next = (_index + 1) % widget.sliders.length;
-        _controller.animateToPage(
-          next,
-          duration: const Duration(milliseconds: 550),
-          curve: Curves.easeOutCubic,
-        );
-      });
+    WidgetsBinding.instance.addObserver(this);
+    _controller=PageController();
+    _startAuto();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HeroCarousel oldWidget){
+    super.didUpdateWidget(oldWidget);
+    if(widget.sliders.length!=oldWidget.sliders.length){
+      if(widget.sliders.isEmpty){
+        _index=0;
+      }else if(_index>=widget.sliders.length){
+        _index=widget.sliders.length-1;
+        if(_controller.hasClients){
+          WidgetsBinding.instance.addPostFrameCallback((_){
+            if(mounted&&_controller.hasClients){
+              _controller.jumpToPage(_index);
+            }
+          });
+        }
+      }
+      _startAuto();
     }
   }
 
   @override
-  void dispose() {
+  void didChangeAppLifecycleState(AppLifecycleState state){
+    if(state==AppLifecycleState.resumed){
+      _startAuto();
+    }else{
+      _timer?.cancel();
+    }
+  }
+
+  void _startAuto(){
+    _timer?.cancel();
+    if(widget.sliders.length<=1||_interacting)return;
+    if(MediaQuery.maybeOf(context)?.disableAnimations??false)return;
+    _timer=Timer.periodic(const Duration(seconds:6),(_){
+      if(!mounted||_interacting||!_controller.hasClients)return;
+      final next=(_index+1)%widget.sliders.length;
+      _controller.animateToPage(
+        next,
+        duration:const Duration(milliseconds:520),
+        curve:Curves.easeInOutCubic,
+      );
+    });
+  }
+
+  void _pauseAuto(){
+    _interacting=true;
+    _timer?.cancel();
+  }
+
+  void _resumeAuto(){
+    _interacting=false;
+    _startAuto();
+  }
+
+  Future<void> _goTo(int index) async{
+    if(index<0||index>=widget.sliders.length||!_controller.hasClients)return;
+    _pauseAuto();
+    await _controller.animateToPage(
+      index,
+      duration:const Duration(milliseconds:420),
+      curve:Curves.easeOutCubic,
+    );
+    if(mounted)_resumeAuto();
+  }
+
+  @override
+  void dispose(){
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _controller.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context){
+    final size=MediaQuery.sizeOf(context);
+    final compact=size.width<430;
+    final heroHeight=(size.width*(compact?.82:.62))
+      .clamp(compact?300.0:330.0,compact?390.0:430.0);
+
     return SizedBox(
-      height: 390,
-      child: Stack(
-        children: [
-          PageView.builder(
-            controller: _controller,
-            itemCount: widget.sliders.length,
-            onPageChanged: (v) => setState(() => _index = v),
-            itemBuilder: (_, i) {
-              final s = Map<String, dynamic>.from(widget.sliders[i] as Map);
-              final image = Api.I.absoluteUrl(s['mobile_image'] ?? s['image'] ?? s['backdrop'] ?? s['poster']);
-              final title = (s['title'] ?? s['original_title'] ?? '').toString();
-              final mediaId = int.tryParse((s['media_id'] ?? '').toString()) ?? 0;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(22),
-                  onTap: mediaId <= 0
-                      ? null
-                      : () => AppNavigator.open(
-                            context,
-                            ProDetailPage(id: mediaId),
-                            key: 'media/$mediaId',
+      height:heroHeight,
+      child:Stack(
+        children:[
+          NotificationListener<ScrollNotification>(
+            onNotification:(notification){
+              if(notification is ScrollStartNotification){
+                _pauseAuto();
+              }else if(notification is ScrollEndNotification){
+                _resumeAuto();
+              }
+              return false;
+            },
+            child:PageView.builder(
+              controller:_controller,
+              physics:const PageScrollPhysics(),
+              allowImplicitScrolling:true,
+              itemCount:widget.sliders.length,
+              onPageChanged:(value){
+                if(mounted)setState(()=>_index=value);
+              },
+              itemBuilder:(_,i){
+                final s=Map<String,dynamic>.from(widget.sliders[i] as Map);
+                final image=Api.I.absoluteUrl(
+                  s['mobile_image']??s['image']??s['backdrop']??s['poster'],
+                );
+                final title=(s['title']??s['original_title']??'').toString();
+                final mediaId=int.tryParse((s['media_id']??'').toString())??0;
+
+                void openDetails(){
+                  if(mediaId<=0)return;
+                  AppNavigator.open(
+                    context,
+                    ProDetailPage(id:mediaId),
+                    key:'media/$mediaId',
+                  );
+                }
+
+                return Padding(
+                  padding:EdgeInsets.fromLTRB(
+                    compact?10:14,
+                    6,
+                    compact?10:14,
+                    8,
+                  ),
+                  child:Material(
+                    color:const Color(0xFF111214),
+                    borderRadius:BorderRadius.circular(compact?20:24),
+                    clipBehavior:Clip.antiAlias,
+                    child:InkWell(
+                      onTap:mediaId>0?openDetails:null,
+                      child:Stack(
+                        fit:StackFit.expand,
+                        children:[
+                          if(image.isNotEmpty)
+                            CachedNetworkImage(
+                              imageUrl:image,
+                              fit:BoxFit.cover,
+                              alignment:Alignment.topCenter,
+                              placeholder:(_,__)=>Container(color:const Color(0xFF111214)),
+                              errorWidget:(_,__,___)=>Container(
+                                color:const Color(0xFF111214),
+                                child:const Icon(Icons.movie_outlined,size:48,color:Colors.white24),
+                              ),
+                            )
+                          else
+                            Container(
+                              color:const Color(0xFF111214),
+                              child:const Icon(Icons.movie_outlined,size:48,color:Colors.white24),
+                            ),
+                          const DecoratedBox(
+                            decoration:BoxDecoration(
+                              gradient:LinearGradient(
+                                begin:Alignment.topCenter,
+                                end:Alignment.bottomCenter,
+                                colors:[
+                                  Color(0x10000000),
+                                  Color(0x25000000),
+                                  Color(0xF207080B),
+                                ],
+                                stops:[0,.46,1],
+                              ),
+                            ),
                           ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(22),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        CachedNetworkImage(
-                          imageUrl: image,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => Container(color: Colors.white10),
-                        ),
-                        const DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Colors.transparent, Color(0xE607080B)],
-                              stops: [.35, 1],
+                          PositionedDirectional(
+                            start:compact?16:22,
+                            end:compact?16:22,
+                            bottom:compact?34:38,
+                            child:Column(
+                              crossAxisAlignment:CrossAxisAlignment.start,
+                              mainAxisSize:MainAxisSize.min,
+                              children:[
+                                Text(
+                                  title,
+                                  maxLines:2,
+                                  overflow:TextOverflow.ellipsis,
+                                  style:TextStyle(
+                                    fontSize:compact?24:30,
+                                    fontWeight:FontWeight.w900,
+                                    height:1.04,
+                                    letterSpacing:-.4,
+                                  ),
+                                ),
+                                const SizedBox(height:7),
+                                Wrap(
+                                  spacing:7,
+                                  runSpacing:5,
+                                  children:[
+                                    if((s['year']??'').toString().isNotEmpty)
+                                      _HeroMeta((s['year']??'').toString()),
+                                    if((s['rating']??'').toString().isNotEmpty)
+                                      _HeroMeta('★ ${s['rating']}'),
+                                    if((s['quality']??'').toString().isNotEmpty)
+                                      _HeroMeta((s['quality']??'').toString()),
+                                  ],
+                                ),
+                                if(mediaId>0)...[
+                                  const SizedBox(height:12),
+                                  Row(
+                                    children:[
+                                      FilledButton.icon(
+                                        style:FilledButton.styleFrom(
+                                          backgroundColor:Colors.white,
+                                          foregroundColor:Colors.black,
+                                          padding:EdgeInsets.symmetric(
+                                            horizontal:compact?15:20,
+                                            vertical:compact?10:12,
+                                          ),
+                                        ),
+                                        onPressed:openDetails,
+                                        icon:const Icon(Icons.play_arrow_rounded),
+                                        label:Text(
+                                          Api.I.ar?'مشاهدة':'Watch',
+                                          style:const TextStyle(fontWeight:FontWeight.w900),
+                                        ),
+                                      ),
+                                      const SizedBox(width:8),
+                                      FilledButton.tonalIcon(
+                                        style:FilledButton.styleFrom(
+                                          backgroundColor:const Color(0xB31B1B1B),
+                                          foregroundColor:Colors.white,
+                                          padding:EdgeInsets.symmetric(
+                                            horizontal:compact?12:16,
+                                            vertical:compact?10:12,
+                                          ),
+                                        ),
+                                        onPressed:openDetails,
+                                        icon:const Icon(Icons.info_outline_rounded),
+                                        label:Text(
+                                          Api.I.ar?'التفاصيل':'Details',
+                                          style:const TextStyle(fontWeight:FontWeight.w800),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          if(widget.sliders.length>1)
+            Positioned(
+              bottom:15,
+              left:0,
+              right:0,
+              child:Center(
+                child:ConstrainedBox(
+                  constraints:const BoxConstraints(maxWidth:260),
+                  child:SingleChildScrollView(
+                    scrollDirection:Axis.horizontal,
+                    child:Row(
+                      mainAxisSize:MainAxisSize.min,
+                      children:List.generate(
+                        widget.sliders.length,
+                        (i)=>Semantics(
+                          button:true,
+                          selected:i==_index,
+                          label:'${Api.I.ar?'الشريحة':'Slide'} ${i+1}',
+                          child:InkWell(
+                            borderRadius:BorderRadius.circular(99),
+                            onTap:()=>_goTo(i),
+                            child:AnimatedContainer(
+                              duration:const Duration(milliseconds:220),
+                              margin:const EdgeInsets.symmetric(horizontal:3,vertical:6),
+                              width:i==_index?24:7,
+                              height:7,
+                              decoration:BoxDecoration(
+                                color:i==_index?Colors.white:Colors.white38,
+                                borderRadius:BorderRadius.circular(99),
+                              ),
                             ),
                           ),
                         ),
-                        PositionedDirectional(
-                          start: 18,
-                          end: 18,
-                          bottom: 26,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w900,
-                                  height: 1.02,
-                                  letterSpacing: -.4,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 6,
-                                children: [
-                                  if ((s['year'] ?? '').toString().isNotEmpty)
-                                    _HeroMeta((s['year'] ?? '').toString()),
-                                  if ((s['rating'] ?? '').toString().isNotEmpty)
-                                    _HeroMeta('★ ' + (s['rating'] ?? '').toString()),
-                                  if ((s['quality'] ?? '').toString().isNotEmpty)
-                                    _HeroMeta((s['quality'] ?? '').toString()),
-                                ],
-                              ),
-                              const SizedBox(height: 14),
-                              if (mediaId > 0)
-                                Row(
-                                  children: [
-                                    FilledButton.icon(
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: Colors.white,
-                                        foregroundColor: Colors.black,
-                                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                                      ),
-                                      onPressed: () => AppNavigator.open(
-                                        context,
-                                        ProDetailPage(id: mediaId),
-                                        key: 'media/$mediaId',
-                                      ),
-                                      icon: const Icon(Icons.play_arrow_rounded),
-                                      label: Text(
-                                        Api.I.ar ? 'مشاهدة' : 'Watch',
-                                        style: const TextStyle(fontWeight: FontWeight.w900),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 9),
-                                    FilledButton.tonalIcon(
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: const Color(0xB31B1B1B),
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                      ),
-                                      onPressed: () => Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (_) => ProDetailPage(id: mediaId)),
-                                      ),
-                                      icon: const Icon(Icons.info_outline_rounded),
-                                      label: Text(
-                                        Api.I.ar ? 'التفاصيل' : 'Details',
-                                        style: const TextStyle(fontWeight: FontWeight.w800),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          if (widget.sliders.length > 1)
-            Positioned(
-              bottom: 13,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  widget.sliders.length,
-                  (i) => AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
-                    width: i == _index ? 20 : 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: i == _index ? Colors.white : Colors.white38,
-                      borderRadius: BorderRadius.circular(99),
+                      ),
                     ),
                   ),
                 ),

@@ -46,7 +46,7 @@ jobs:
           s = re.sub(r'android:label="[^"]*"', 'android:label="SHORT SERIES TV"', s, count=1)
           admob_app_id = (os.environ.get("ADMOB_APP_ID_ANDROID") or "").strip()
           if not admob_app_id:
-              admob_app_id = "ca-app-pub-3940256099942544~3347511713"
+              admob_app_id = "ca-app-pub-3494213319779695~6086363285"
           meta = f'''\n        <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="{admob_app_id}"/>'''
@@ -87,8 +87,8 @@ jobs:
             echo "Build attempt $attempt of 3"
             if flutter build apk --release \
               --dart-define=ADMOB_BANNER_ID="${{ vars.ADMOB_BANNER_ID_ANDROID }}" \
-              --dart-define=ADMOB_INTERSTITIAL_ID="${{ vars.ADMOB_INTERSTITIAL_ID_ANDROID }}" \
-              --dart-define=ADMOB_ENABLED="${{ vars.ADMOB_ENABLED }}"; then
+              --dart-define=ADMOB_INTERSTITIAL_ID="${{ vars.ADMOB_INTERSTITIAL_ID_ANDROID || 'ca-app-pub-3494213319779695/7842123070' }}" \
+              --dart-define=ADMOB_ENABLED="${{ vars.ADMOB_ENABLED || 'true' }}"; then
               exit 0
             fi
             if [ "$attempt" -lt 3 ]; then

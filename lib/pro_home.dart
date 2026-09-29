@@ -39,14 +39,62 @@ class _ProHomePageState extends State<ProHomePage> {
             }
 
             final data=Api.I.mapFrom(snapshot.data!['data']);
-            final sliders=Api.I.rowsFrom(
-              data['sliders']??data['slides']??data['hero']??const [],
-              keys:const ['sliders','slides','hero','items','rows','data'],
-            );
             final sections=Api.I.rowsFrom(
               data['sections']??const [],
               keys:const ['sections','items','rows','data'],
             );
+
+            final remoteSliders=Api.I.rowsFrom(
+              data['sliders']??data['slides']??data['hero']??const [],
+              keys:const ['sliders','slides','hero','items','rows','data'],
+            );
+
+            bool usableSlider(Map<String,dynamic> slide){
+              final media=Api.I.mapFrom(slide['media']);
+              final image=(
+                slide['mobile_image']??
+                slide['image']??
+                slide['backdrop']??
+                slide['poster']??
+                media['backdrop']??
+                media['poster']??
+                ''
+              ).toString().trim();
+              final mediaId=int.tryParse(
+                (slide['media_id']??media['id']??'').toString(),
+              )??0;
+              return image.isNotEmpty||mediaId>0;
+            }
+
+            final sliders=<Map<String,dynamic>>[
+              ...remoteSliders.where(usableSlider),
+            ];
+
+            if(sliders.isEmpty){
+              final seen=<int>{};
+              for(final section in sections){
+                final items=Api.I.rowsFrom(
+                  section['items']??section['_items']??const [],
+                  keys:const ['items','rows','data','media','results'],
+                );
+                for(final item in items){
+                  final id=int.tryParse((item['id']??'').toString())??0;
+                  if(id<=0||seen.contains(id))continue;
+                  final image=(item['backdrop']??item['poster']??'').toString().trim();
+                  if(image.isEmpty)continue;
+                  seen.add(id);
+                  sliders.add(<String,dynamic>{
+                    ...item,
+                    'media_id':id,
+                    'title':item['_title']??item['title']??item['original_title'],
+                    'image':item['backdrop']??item['poster'],
+                    'mobile_image':item['poster']??item['backdrop'],
+                  });
+                  if(sliders.length>=6)break;
+                }
+                if(sliders.length>=6)break;
+              }
+            }
 
             return CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -262,7 +310,7 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
   int _mediaId(Map<String,dynamic> slide){
     final media=_media(slide);
     return int.tryParse(
-      (slide['media_id']??media['id']??slide['id']??'').toString(),
+      (slide['media_id']??media['id']??'').toString(),
     )??0;
   }
 

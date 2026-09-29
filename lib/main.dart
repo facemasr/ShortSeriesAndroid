@@ -797,7 +797,7 @@ class MediaCard extends StatelessWidget {
 
   int get _id=>int.tryParse((item['id']??item['media_id']??'').toString())??0;
 
-  String get _title=>(item['title']??item['name']??item['original_title']??'').toString().trim();
+  String get _title=>(item['_title']??item['title']??item['name']??item['original_title']??item['original_name']??'').toString().trim();
 
   String get _image{
     final direct=(item['poster']??item['poster_url']??item['image']??'').toString().trim();
@@ -824,11 +824,13 @@ class MediaCard extends StatelessWidget {
     final image=_image;
     final id=_id;
 
-    return Material(
-      color:const Color(0xFF101114),
-      borderRadius:BorderRadius.circular(15),
-      clipBehavior:Clip.antiAlias,
-      child:InkWell(
+    return SizedBox(
+      width:148,
+      child:Material(
+        color:const Color(0xFF101114),
+        borderRadius:BorderRadius.circular(15),
+        clipBehavior:Clip.antiAlias,
+        child:InkWell(
         onTap:onTap??(id<=0?null:(){
           AppNavigator.open(
             context,
@@ -927,6 +929,7 @@ class MediaCard extends StatelessWidget {
               ),
             ),
           ],
+          ),
         ),
       ),
     );

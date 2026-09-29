@@ -351,6 +351,68 @@ class Api {
     return const [];
   }
 
+  List<Map<String,dynamic>> rowsFrom(
+    dynamic value, {
+    List<String> keys=const [
+      'items','rows','data','results','media','people','genres','works','filmography',
+    ],
+  }){
+    if(value is List){
+      return value
+        .whereType<Map>()
+        .map((e)=>Map<String,dynamic>.from(e))
+        .toList();
+    }
+    if(value is Map){
+      final map=Map<String,dynamic>.from(value);
+      for(final key in keys){
+        if(!map.containsKey(key))continue;
+        final nested=map[key];
+        if(nested is List){
+          return nested
+            .whereType<Map>()
+            .map((e)=>Map<String,dynamic>.from(e))
+            .toList();
+        }
+        if(nested is Map){
+          final found=rowsFrom(nested,keys:keys);
+          if(found.isNotEmpty)return found;
+        }
+      }
+    }
+    return const <Map<String,dynamic>>[];
+  }
+
+  List<Map<String,dynamic>> responseRows(
+    Map<String,dynamic> response, {
+    List<String> keys=const [
+      'items','rows','data','results','media','people','genres','works','filmography',
+    ],
+  }){
+    return rowsFrom(response['data']??response,keys:keys);
+  }
+
+  Map<String,dynamic> mapFrom(dynamic value){
+    if(value is Map)return Map<String,dynamic>.from(value);
+    return <String,dynamic>{};
+  }
+
+  String localizedValue(dynamic value){
+    if(value==null)return '';
+    if(value is Map){
+      final map=Map<String,dynamic>.from(value);
+      return (map[locale]??map[ar?'ar':'en']??map['ar']??map['en']??'').toString();
+    }
+    final raw=value.toString().trim();
+    if(raw.startsWith('{')&&raw.endsWith('}')){
+      try{
+        final decoded=jsonDecode(raw);
+        if(decoded is Map)return localizedValue(decoded);
+      }catch(_){}
+    }
+    return raw;
+  }
+
   Future<void> login(String email, String password) async {
     final result = await call(
       'login',
@@ -729,44 +791,140 @@ class MediaSection extends StatelessWidget {
 }
 
 class MediaCard extends StatelessWidget {
-  final Map<String, dynamic> item;
+  final Map<String,dynamic> item;
   final VoidCallback? onTap;
-  const MediaCard({super.key, required this.item, this.onTap});
+  const MediaCard({super.key,required this.item,this.onTap});
+
+  int get _id=>int.tryParse((item['id']??item['media_id']??'').toString())??0;
+
+  String get _title=>(item['title']??item['name']??item['original_title']??'').toString().trim();
+
+  String get _image{
+    final direct=(item['poster']??item['poster_url']??item['image']??'').toString().trim();
+    if(direct.isNotEmpty)return Api.I.absoluteUrl(direct);
+    final posterPath=(item['poster_path']??'').toString().trim();
+    if(posterPath.isNotEmpty){
+      return 'https://image.tmdb.org/t/p/w500${posterPath.startsWith('/')?posterPath:'/$posterPath'}';
+    }
+    return '';
+  }
+
+  String get _typeLabel{
+    final type=(item['type']??item['media_type']??'').toString();
+    if(type=='movie')return Api.I.ar?'فيلم':'Movie';
+    if(type=='series'||type=='tv')return Api.I.ar?'مسلسل':'Series';
+    if(type=='short_series')return Api.I.ar?'قصير':'Short';
+    return '';
+  }
+
   @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 142,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap ?? () {
-          final id = (item['id'] as num).toInt();
+  Widget build(BuildContext context){
+    final year=(item['year']??'').toString().trim();
+    final rating=(item['rating']??'').toString().trim();
+    final image=_image;
+    final id=_id;
+
+    return Material(
+      color:const Color(0xFF101114),
+      borderRadius:BorderRadius.circular(15),
+      clipBehavior:Clip.antiAlias,
+      child:InkWell(
+        onTap:onTap??(id<=0?null:(){
           AppNavigator.open(
             context,
-            ProDetailPage(id: id),
-            key: 'media/$id',
+            ProDetailPage(id:id),
+            key:'media/$id',
           );
-        },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        }),
+        child:Column(
+          crossAxisAlignment:CrossAxisAlignment.start,
+          children:[
             Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: CachedNetworkImage(
-                  imageUrl: Api.I.absoluteUrl(item['poster']),
-                  width: 142,
-                  fit: BoxFit.cover,
-                  errorWidget: (_, __, ___) =>
-                      Container(color: Colors.white10),
-                ),
+              child:Stack(
+                fit:StackFit.expand,
+                children:[
+                  if(image.isNotEmpty)
+                    CachedNetworkImage(
+                      imageUrl:image,
+                      fit:BoxFit.cover,
+                      placeholder:(_,__)=>Container(color:const Color(0xFF17181C)),
+                      errorWidget:(_,__,___)=>Container(
+                        color:const Color(0xFF17181C),
+                        child:const Icon(Icons.movie_creation_outlined,size:42,color:Colors.white24),
+                      ),
+                    )
+                  else
+                    Container(
+                      color:const Color(0xFF17181C),
+                      child:const Icon(Icons.movie_creation_outlined,size:42,color:Colors.white24),
+                    ),
+                  const Positioned.fill(
+                    child:DecoratedBox(
+                      decoration:BoxDecoration(
+                        gradient:LinearGradient(
+                          begin:Alignment.topCenter,
+                          end:Alignment.bottomCenter,
+                          colors:[Colors.transparent,Color(0x0A000000),Color(0xB8000000)],
+                          stops:[0,.64,1],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if(_typeLabel.isNotEmpty)
+                    PositionedDirectional(
+                      start:7,
+                      top:7,
+                      child:Container(
+                        padding:const EdgeInsets.symmetric(horizontal:7,vertical:4),
+                        decoration:BoxDecoration(
+                          color:const Color(0xD9000000),
+                          borderRadius:BorderRadius.circular(7),
+                        ),
+                        child:Text(
+                          _typeLabel,
+                          style:const TextStyle(fontSize:9.5,fontWeight:FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  if(rating.isNotEmpty&&rating!='0'&&rating!='0.0')
+                    PositionedDirectional(
+                      end:7,
+                      top:7,
+                      child:Container(
+                        padding:const EdgeInsets.symmetric(horizontal:6,vertical:4),
+                        decoration:BoxDecoration(
+                          color:const Color(0xD9000000),
+                          borderRadius:BorderRadius.circular(7),
+                        ),
+                        child:Text(
+                          '★ $rating',
+                          style:const TextStyle(fontSize:9.5,fontWeight:FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: 7),
-            Text(
-              (item['title'] ?? item['original_title'] ?? '').toString(),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w800),
+            Padding(
+              padding:const EdgeInsets.fromLTRB(9,8,9,9),
+              child:Column(
+                crossAxisAlignment:CrossAxisAlignment.start,
+                children:[
+                  Text(
+                    _title.isEmpty?(Api.I.ar?'بدون عنوان':'Untitled'):_title,
+                    maxLines:1,
+                    overflow:TextOverflow.ellipsis,
+                    style:const TextStyle(fontSize:12.5,fontWeight:FontWeight.w900),
+                  ),
+                  const SizedBox(height:3),
+                  Text(
+                    [if(year.isNotEmpty)year,if(_typeLabel.isNotEmpty)_typeLabel].join(' • '),
+                    maxLines:1,
+                    overflow:TextOverflow.ellipsis,
+                    style:const TextStyle(fontSize:10.5,color:Colors.white54),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

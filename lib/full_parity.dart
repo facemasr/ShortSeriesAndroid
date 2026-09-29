@@ -618,13 +618,13 @@ class _PersonPageState extends State<PersonPage>{
 
   List<Map<String,dynamic>> _dedupeWorks(List rawWorks){
     final byKey=<String,Map<String,dynamic>>{};
-    for(final raw in rawWorks){
-      if(raw is! Map)continue;
-      final w=Map<String,dynamic>.from(raw);
+    for(final workEntry in rawWorks){
+      if(workEntry is! Map)continue;
+      final w=Map<String,dynamic>.from(workEntry);
       final tmdb=(w['tmdb_id']??'').toString();
       final type=(w['media_type']??w['type']??'').toString();
-      final raw=_rawJson(w);
-      final title=(w['title']??w['name']??w['original_title']??w['original_name']??raw['title']??raw['name']??'').toString();
+      final rawData=_rawJson(w);
+      final title=(w['title']??w['name']??w['original_title']??w['original_name']??rawData['title']??rawData['name']??'').toString();
       final key=tmdb.isNotEmpty?'$type:$tmdb':'$type:$title';
       final existing=byKey[key];
       if(existing==null){

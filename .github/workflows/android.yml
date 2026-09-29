@@ -52,6 +52,17 @@ jobs:
             android:value="{admob_app_id}"/>'''
           if "com.google.android.gms.ads.APPLICATION_ID" not in s:
               s = s.replace("</application>", meta + "\n    </application>", 1)
+
+          # Repair a stale/corrupt AndroidX WorkManager DB before
+          # androidx.startup.InitializationProvider runs.
+          repair_provider = '''
+        <provider
+            android:name=".WorkDbRepairProvider"
+            android:authorities="${applicationId}.workdb-repair"
+            android:exported="false"
+            android:initOrder="1000" />'''
+          if "WorkDbRepairProvider" not in s:
+              s = s.replace("</application>", repair_provider + "\n    </application>", 1)
           s = re.sub(r'android:icon="[^"]*"', 'android:icon="@drawable/short_series_tv_icon"', s, count=1)
           if 'android:roundIcon=' in s:
               s = re.sub(r'android:roundIcon="[^"]*"', 'android:roundIcon="@drawable/short_series_tv_icon"', s, count=1)
@@ -104,6 +115,93 @@ jobs:
 
           java_dir = Path("android/app/src/main/java") / Path(*package_name.split("."))
           java_dir.mkdir(parents=True, exist_ok=True)
+
+          (java_dir / "WorkDbRepairProvider.java").write_text(f"""package {package_name};
+
+          import android.content.ContentProvider;
+          import android.content.ContentValues;
+          import android.content.Context;
+          import android.content.SharedPreferences;
+          import android.database.Cursor;
+          import android.net.Uri;
+
+          import java.io.File;
+
+          public final class WorkDbRepairProvider extends ContentProvider {{
+              private static final String PREFS = "shortseries_startup_repair";
+              private static final String KEY = "workdb_repaired_20260930_v1";
+              private static final String DB = "androidx.work.workdb";
+
+              @Override
+              public boolean onCreate() {{
+                  Context context = getContext();
+                  if (context == null) return true;
+
+                  try {{
+                      SharedPreferences prefs =
+                          context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+
+                      if (!prefs.getBoolean(KEY, false)) {{
+                          try {{
+                              context.deleteDatabase(DB);
+                          }} catch (Throwable ignored) {{
+                          }}
+
+                          try {{
+                              File dbDir = new File(
+                                  context.getApplicationInfo().dataDir,
+                                  "databases"
+                              );
+                              new File(dbDir, DB).delete();
+                              new File(dbDir, DB + "-wal").delete();
+                              new File(dbDir, DB + "-shm").delete();
+                              new File(dbDir, DB + "-journal").delete();
+                          }} catch (Throwable ignored) {{
+                          }}
+
+                          prefs.edit().putBoolean(KEY, true).commit();
+                      }}
+                  }} catch (Throwable ignored) {{
+                  }}
+
+                  return true;
+              }}
+
+              @Override
+              public Cursor query(
+                      Uri uri,
+                      String[] projection,
+                      String selection,
+                      String[] selectionArgs,
+                      String sortOrder) {{
+                  return null;
+              }}
+
+              @Override
+              public String getType(Uri uri) {{
+                  return null;
+              }}
+
+              @Override
+              public Uri insert(Uri uri, ContentValues values) {{
+                  return null;
+              }}
+
+              @Override
+              public int delete(Uri uri, String selection, String[] selectionArgs) {{
+                  return 0;
+              }}
+
+              @Override
+              public int update(
+                      Uri uri,
+                      ContentValues values,
+                      String selection,
+                      String[] selectionArgs) {{
+                  return 0;
+              }}
+          }}
+          """)
           (java_dir / "ShortSeriesNativeAdFactory.java").write_text(f"""package {package_name};
 
           import android.content.Context;

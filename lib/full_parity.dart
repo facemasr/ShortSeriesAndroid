@@ -105,25 +105,69 @@ class _ProPagedMediaGridState extends State<ProPagedMediaGrid> {
     if(oldWidget.type!=widget.type||oldWidget.query!=widget.query) _load(reset:true);
   }
   Future<void> _load({bool reset=false,bool forceRefresh=false}) async {
-    if(loading) return;
+    if(loading)return;
     if(reset){
-      rows.clear(); page=1; done=false;
+      rows.clear();
+      page=1;
+      done=false;
       if(mounted)setState((){});
     }
     if(done)return;
-    setState(()=>loading=true);
+    if(mounted)setState(()=>loading=true);
+
     try{
-      final res=await Api.I.call('media',query:{
-        'type':widget.type,'q':widget.query,'page':page,'limit':30,
-      },forceRefresh:forceRefresh);
-      final list=(res['data'] as List? ?? const [])
-          .map((e)=>Map<String,dynamic>.from(e as Map)).toList();
-      rows.addAll(list);
-      final meta=res['meta'];
-      final total=meta is Map ? (meta['total'] as num? ?? rows.length).toInt() : rows.length;
-      done=rows.length>=total||list.isEmpty;
+      final res=await Api.I.call(
+        'media',
+        query:{
+          'type':widget.type,
+          'q':widget.query,
+          'page':page,
+          'limit':30,
+        },
+        forceRefresh:forceRefresh,
+      );
+
+      final list=Api.I.responseRows(
+        res,
+        keys:const ['media','items','rows','data','results'],
+      );
+
+      final existing=rows
+        .map((row)=>int.tryParse((row['id']??'').toString())??0)
+        .where((id)=>id>0)
+        .toSet();
+
+      var added=0;
+      for(final row in list){
+        final id=int.tryParse((row['id']??'').toString())??0;
+        if(id>0&&existing.contains(id))continue;
+        rows.add(row);
+        if(id>0)existing.add(id);
+        added++;
+      }
+
+      final dataMap=Api.I.mapFrom(res['data']);
+      dynamic meta=res['meta'];
+      meta??=dataMap['meta'];
+      meta??=dataMap['pagination'];
+
+      if(meta is Map){
+        final total=int.tryParse(
+          (meta['total']??meta['total_items']??meta['count']??'').toString(),
+        );
+        if(total!=null&&total>=0){
+          done=rows.length>=total;
+        }else{
+          done=list.isEmpty||added==0||list.length<30;
+        }
+      }else{
+        done=list.isEmpty||added==0||list.length<30;
+      }
       page++;
-    }catch(_){}
+    }catch(_){
+      if(rows.isEmpty)done=true;
+    }
+
     if(mounted)setState(()=>loading=false);
   }
   @override
@@ -155,33 +199,211 @@ class GenrePage extends StatefulWidget{
   @override
   State<GenrePage> createState()=>_GenrePageState();
 }
+
 class _GenrePageState extends State<GenrePage>{
   late Future<Map<String,dynamic>> future;
+
   @override
-  void initState(){super.initState();future=Api.I.call('genres');}
+  void initState(){
+    super.initState();
+    future=Api.I.call('genres');
+  }
+
+  Future<void> _refresh() async{
+    final next=Api.I.call('genres',forceRefresh:true);
+    setState(()=>future=next);
+    await next;
+  }
+
   @override
   Widget build(BuildContext context){
     return Scaffold(
       appBar:AppBar(title:Text(Api.I.ar?'التصنيفات':'Genres')),
-      body:FutureBuilder<Map<String,dynamic>>(
-        future:future,
-        builder:(_,s){
-          if(!s.hasData)return const Center(child:CircularProgressIndicator());
-          final rows=s.data!['data'] as List? ?? const[];
-          return ListView.separated(
-            padding:const EdgeInsets.all(12),
-            itemCount:rows.length,
-            separatorBuilder:(_,__)=>const Divider(height:1),
-            itemBuilder:(_,i){
-              final g=Map<String,dynamic>.from(rows[i] as Map);
-              return ListTile(
-                leading:const CircleAvatar(child:Icon(Icons.local_movies_outlined)),
-                title:Text((g['name']??'').toString()),
-                trailing:Text((g['media_count']??0).toString()),
+      body:RefreshIndicator(
+        onRefresh:_refresh,
+        child:FutureBuilder<Map<String,dynamic>>(
+          future:future,
+          builder:(_,snapshot){
+            if(snapshot.hasError){
+              return ListView(
+                children:[
+                  const SizedBox(height:180),
+                  Center(
+                    child:FilledButton.icon(
+                      onPressed:_refresh,
+                      icon:const Icon(Icons.refresh_rounded),
+                      label:Text(Api.I.ar?'إعادة المحاولة':'Retry'),
+                    ),
+                  ),
+                ],
               );
-            },
-          );
-        },
+            }
+            if(!snapshot.hasData){
+              return const Center(child:CircularProgressIndicator());
+            }
+
+            final rows=Api.I.responseRows(
+              snapshot.data!,
+              keys:const ['genres','items','rows','data','results'],
+            );
+
+            if(rows.isEmpty){
+              return ListView(
+                children:[
+                  const SizedBox(height:180),
+                  Center(child:Text(Api.I.ar?'لا توجد تصنيفات':'No genres')),
+                ],
+              );
+            }
+
+            return ListView.separated(
+              padding:const EdgeInsets.fromLTRB(12,10,12,24),
+              itemCount:rows.length,
+              separatorBuilder:(_,__)=>const SizedBox(height:8),
+              itemBuilder:(_,i){
+                final g=rows[i];
+                final id=int.tryParse((g['id']??g['genre_id']??'').toString())??0;
+                final name=(g['name']??g['title']??'').toString().trim();
+                final slug=(g['slug']??'').toString().trim();
+                final count=(g['media_count']??g['count']??g['items_count']??'').toString();
+
+                return Card(
+                  clipBehavior:Clip.antiAlias,
+                  child:ListTile(
+                    contentPadding:const EdgeInsets.symmetric(horizontal:14,vertical:5),
+                    leading:CircleAvatar(
+                      backgroundColor:const Color(0x22E50914),
+                      child:const Icon(Icons.local_movies_outlined),
+                    ),
+                    title:Text(
+                      name.isEmpty?(Api.I.ar?'تصنيف':'Genre'):name,
+                      style:const TextStyle(fontWeight:FontWeight.w900),
+                    ),
+                    subtitle:count.isEmpty?null:Text(
+                      Api.I.ar?'$count عمل':'$count titles',
+                    ),
+                    trailing:const Icon(Icons.chevron_right_rounded),
+                    onTap:id<=0?null:(){
+                      AppNavigator.open(
+                        context,
+                        GenreMediaPage(
+                          genreId:id,
+                          name:name,
+                          slug:slug,
+                        ),
+                        key:'genre/$id',
+                      );
+                    },
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class GenreMediaPage extends StatefulWidget{
+  final int genreId;
+  final String name;
+  final String slug;
+
+  const GenreMediaPage({
+    super.key,
+    required this.genreId,
+    required this.name,
+    this.slug='',
+  });
+
+  @override
+  State<GenreMediaPage> createState()=>_GenreMediaPageState();
+}
+
+class _GenreMediaPageState extends State<GenreMediaPage>{
+  late Future<Map<String,dynamic>> future;
+
+  @override
+  void initState(){
+    super.initState();
+    future=_load();
+  }
+
+  Future<Map<String,dynamic>> _load({bool forceRefresh=false}){
+    return Api.I.call(
+      'media',
+      query:{
+        'genre_id':widget.genreId,
+        if(widget.slug.isNotEmpty)'genre':widget.slug,
+        'limit':100,
+      },
+      forceRefresh:forceRefresh,
+    );
+  }
+
+  Future<void> _refresh() async{
+    final next=_load(forceRefresh:true);
+    setState(()=>future=next);
+    await next;
+  }
+
+  @override
+  Widget build(BuildContext context){
+    return Scaffold(
+      appBar:AppBar(
+        title:Text(widget.name.isEmpty?(Api.I.ar?'التصنيف':'Genre'):widget.name),
+      ),
+      body:RefreshIndicator(
+        onRefresh:_refresh,
+        child:FutureBuilder<Map<String,dynamic>>(
+          future:future,
+          builder:(_,snapshot){
+            if(snapshot.hasError){
+              return ListView(
+                children:[
+                  const SizedBox(height:180),
+                  Center(
+                    child:FilledButton.icon(
+                      onPressed:_refresh,
+                      icon:const Icon(Icons.refresh_rounded),
+                      label:Text(Api.I.ar?'إعادة المحاولة':'Retry'),
+                    ),
+                  ),
+                ],
+              );
+            }
+            if(!snapshot.hasData){
+              return const Center(child:CircularProgressIndicator());
+            }
+
+            final rows=Api.I.responseRows(
+              snapshot.data!,
+              keys:const ['media','items','rows','data','results'],
+            );
+
+            if(rows.isEmpty){
+              return ListView(
+                children:[
+                  const SizedBox(height:180),
+                  Center(child:Text(Api.I.ar?'لا يوجد محتوى في هذا التصنيف':'No titles in this genre')),
+                ],
+              );
+            }
+
+            return GridView.builder(
+              padding:const EdgeInsets.all(12),
+              gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent:180,
+                childAspectRatio:.55,
+                crossAxisSpacing:11,
+                mainAxisSpacing:12,
+              ),
+              itemCount:rows.length,
+              itemBuilder:(_,i)=>MediaCard(item:rows[i]),
+            );
+          },
+        ),
       ),
     );
   }
@@ -195,55 +417,156 @@ class PeopleGridPage extends StatefulWidget{
 }
 class _PeopleGridPageState extends State<PeopleGridPage>{
   late Future<Map<String,dynamic>> future;
+
   @override
-  void initState(){super.initState();future=Api.I.call('people',query:{'limit':50});}
+  void initState(){
+    super.initState();
+    future=Api.I.call('people',query:{'limit':100});
+  }
+
+  Future<void> _refresh() async{
+    final next=Api.I.call(
+      'people',
+      query:{'limit':100},
+      forceRefresh:true,
+    );
+    setState(()=>future=next);
+    await next;
+  }
+
+  String _photo(Map<String,dynamic> person){
+    final direct=(person['photo']??person['profile']??person['image']??'').toString().trim();
+    if(direct.isNotEmpty)return Api.I.absoluteUrl(direct);
+    final path=(person['profile_path']??'').toString().trim();
+    if(path.isNotEmpty){
+      return 'https://image.tmdb.org/t/p/w500${path.startsWith('/')?path:'/$path'}';
+    }
+    return '';
+  }
+
   @override
   Widget build(BuildContext context){
-    final body=FutureBuilder<Map<String,dynamic>>(
-      future:future,
-      builder:(_,s){
-        if(!s.hasData)return const Center(child:CircularProgressIndicator());
-        final rows=s.data!['data'] as List? ?? const[];
-        return GridView.builder(
-          padding:const EdgeInsets.all(12),
-          gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent:180,childAspectRatio:.72,crossAxisSpacing:12,mainAxisSpacing:14,
-          ),
-          itemCount:rows.length,
-          itemBuilder:(_,i){
-            final p=Map<String,dynamic>.from(rows[i] as Map);
-            return InkWell(
-              borderRadius:BorderRadius.circular(16),
-              onTap:(){
-                final personId=(p['id'] as num).toInt();
-                AppNavigator.open(context,PersonPage(id:personId),key:'person/$personId');
-              },
-              child:Column(
-                children:[
-                  Expanded(
-                    child:ClipRRect(
-                      borderRadius:BorderRadius.circular(16),
-                      child:CachedNetworkImage(
-                        imageUrl:Api.I.absoluteUrl(p['photo']),
-                        width:double.infinity,fit:BoxFit.cover,
-                        errorWidget:(_,__,___)=>Container(color:Colors.white10,child:const Icon(Icons.person,size:52)),
-                      ),
-                    ),
+    final body=RefreshIndicator(
+      onRefresh:_refresh,
+      child:FutureBuilder<Map<String,dynamic>>(
+        future:future,
+        builder:(_,snapshot){
+          if(snapshot.hasError){
+            return ListView(
+              children:[
+                const SizedBox(height:180),
+                Center(
+                  child:FilledButton.icon(
+                    onPressed:_refresh,
+                    icon:const Icon(Icons.refresh_rounded),
+                    label:Text(Api.I.ar?'إعادة المحاولة':'Retry'),
                   ),
-                  const SizedBox(height:7),
-                  Text((p['name']??'').toString(),maxLines:1,overflow:TextOverflow.ellipsis,
-                    style:const TextStyle(fontWeight:FontWeight.w800)),
-                  Text((p['known_for']??'').toString(),maxLines:1,overflow:TextOverflow.ellipsis,
-                    style:const TextStyle(fontSize:11,color:Colors.white54)),
-                ],
-              ),
+                ),
+              ],
             );
-          },
-        );
-      },
+          }
+          if(!snapshot.hasData){
+            return const Center(child:CircularProgressIndicator());
+          }
+
+          final rows=Api.I.responseRows(
+            snapshot.data!,
+            keys:const ['people','artists','items','rows','data','results'],
+          );
+
+          if(rows.isEmpty){
+            return ListView(
+              children:[
+                const SizedBox(height:180),
+                Center(child:Text(Api.I.ar?'لا يوجد فنانون':'No artists')),
+              ],
+            );
+          }
+
+          return GridView.builder(
+            padding:const EdgeInsets.all(12),
+            gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent:175,
+              childAspectRatio:.70,
+              crossAxisSpacing:11,
+              mainAxisSpacing:13,
+            ),
+            itemCount:rows.length,
+            itemBuilder:(_,i){
+              final person=rows[i];
+              final personId=int.tryParse((person['id']??person['person_id']??'').toString())??0;
+              final photo=_photo(person);
+              final name=(person['name']??person['title']??'').toString().trim();
+              final knownFor=(person['known_for']??person['department']??'').toString().trim();
+
+              return Material(
+                color:const Color(0xFF101114),
+                borderRadius:BorderRadius.circular(16),
+                clipBehavior:Clip.antiAlias,
+                child:InkWell(
+                  onTap:personId<=0?null:(){
+                    AppNavigator.open(
+                      context,
+                      PersonPage(id:personId),
+                      key:'person/$personId',
+                    );
+                  },
+                  child:Column(
+                    crossAxisAlignment:CrossAxisAlignment.start,
+                    children:[
+                      Expanded(
+                        child:photo.isEmpty
+                          ?Container(
+                              width:double.infinity,
+                              color:const Color(0xFF17181C),
+                              child:const Icon(Icons.person_rounded,size:56,color:Colors.white24),
+                            )
+                          :CachedNetworkImage(
+                              imageUrl:photo,
+                              width:double.infinity,
+                              fit:BoxFit.cover,
+                              errorWidget:(_,__,___)=>Container(
+                                color:const Color(0xFF17181C),
+                                child:const Icon(Icons.person_rounded,size:56,color:Colors.white24),
+                              ),
+                            ),
+                      ),
+                      Padding(
+                        padding:const EdgeInsets.fromLTRB(9,8,9,9),
+                        child:Column(
+                          crossAxisAlignment:CrossAxisAlignment.start,
+                          children:[
+                            Text(
+                              name.isEmpty?(Api.I.ar?'فنان':'Artist'):name,
+                              maxLines:1,
+                              overflow:TextOverflow.ellipsis,
+                              style:const TextStyle(fontWeight:FontWeight.w900),
+                            ),
+                            const SizedBox(height:2),
+                            Text(
+                              knownFor,
+                              maxLines:1,
+                              overflow:TextOverflow.ellipsis,
+                              style:const TextStyle(fontSize:10.5,color:Colors.white54),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
+
     if(widget.embedded)return body;
-    return Scaffold(appBar:AppBar(title:Text(Api.I.ar?'الفنانون':'Artists')),body:body);
+    return Scaffold(
+      appBar:AppBar(title:Text(Api.I.ar?'الفنانون':'Artists')),
+      body:body,
+    );
   }
 }
 
@@ -275,8 +598,12 @@ class _PersonPageState extends State<PersonPage>{
   }
 
   String _poster(Map<String,dynamic> work){
-    final direct=(work['poster']??'').toString().trim();
+    final direct=(work['poster']??work['poster_url']??work['image']??work['profile']??'').toString().trim();
     if(direct.isNotEmpty)return Api.I.absoluteUrl(direct);
+    final explicitPath=(work['poster_path']??'').toString().trim();
+    if(explicitPath.isNotEmpty){
+      return 'https://image.tmdb.org/t/p/w342${explicitPath.startsWith('/')?explicitPath:'/$explicitPath'}';
+    }
     final raw=_rawJson(work);
     final path=(raw['poster_path']??'').toString().trim();
     if(path.isNotEmpty){
@@ -296,7 +623,8 @@ class _PersonPageState extends State<PersonPage>{
       final w=Map<String,dynamic>.from(raw);
       final tmdb=(w['tmdb_id']??'').toString();
       final type=(w['media_type']??w['type']??'').toString();
-      final title=(w['title']??w['original_title']??'').toString();
+      final raw=_rawJson(w);
+      final title=(w['title']??w['name']??w['original_title']??w['original_name']??raw['title']??raw['name']??'').toString();
       final key=tmdb.isNotEmpty?'$type:$tmdb':'$type:$title';
       final existing=byKey[key];
       if(existing==null){
@@ -347,10 +675,35 @@ class _PersonPageState extends State<PersonPage>{
           }
           if(!s.hasData)return const Center(child:CircularProgressIndicator());
 
-          final root=Map<String,dynamic>.from(s.data!['data'] as Map);
-          final p=Map<String,dynamic>.from(root['person'] as Map);
-          final works=_dedupeWorks(root['works'] as List? ?? const[]);
-          final biography=(p['biography']??'').toString().trim();
+          final rawData=s.data!['data'];
+          final root=Api.I.mapFrom(rawData);
+
+          final p=root['person'] is Map
+            ?Map<String,dynamic>.from(root['person'] as Map)
+            :Map<String,dynamic>.from(root);
+
+          final rawWorks=<dynamic>[];
+          for(final candidate in [
+            root['works'],
+            root['filmography'],
+            p['works'],
+            p['filmography'],
+          ]){
+            if(candidate is List)rawWorks.addAll(candidate);
+          }
+
+          final localItems=Api.I.rowsFrom(
+            root,
+            keys:const ['items','media','local_works','credits'],
+          );
+          for(final local in localItems){
+            final copy=Map<String,dynamic>.from(local);
+            copy['local_media_id']??=copy['id'];
+            rawWorks.add(copy);
+          }
+
+          final works=_dedupeWorks(rawWorks);
+          final biography=(p['biography']??p['overview']??'').toString().trim();
           final knownFor=(p['known_for']??'').toString().trim();
           final birthday=(p['birthday']??'').toString().trim();
           final birthplace=(p['place_of_birth']??'').toString().trim();

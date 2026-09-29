@@ -1,10 +1,10 @@
 name: shortseris_app
 description: SHORT SERIES TV native streaming app powered by the ShortSeris JSON API.
 publish_to: "none"
-version: 1.12.1+14
+version: 1.13.0+15
 
 environment:
-  sdk: ">=3.8.0 <4.0.0"
+  sdk: ">=3.10.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -21,6 +21,7 @@ dependencies:
   cryptography: ^2.7.0
   path_provider: ^2.1.5
   webview_flutter: ^4.13.1
+  google_mobile_ads: ^9.1.0
 
 dev_dependencies:
   flutter_test:

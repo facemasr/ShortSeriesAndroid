@@ -185,7 +185,7 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
   void _startAuto(){
     _timer?.cancel();
     if(widget.sliders.length<=1||_interacting)return;
-    if(MediaQuery.maybeOf(context)?.disableAnimations??false)return;
+    if(WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations)return;
     _timer=Timer.periodic(const Duration(seconds:6),(_){
       if(!mounted||_interacting||!_controller.hasClients)return;
       final next=(_index+1)%widget.sliders.length;
@@ -230,8 +230,8 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
   Widget build(BuildContext context){
     final size=MediaQuery.sizeOf(context);
     final compact=size.width<430;
-    final heroHeight=(size.width*(compact?.82:.62))
-      .clamp(compact?300.0:330.0,compact?390.0:430.0);
+    final heroHeight=(size.width*(compact ? .82 : .62))
+      .clamp(compact ? 300.0 : 330.0, compact ? 390.0 : 430.0);
 
     return SizedBox(
       height:heroHeight,

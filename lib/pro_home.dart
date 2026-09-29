@@ -270,8 +270,12 @@ class _ProHomePageState extends State<ProHomePage> {
                 if (sliders.isNotEmpty)
                   SliverToBoxAdapter(child: _HeroCarousel(sliders: sliders)),
                 const SliverToBoxAdapter(child: AppAd('app_home_top')),
+                const SliverToBoxAdapter(child: AdMobBanner(placement:'home')),
                 if (Api.I.section('continue_watching'))
                   const SliverToBoxAdapter(child: _ContinueRail()),
+                const SliverToBoxAdapter(
+                  child:AdMobNativeCard(placement:'home'),
+                ),
                 ...sections.map(
                   (raw)=>SliverToBoxAdapter(
                     child:MediaSection(data:Map<String,dynamic>.from(raw as Map)),

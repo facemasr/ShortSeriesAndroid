@@ -38,9 +38,15 @@ class _ProHomePageState extends State<ProHomePage> {
               return const Center(child: CircularProgressIndicator());
             }
 
-            final data = Map<String, dynamic>.from(snapshot.data!['data'] as Map);
-            final sliders = data['sliders'] as List? ?? const [];
-            final sections = data['sections'] as List? ?? const [];
+            final data=Api.I.mapFrom(snapshot.data!['data']);
+            final sliders=Api.I.rowsFrom(
+              data['sliders']??data['slides']??data['hero']??const [],
+              keys:const ['sliders','slides','hero','items','rows','data'],
+            );
+            final sections=Api.I.rowsFrom(
+              data['sections']??const [],
+              keys:const ['sections','items','rows','data'],
+            );
 
             return CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -149,8 +155,10 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
   void initState(){
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _controller=PageController();
-    _startAuto();
+    _controller=PageController(viewportFraction:.94);
+    WidgetsBinding.instance.addPostFrameCallback((_){
+      if(mounted)_scheduleAuto();
+    });
   }
 
   @override
@@ -160,40 +168,42 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
       if(widget.sliders.isEmpty){
         _index=0;
       }else if(_index>=widget.sliders.length){
-        _index=widget.sliders.length-1;
-        if(_controller.hasClients){
-          WidgetsBinding.instance.addPostFrameCallback((_){
-            if(mounted&&_controller.hasClients){
-              _controller.jumpToPage(_index);
-            }
-          });
-        }
+        _index=0;
+        WidgetsBinding.instance.addPostFrameCallback((_){
+          if(mounted&&_controller.hasClients)_controller.jumpToPage(0);
+        });
       }
-      _startAuto();
+      _scheduleAuto();
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state){
     if(state==AppLifecycleState.resumed){
-      _startAuto();
+      _scheduleAuto();
     }else{
       _timer?.cancel();
     }
   }
 
-  void _startAuto(){
+  void _scheduleAuto(){
     _timer?.cancel();
     if(widget.sliders.length<=1||_interacting)return;
-    if(WidgetsBinding.instance.platformDispatcher.accessibilityFeatures.disableAnimations)return;
-    _timer=Timer.periodic(const Duration(seconds:6),(_){
+    _timer=Timer(const Duration(seconds:5),() async{
       if(!mounted||_interacting||!_controller.hasClients)return;
       final next=(_index+1)%widget.sliders.length;
-      _controller.animateToPage(
-        next,
-        duration:const Duration(milliseconds:520),
-        curve:Curves.easeInOutCubic,
-      );
+      final reduce=WidgetsBinding.instance.platformDispatcher
+        .accessibilityFeatures.disableAnimations;
+      if(reduce){
+        _controller.jumpToPage(next);
+      }else{
+        await _controller.animateToPage(
+          next,
+          duration:const Duration(milliseconds:520),
+          curve:Curves.easeInOutCubic,
+        );
+      }
+      if(mounted&&!_interacting)_scheduleAuto();
     });
   }
 
@@ -204,7 +214,7 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
 
   void _resumeAuto(){
     _interacting=false;
-    _startAuto();
+    _scheduleAuto();
   }
 
   Future<void> _goTo(int index) async{
@@ -212,10 +222,53 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
     _pauseAuto();
     await _controller.animateToPage(
       index,
-      duration:const Duration(milliseconds:420),
+      duration:const Duration(milliseconds:360),
       curve:Curves.easeOutCubic,
     );
     if(mounted)_resumeAuto();
+  }
+
+  Map<String,dynamic> _slide(int index){
+    final raw=widget.sliders[index];
+    return raw is Map?Map<String,dynamic>.from(raw):<String,dynamic>{};
+  }
+
+  Map<String,dynamic> _media(Map<String,dynamic> slide){
+    return Api.I.mapFrom(slide['media']);
+  }
+
+  String _title(Map<String,dynamic> slide){
+    final media=_media(slide);
+    return Api.I.localizedValue(
+      slide['title']??
+      slide['title_json']??
+      media['title']??
+      media['original_title'],
+    ).trim();
+  }
+
+  String _image(Map<String,dynamic> slide){
+    final media=_media(slide);
+    final value=
+      slide['mobile_image']??
+      slide['image']??
+      slide['backdrop']??
+      media['backdrop']??
+      slide['poster']??
+      media['poster'];
+    return Api.I.absoluteUrl(value);
+  }
+
+  int _mediaId(Map<String,dynamic> slide){
+    final media=_media(slide);
+    return int.tryParse(
+      (slide['media_id']??media['id']??slide['id']??'').toString(),
+    )??0;
+  }
+
+  String _meta(Map<String,dynamic> slide,String key){
+    final media=_media(slide);
+    return (slide[key]??media[key]??'').toString().trim();
   }
 
   @override
@@ -230,54 +283,57 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
   Widget build(BuildContext context){
     final size=MediaQuery.sizeOf(context);
     final compact=size.width<430;
-    final double heroHeight=(size.width*(compact ? .82 : .62))
-      .clamp(compact ? 300.0 : 330.0, compact ? 390.0 : 430.0)
+    final heroHeight=(size.width*(compact?.78:.56))
+      .clamp(compact?292.0:320.0,compact?370.0:420.0)
       .toDouble();
+
+    if(widget.sliders.isEmpty)return const SizedBox.shrink();
 
     return SizedBox(
       height:heroHeight,
       child:Stack(
+        alignment:Alignment.center,
         children:[
           NotificationListener<ScrollNotification>(
             onNotification:(notification){
-              if(notification is ScrollStartNotification){
-                _pauseAuto();
-              }else if(notification is ScrollEndNotification){
-                _resumeAuto();
-              }
+              if(notification is ScrollStartNotification)_pauseAuto();
+              if(notification is ScrollEndNotification)_resumeAuto();
               return false;
             },
             child:PageView.builder(
               controller:_controller,
-              physics:const PageScrollPhysics(),
-              allowImplicitScrolling:true,
+              physics:const BouncingScrollPhysics(parent:PageScrollPhysics()),
               itemCount:widget.sliders.length,
               onPageChanged:(value){
-                if(mounted)setState(()=>_index=value);
+                if(!mounted)return;
+                setState(()=>_index=value);
+                if(!_interacting)_scheduleAuto();
               },
               itemBuilder:(_,i){
-                final s=Map<String,dynamic>.from(widget.sliders[i] as Map);
-                final image=Api.I.absoluteUrl(
-                  s['mobile_image']??s['image']??s['backdrop']??s['poster'],
-                );
-                final title=(s['title']??s['original_title']??'').toString();
-                final mediaId=int.tryParse((s['media_id']??'').toString())??0;
+                final slide=_slide(i);
+                final image=_image(slide);
+                final title=_title(slide);
+                final mediaId=_mediaId(slide);
+                final year=_meta(slide,'year');
+                final rating=_meta(slide,'rating');
+                final quality=_meta(slide,'quality');
 
                 void openDetails(){
                   if(mediaId<=0)return;
                   AppNavigator.open(
                     context,
                     ProDetailPage(id:mediaId),
-                    key:'media/$mediaId',
+                    key:'media/'+mediaId.toString(),
                   );
                 }
 
-                return Padding(
+                return AnimatedPadding(
+                  duration:const Duration(milliseconds:220),
                   padding:EdgeInsets.fromLTRB(
-                    compact?10:14,
-                    6,
-                    compact?10:14,
-                    8,
+                    i==_index?8:12,
+                    7,
+                    i==_index?8:12,
+                    12,
                   ),
                   child:Material(
                     color:const Color(0xFF111214),
@@ -293,16 +349,16 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
                               imageUrl:image,
                               fit:BoxFit.cover,
                               alignment:Alignment.topCenter,
-                              placeholder:(_,__)=>Container(color:const Color(0xFF111214)),
+                              placeholder:(_,__)=>Container(color:const Color(0xFF15161A)),
                               errorWidget:(_,__,___)=>Container(
-                                color:const Color(0xFF111214),
-                                child:const Icon(Icons.movie_outlined,size:48,color:Colors.white24),
+                                color:const Color(0xFF15161A),
+                                child:const Icon(Icons.movie_outlined,size:52,color:Colors.white24),
                               ),
                             )
                           else
                             Container(
-                              color:const Color(0xFF111214),
-                              child:const Icon(Icons.movie_outlined,size:48,color:Colors.white24),
+                              color:const Color(0xFF15161A),
+                              child:const Icon(Icons.movie_outlined,size:52,color:Colors.white24),
                             ),
                           const DecoratedBox(
                             decoration:BoxDecoration(
@@ -310,84 +366,56 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
                                 begin:Alignment.topCenter,
                                 end:Alignment.bottomCenter,
                                 colors:[
-                                  Color(0x10000000),
-                                  Color(0x25000000),
-                                  Color(0xF207080B),
+                                  Color(0x08000000),
+                                  Color(0x30000000),
+                                  Color(0xF307080B),
                                 ],
-                                stops:[0,.46,1],
+                                stops:[0,.50,1],
                               ),
                             ),
                           ),
                           PositionedDirectional(
-                            start:compact?16:22,
-                            end:compact?16:22,
-                            bottom:compact?34:38,
+                            start:compact?17:24,
+                            end:compact?17:24,
+                            bottom:compact?35:40,
                             child:Column(
                               crossAxisAlignment:CrossAxisAlignment.start,
                               mainAxisSize:MainAxisSize.min,
                               children:[
                                 Text(
-                                  title,
+                                  title.isEmpty?(Api.I.ar?'SHORT SERIES':'Featured') : title,
                                   maxLines:2,
                                   overflow:TextOverflow.ellipsis,
                                   style:TextStyle(
-                                    fontSize:compact?24:30,
+                                    fontSize:compact?23:30,
                                     fontWeight:FontWeight.w900,
                                     height:1.04,
-                                    letterSpacing:-.4,
                                   ),
                                 ),
-                                const SizedBox(height:7),
+                                const SizedBox(height:8),
                                 Wrap(
                                   spacing:7,
                                   runSpacing:5,
                                   children:[
-                                    if((s['year']??'').toString().isNotEmpty)
-                                      _HeroMeta((s['year']??'').toString()),
-                                    if((s['rating']??'').toString().isNotEmpty)
-                                      _HeroMeta('★ ${s['rating']}'),
-                                    if((s['quality']??'').toString().isNotEmpty)
-                                      _HeroMeta((s['quality']??'').toString()),
+                                    if(year.isNotEmpty)_HeroMeta(year),
+                                    if(rating.isNotEmpty&&rating!='0')_HeroMeta('★ '+rating),
+                                    if(quality.isNotEmpty)_HeroMeta(quality),
                                   ],
                                 ),
                                 if(mediaId>0)...[
                                   const SizedBox(height:12),
-                                  Row(
-                                    children:[
-                                      FilledButton.icon(
-                                        style:FilledButton.styleFrom(
-                                          backgroundColor:Colors.white,
-                                          foregroundColor:Colors.black,
-                                          padding:EdgeInsets.symmetric(
-                                            horizontal:compact?15:20,
-                                            vertical:compact?10:12,
-                                          ),
-                                        ),
-                                        onPressed:openDetails,
-                                        icon:const Icon(Icons.play_arrow_rounded),
-                                        label:Text(
-                                          Api.I.ar?'مشاهدة':'Watch',
-                                          style:const TextStyle(fontWeight:FontWeight.w900),
-                                        ),
-                                      ),
-                                      const SizedBox(width:8),
-                                      FilledButton.tonalIcon(
-                                        style:FilledButton.styleFrom(
-                                          backgroundColor:const Color(0xB31B1B1B),
-                                          foregroundColor:Colors.white,
-                                          padding:EdgeInsets.symmetric(
-                                            horizontal:compact?12:16,
-                                            vertical:compact?10:12,
-                                          ),
-                                        ),
-                                        onPressed:openDetails,
-                                        icon:const Icon(Icons.info_outline_rounded),
-                                        label:Text(
-                                          Api.I.ar?'التفاصيل':'Details',
-                                          style:const TextStyle(fontWeight:FontWeight.w800),
-                                        ),
-                                      ),
-                                    ],
+                                  FilledButton.icon(
+                                    style:FilledButton.styleFrom(
+                                      backgroundColor:Colors.white,
+                                      foregroundColor:Colors.black,
+                                      padding:const EdgeInsets.symmetric(horizontal:16,vertical:10),
+                                    ),
+                                    onPressed:openDetails,
+                                    icon:const Icon(Icons.play_arrow_rounded),
+                                    label:Text(
+                                      Api.I.ar?'مشاهدة الآن':'Watch now',
+                                      style:const TextStyle(fontWeight:FontWeight.w900),
+                                    ),
                                   ),
                                 ],
                               ],
@@ -401,38 +429,41 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
               },
             ),
           ),
-          if(widget.sliders.length>1)
+          if(widget.sliders.length>1)...[
+            PositionedDirectional(
+              start:4,
+              child:_HeroArrow(
+                icon:Api.I.ar?Icons.chevron_right_rounded:Icons.chevron_left_rounded,
+                onTap:()=>_goTo((_index-1+widget.sliders.length)%widget.sliders.length),
+              ),
+            ),
+            PositionedDirectional(
+              end:4,
+              child:_HeroArrow(
+                icon:Api.I.ar?Icons.chevron_left_rounded:Icons.chevron_right_rounded,
+                onTap:()=>_goTo((_index+1)%widget.sliders.length),
+              ),
+            ),
             Positioned(
               bottom:15,
               left:0,
               right:0,
               child:Center(
-                child:ConstrainedBox(
-                  constraints:const BoxConstraints(maxWidth:260),
-                  child:SingleChildScrollView(
-                    scrollDirection:Axis.horizontal,
-                    child:Row(
-                      mainAxisSize:MainAxisSize.min,
-                      children:List.generate(
-                        widget.sliders.length,
-                        (i)=>Semantics(
-                          button:true,
-                          selected:i==_index,
-                          label:'${Api.I.ar?'الشريحة':'Slide'} ${i+1}',
-                          child:InkWell(
-                            borderRadius:BorderRadius.circular(99),
-                            onTap:()=>_goTo(i),
-                            child:AnimatedContainer(
-                              duration:const Duration(milliseconds:220),
-                              margin:const EdgeInsets.symmetric(horizontal:3,vertical:6),
-                              width:i==_index?24:7,
-                              height:7,
-                              decoration:BoxDecoration(
-                                color:i==_index?Colors.white:Colors.white38,
-                                borderRadius:BorderRadius.circular(99),
-                              ),
-                            ),
-                          ),
+                child:Row(
+                  mainAxisSize:MainAxisSize.min,
+                  children:List.generate(
+                    widget.sliders.length,
+                    (i)=>InkWell(
+                      borderRadius:BorderRadius.circular(99),
+                      onTap:()=>_goTo(i),
+                      child:AnimatedContainer(
+                        duration:const Duration(milliseconds:220),
+                        margin:const EdgeInsets.symmetric(horizontal:3,vertical:6),
+                        width:i==_index?24:7,
+                        height:7,
+                        decoration:BoxDecoration(
+                          color:i==_index?Colors.white:Colors.white38,
+                          borderRadius:BorderRadius.circular(99),
                         ),
                       ),
                     ),
@@ -440,11 +471,36 @@ class _HeroCarouselState extends State<_HeroCarousel> with WidgetsBindingObserve
                 ),
               ),
             ),
+          ],
         ],
       ),
     );
   }
 }
+
+class _HeroArrow extends StatelessWidget{
+  final IconData icon;
+  final VoidCallback onTap;
+  const _HeroArrow({required this.icon,required this.onTap});
+
+  @override
+  Widget build(BuildContext context){
+    return Material(
+      color:const Color(0x99000000),
+      shape:const CircleBorder(),
+      child:InkWell(
+        customBorder:const CircleBorder(),
+        onTap:onTap,
+        child:SizedBox(
+          width:38,
+          height:38,
+          child:Icon(icon,color:Colors.white,size:28),
+        ),
+      ),
+    );
+  }
+}
+
 
 class _ContinueRail extends StatefulWidget {
   const _ContinueRail();

@@ -11,6 +11,7 @@ class AdMobService {
 
   static const _testBanner='ca-app-pub-3940256099942544/9214589741';
   static const _testInterstitial='ca-app-pub-3940256099942544/1033173712';
+  static const _productionInterstitialFallback='ca-app-pub-3494213319779695/7842123070';
 
   static const _defineBanner=String.fromEnvironment('ADMOB_BANNER_ID');
   static const _defineInterstitial=String.fromEnvironment('ADMOB_INTERSTITIAL_ID');
@@ -54,7 +55,8 @@ class AdMobService {
     if(remote!=null)return _asBool(remote,true);
     final hasProductionId=
         _defineBanner.trim().startsWith('ca-app-pub-')||
-        _defineInterstitial.trim().startsWith('ca-app-pub-');
+        _defineInterstitial.trim().startsWith('ca-app-pub-')||
+        _productionInterstitialFallback.startsWith('ca-app-pub-');
     return !hasProductionId;
   }
 
@@ -74,6 +76,9 @@ class AdMobService {
     if(!testMode&&remote.startsWith('ca-app-pub-'))return remote;
     if(!testMode&&_defineInterstitial.trim().startsWith('ca-app-pub-')){
       return _defineInterstitial.trim();
+    }
+    if(!testMode&&_productionInterstitialFallback.startsWith('ca-app-pub-')){
+      return _productionInterstitialFallback;
     }
     return _testInterstitial;
   }

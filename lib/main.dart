@@ -135,10 +135,44 @@ class AppNavigator {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  MediaKit.ensureInitialized();
-  await AdMobService.I.initialize();
-  await OfflineDownloads.I.cleanupPlaybackCache();
-  await AppPageCache.I.cleanup();
+
+  // None of the optional startup services should be able to prevent the
+  // application UI from opening. A failure in ads, MediaKit, or cache cleanup
+  // is isolated and the app continues to the first frame.
+  try {
+    MediaKit.ensureInitialized();
+  } catch (error, stackTrace) {
+    debugPrint('MediaKit startup error: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+
+  try {
+    await AdMobService.I
+        .initialize()
+        .timeout(const Duration(seconds: 8));
+  } catch (error, stackTrace) {
+    debugPrint('AdMob startup error: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+
+  try {
+    await OfflineDownloads.I
+        .cleanupPlaybackCache()
+        .timeout(const Duration(seconds: 8));
+  } catch (error, stackTrace) {
+    debugPrint('Playback-cache startup error: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+
+  try {
+    await AppPageCache.I
+        .cleanup()
+        .timeout(const Duration(seconds: 8));
+  } catch (error, stackTrace) {
+    debugPrint('Page-cache startup error: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+
   runApp(const ShortSerisApp());
 }
 

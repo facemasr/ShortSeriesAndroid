@@ -8,18 +8,168 @@ class ProHomePage extends StatefulWidget {
 }
 
 class _ProHomePageState extends State<ProHomePage> {
-  late Future<Map<String, dynamic>> _home;
+  late Future<Map<String,dynamic>> _home;
 
   @override
-  void initState() {
+  void initState(){
     super.initState();
-    _home = Api.I.call('home',forceRefresh:true);
+    _home=_loadHome(forceRefresh:true);
   }
 
-  Future<void> _refresh() async {
-    await Api.I.loadConfig(forceRefresh:true);
-    final next = Api.I.call('home',forceRefresh:true);
-    setState(() => _home = next);
+  Future<Map<String,dynamic>> _loadHome({bool forceRefresh=false}) async{
+    Object? homeError;
+    Map<String,dynamic> home=<String,dynamic>{};
+
+    try{
+      home=await Api.I.call('home',forceRefresh:forceRefresh);
+    }catch(e){
+      homeError=e;
+    }
+
+    final data=Api.I.mapFrom(home['data']);
+    final rawSections=Api.I.rowsFrom(
+      data['sections']??const [],
+      keys:const ['sections','items','rows','data'],
+    );
+
+    final sections=<Map<String,dynamic>>[];
+    for(final raw in rawSections){
+      final items=Api.I.rowsFrom(
+        raw['items']??raw['_items']??const [],
+        keys:const ['items','rows','data','media','results'],
+      );
+      if(items.isEmpty)continue;
+
+      final title=Api.I.localizedValue(
+        raw['title']??raw['title_json']??raw['name']??'',
+      ).trim();
+
+      sections.add(<String,dynamic>{
+        ...raw,
+        'title':title,
+        'items':items,
+      });
+    }
+
+    if(sections.isEmpty){
+      final fallback=await Future.wait([
+        _fallbackSection(
+          type:'movie',
+          title:Api.I.ar?'أحدث الأفلام':'Latest Movies',
+          forceRefresh:forceRefresh,
+        ),
+        _fallbackSection(
+          type:'series',
+          title:Api.I.ar?'أحدث المسلسلات':'Latest Series',
+          forceRefresh:forceRefresh,
+        ),
+        _fallbackSection(
+          type:'short_series',
+          title:Api.I.ar?'المسلسلات القصيرة':'Short Series',
+          forceRefresh:forceRefresh,
+        ),
+      ]);
+      sections.addAll(fallback.where((section)=>section['items'] is List && (section['items'] as List).isNotEmpty));
+    }
+
+    final remoteSliders=Api.I.rowsFrom(
+      data['sliders']??data['slides']??data['hero']??const [],
+      keys:const ['sliders','slides','hero','items','rows','data'],
+    );
+
+    final sliders=<Map<String,dynamic>>[];
+    for(final slide in remoteSliders){
+      final media=Api.I.mapFrom(slide['media']);
+      final image=(
+        slide['mobile_image']??
+        slide['image']??
+        slide['backdrop']??
+        slide['poster']??
+        media['backdrop']??
+        media['poster']??
+        ''
+      ).toString().trim();
+      final mediaId=int.tryParse(
+        (slide['media_id']??media['id']??'').toString(),
+      )??0;
+      if(image.isEmpty&&mediaId<=0)continue;
+      sliders.add(slide);
+    }
+
+    if(sliders.isEmpty){
+      final seen=<int>{};
+      for(final section in sections){
+        final items=Api.I.rowsFrom(
+          section['items']??const [],
+          keys:const ['items','rows','data','media','results'],
+        );
+        for(final item in items){
+          final id=int.tryParse((item['id']??'').toString())??0;
+          if(id<=0||seen.contains(id))continue;
+          final image=(item['backdrop']??item['poster']??'').toString().trim();
+          if(image.isEmpty)continue;
+          seen.add(id);
+          sliders.add(<String,dynamic>{
+            ...item,
+            'media_id':id,
+            'title':item['_title']??item['title']??item['original_title'],
+            'image':item['backdrop']??item['poster'],
+            'mobile_image':item['poster']??item['backdrop'],
+          });
+          if(sliders.length>=6)break;
+        }
+        if(sliders.length>=6)break;
+      }
+    }
+
+    if(sections.isEmpty&&sliders.isEmpty&&homeError!=null){
+      throw homeError;
+    }
+
+    return <String,dynamic>{
+      'ok':true,
+      'data':<String,dynamic>{
+        'sliders':sliders,
+        'sections':sections,
+      },
+    };
+  }
+
+  Future<Map<String,dynamic>> _fallbackSection({
+    required String type,
+    required String title,
+    required bool forceRefresh,
+  }) async{
+    try{
+      final response=await Api.I.call(
+        'media',
+        query:{'type':type,'page':1,'limit':24},
+        forceRefresh:forceRefresh,
+      );
+      final items=Api.I.responseRows(
+        response,
+        keys:const ['media','items','rows','data','results'],
+      );
+      return <String,dynamic>{
+        'title':title,
+        'media_type':type,
+        'items':items,
+      };
+    }catch(_){
+      return <String,dynamic>{
+        'title':title,
+        'media_type':type,
+        'items':const <Map<String,dynamic>>[],
+      };
+    }
+  }
+
+  Future<void> _refresh() async{
+    try{
+      await Api.I.loadConfig(forceRefresh:true);
+    }catch(_){}
+    final next=_loadHome(forceRefresh:true);
+    if(mounted)setState(()=>_home=next);
     await next;
   }
 
@@ -43,58 +193,10 @@ class _ProHomePageState extends State<ProHomePage> {
               data['sections']??const [],
               keys:const ['sections','items','rows','data'],
             );
-
-            final remoteSliders=Api.I.rowsFrom(
-              data['sliders']??data['slides']??data['hero']??const [],
-              keys:const ['sliders','slides','hero','items','rows','data'],
+            final sliders=Api.I.rowsFrom(
+              data['sliders']??const [],
+              keys:const ['sliders','items','rows','data'],
             );
-
-            bool usableSlider(Map<String,dynamic> slide){
-              final media=Api.I.mapFrom(slide['media']);
-              final image=(
-                slide['mobile_image']??
-                slide['image']??
-                slide['backdrop']??
-                slide['poster']??
-                media['backdrop']??
-                media['poster']??
-                ''
-              ).toString().trim();
-              final mediaId=int.tryParse(
-                (slide['media_id']??media['id']??'').toString(),
-              )??0;
-              return image.isNotEmpty||mediaId>0;
-            }
-
-            final sliders=<Map<String,dynamic>>[
-              ...remoteSliders.where(usableSlider),
-            ];
-
-            if(sliders.isEmpty){
-              final seen=<int>{};
-              for(final section in sections){
-                final items=Api.I.rowsFrom(
-                  section['items']??section['_items']??const [],
-                  keys:const ['items','rows','data','media','results'],
-                );
-                for(final item in items){
-                  final id=int.tryParse((item['id']??'').toString())??0;
-                  if(id<=0||seen.contains(id))continue;
-                  final image=(item['backdrop']??item['poster']??'').toString().trim();
-                  if(image.isEmpty)continue;
-                  seen.add(id);
-                  sliders.add(<String,dynamic>{
-                    ...item,
-                    'media_id':id,
-                    'title':item['_title']??item['title']??item['original_title'],
-                    'image':item['backdrop']??item['poster'],
-                    'mobile_image':item['poster']??item['backdrop'],
-                  });
-                  if(sliders.length>=6)break;
-                }
-                if(sliders.length>=6)break;
-              }
-            }
 
             return CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -171,11 +273,38 @@ class _ProHomePageState extends State<ProHomePage> {
                 if (Api.I.section('continue_watching'))
                   const SliverToBoxAdapter(child: _ContinueRail()),
                 ...sections.map(
-                  (raw) => SliverToBoxAdapter(
-                    child: MediaSection(data: Map<String, dynamic>.from(raw as Map)),
+                  (raw)=>SliverToBoxAdapter(
+                    child:MediaSection(data:Map<String,dynamic>.from(raw as Map)),
                   ),
                 ),
-                const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                if(sections.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody:false,
+                    child:Center(
+                      child:Padding(
+                        padding:const EdgeInsets.all(24),
+                        child:Column(
+                          mainAxisSize:MainAxisSize.min,
+                          children:[
+                            const Icon(Icons.cloud_off_rounded,size:54,color:Colors.white24),
+                            const SizedBox(height:12),
+                            Text(
+                              Api.I.ar?'تعذر تحميل محتوى الرئيسية':'Could not load home content',
+                              textAlign:TextAlign.center,
+                              style:const TextStyle(fontWeight:FontWeight.w800,color:Colors.white70),
+                            ),
+                            const SizedBox(height:12),
+                            FilledButton.icon(
+                              onPressed:_refresh,
+                              icon:const Icon(Icons.refresh_rounded),
+                              label:Text(Api.I.ar?'إعادة التحميل':'Reload'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                const SliverToBoxAdapter(child:SizedBox(height:32)),
               ],
             );
           },

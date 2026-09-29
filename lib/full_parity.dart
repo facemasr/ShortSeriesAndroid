@@ -97,12 +97,12 @@ class _ProPagedMediaGridState extends State<ProPagedMediaGrid> {
     scroll.addListener((){
       if(scroll.position.pixels>scroll.position.maxScrollExtent-500) _load();
     });
-    _load(reset:true);
+    _load(reset:true,forceRefresh:true);
   }
   @override
   void didUpdateWidget(covariant ProPagedMediaGrid oldWidget){
     super.didUpdateWidget(oldWidget);
-    if(oldWidget.type!=widget.type||oldWidget.query!=widget.query) _load(reset:true);
+    if(oldWidget.type!=widget.type||oldWidget.query!=widget.query) _load(reset:true,forceRefresh:true);
   }
   Future<void> _load({bool reset=false,bool forceRefresh=false}) async {
     if(loading)return;
@@ -206,7 +206,7 @@ class _GenrePageState extends State<GenrePage>{
   @override
   void initState(){
     super.initState();
-    future=Api.I.call('genres');
+    future=Api.I.call('genres',forceRefresh:true);
   }
 
   Future<void> _refresh() async{
@@ -421,7 +421,7 @@ class _PeopleGridPageState extends State<PeopleGridPage>{
   @override
   void initState(){
     super.initState();
-    future=Api.I.call('people',query:{'limit':100});
+    future=Api.I.call('people',query:{'limit':100},forceRefresh:true);
   }
 
   Future<void> _refresh() async{
@@ -583,7 +583,7 @@ class _PersonPageState extends State<PersonPage>{
   @override
   void initState(){
     super.initState();
-    future=Api.I.call('person',query:{'id':widget.id});
+    future=Api.I.call('person',query:{'id':widget.id},forceRefresh:true);
   }
 
   Map<String,dynamic> _rawJson(Map<String,dynamic> work){

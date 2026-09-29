@@ -1,7 +1,7 @@
 name: shortseris_app
 description: SHORT SERIES TV native streaming app powered by the ShortSeris JSON API.
 publish_to: "none"
-version: 1.13.0+15
+version: 1.13.1+16
 
 environment:
   sdk: ">=3.10.0 <4.0.0"

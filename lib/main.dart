@@ -9,6 +9,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -18,6 +19,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 part 'offline_downloads.dart';
 part 'page_cache.dart';
+part 'admob_ads.dart';
 part 'admin_web_portal.dart';
 part 'pro_home.dart';
 part 'pro_detail.dart';
@@ -134,6 +136,7 @@ class AppNavigator {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  await AdMobService.I.initialize();
   await OfflineDownloads.I.cleanupPlaybackCache();
   await AppPageCache.I.cleanup();
   runApp(const ShortSerisApp());
@@ -732,6 +735,7 @@ class _HomePageState extends State<HomePage> {
                   ],
                 ),
                 const SliverToBoxAdapter(child: AppAd('app_home_top')),
+                const SliverToBoxAdapter(child: AdMobBanner(placement:'home')),
                 ...sections.map(
                   (raw) => SliverToBoxAdapter(
                     child: MediaSection(
@@ -1064,6 +1068,7 @@ class _DetailPageState extends State<DetailPage> {
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
                     const AppAd('app_details'),
+                    const AdMobBanner(placement:'details'),
                     Text(
                       (item['title'] ?? item['original_title'] ?? '').toString(),
                       style: Theme.of(context)
@@ -1250,6 +1255,7 @@ class _PlayerPageState extends State<LegacyPlayerPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const AppAd('app_player_pre'),
+                      const AdMobBanner(placement:'player',compact:true),
                       AspectRatio(
                         aspectRatio: 16 / 9,
                         child: Video(

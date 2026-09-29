@@ -71,6 +71,226 @@ jobs:
               <path android:fillColor="#FFFFFF" android:pathData="M18,84h72v5h-72z"/>
           </vector>
           """)
+
+          kotlin_root = Path("android/app/src/main/kotlin")
+          main_activity = next(kotlin_root.rglob("MainActivity.kt"))
+          package_name = ".".join(main_activity.parent.relative_to(kotlin_root).parts)
+
+          main_activity.write_text(f"""package {package_name}
+
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import io.flutter.plugins.googlemobileads.GoogleMobileAdsPlugin
+
+          class MainActivity : FlutterActivity() {{
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {{
+                  super.configureFlutterEngine(flutterEngine)
+                  GoogleMobileAdsPlugin.registerNativeAdFactory(
+                      flutterEngine,
+                      "shortSeriesNative",
+                      ShortSeriesNativeAdFactory(this)
+                  )
+              }}
+
+              override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {{
+                  GoogleMobileAdsPlugin.unregisterNativeAdFactory(
+                      flutterEngine,
+                      "shortSeriesNative"
+                  )
+                  super.cleanUpFlutterEngine(flutterEngine)
+              }}
+          }}
+          """)
+
+          java_dir = Path("android/app/src/main/java") / Path(*package_name.split("."))
+          java_dir.mkdir(parents=True, exist_ok=True)
+          (java_dir / "ShortSeriesNativeAdFactory.java").write_text(f"""package {package_name};
+
+          import android.content.Context;
+          import android.graphics.Color;
+          import android.graphics.Typeface;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.widget.Button;
+          import android.widget.ImageView;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+
+          import com.google.android.gms.ads.nativead.MediaView;
+          import com.google.android.gms.ads.nativead.NativeAd;
+          import com.google.android.gms.ads.nativead.NativeAdView;
+
+          import java.util.Map;
+
+          import io.flutter.plugins.googlemobileads.GoogleMobileAdsPlugin;
+
+          public final class ShortSeriesNativeAdFactory
+                  implements GoogleMobileAdsPlugin.NativeAdFactory {{
+
+              private final Context context;
+
+              public ShortSeriesNativeAdFactory(Context context) {{
+                  this.context = context;
+              }}
+
+              private int dp(int value) {{
+                  return Math.round(
+                      value * context.getResources().getDisplayMetrics().density
+                  );
+              }}
+
+              private TextView text(int sizeSp, int color, int style) {{
+                  TextView view = new TextView(context);
+                  view.setTextColor(color);
+                  view.setTextSize(sizeSp);
+                  view.setTypeface(Typeface.DEFAULT, style);
+                  return view;
+              }}
+
+              @Override
+              public NativeAdView createNativeAd(
+                      NativeAd nativeAd,
+                      Map<String, Object> customOptions) {{
+
+                  NativeAdView adView = new NativeAdView(context);
+                  adView.setBackgroundColor(Color.rgb(17, 18, 20));
+
+                  LinearLayout root = new LinearLayout(context);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setPadding(dp(14), dp(12), dp(14), dp(14));
+                  root.setLayoutParams(new ViewGroup.LayoutParams(
+                      ViewGroup.LayoutParams.MATCH_PARENT,
+                      ViewGroup.LayoutParams.MATCH_PARENT
+                  ));
+
+                  LinearLayout header = new LinearLayout(context);
+                  header.setOrientation(LinearLayout.HORIZONTAL);
+                  header.setGravity(Gravity.CENTER_VERTICAL);
+
+                  ImageView icon = new ImageView(context);
+                  LinearLayout.LayoutParams iconParams =
+                      new LinearLayout.LayoutParams(dp(46), dp(46));
+                  iconParams.setMarginEnd(dp(10));
+                  icon.setLayoutParams(iconParams);
+                  icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
+
+                  LinearLayout titles = new LinearLayout(context);
+                  titles.setOrientation(LinearLayout.VERTICAL);
+                  titles.setLayoutParams(new LinearLayout.LayoutParams(
+                      0,
+                      ViewGroup.LayoutParams.WRAP_CONTENT,
+                      1f
+                  ));
+
+                  TextView headline = text(
+                      16,
+                      Color.WHITE,
+                      Typeface.BOLD
+                  );
+                  TextView advertiser = text(
+                      11,
+                      Color.rgb(180, 180, 180),
+                      Typeface.NORMAL
+                  );
+
+                  TextView badge = text(
+                      10,
+                      Color.rgb(255, 220, 80),
+                      Typeface.BOLD
+                  );
+                  badge.setText("Ad");
+                  badge.setPadding(dp(7), dp(3), dp(7), dp(3));
+
+                  titles.addView(headline);
+                  titles.addView(advertiser);
+                  header.addView(icon);
+                  header.addView(titles);
+                  header.addView(badge);
+
+                  MediaView media = new MediaView(context);
+                  LinearLayout.LayoutParams mediaParams =
+                      new LinearLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          dp(150)
+                      );
+                  mediaParams.topMargin = dp(10);
+                  media.setLayoutParams(mediaParams);
+
+                  TextView body = text(
+                      13,
+                      Color.rgb(220, 220, 220),
+                      Typeface.NORMAL
+                  );
+                  LinearLayout.LayoutParams bodyParams =
+                      new LinearLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.WRAP_CONTENT
+                      );
+                  bodyParams.topMargin = dp(8);
+                  body.setLayoutParams(bodyParams);
+                  body.setMaxLines(2);
+
+                  Button cta = new Button(context);
+                  LinearLayout.LayoutParams ctaParams =
+                      new LinearLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          dp(46)
+                      );
+                  ctaParams.topMargin = dp(10);
+                  cta.setLayoutParams(ctaParams);
+                  cta.setAllCaps(false);
+
+                  root.addView(header);
+                  root.addView(media);
+                  root.addView(body);
+                  root.addView(cta);
+                  adView.addView(root);
+
+                  adView.setHeadlineView(headline);
+                  adView.setAdvertiserView(advertiser);
+                  adView.setIconView(icon);
+                  adView.setMediaView(media);
+                  adView.setBodyView(body);
+                  adView.setCallToActionView(cta);
+
+                  headline.setText(nativeAd.getHeadline());
+
+                  if (nativeAd.getAdvertiser() == null) {{
+                      advertiser.setVisibility(View.GONE);
+                  }} else {{
+                      advertiser.setText(nativeAd.getAdvertiser());
+                  }}
+
+                  if (nativeAd.getIcon() == null) {{
+                      icon.setVisibility(View.GONE);
+                  }} else {{
+                      icon.setImageDrawable(nativeAd.getIcon().getDrawable());
+                  }}
+
+                  if (nativeAd.getMediaContent() == null) {{
+                      media.setVisibility(View.GONE);
+                  }} else {{
+                      media.setMediaContent(nativeAd.getMediaContent());
+                  }}
+
+                  if (nativeAd.getBody() == null) {{
+                      body.setVisibility(View.GONE);
+                  }} else {{
+                      body.setText(nativeAd.getBody());
+                  }}
+
+                  if (nativeAd.getCallToAction() == null) {{
+                      cta.setVisibility(View.GONE);
+                  }} else {{
+                      cta.setText(nativeAd.getCallToAction());
+                  }}
+
+                  adView.setNativeAd(nativeAd);
+                  return adView;
+              }}
+          }}
+          """)
           PY
 
       - name: Install packages
@@ -86,7 +306,9 @@ jobs:
           for attempt in 1 2 3; do
             echo "Build attempt $attempt of 3"
             if flutter build apk --release \
-              --dart-define=ADMOB_BANNER_ID="${{ vars.ADMOB_BANNER_ID_ANDROID }}" \
+              --dart-define=ADMOB_BANNER_ID="${{ vars.ADMOB_BANNER_ID_ANDROID || 'ca-app-pub-3494213319779695/7715973870' }}" \
+              --dart-define=ADMOB_NATIVE_HOME_ID="${{ vars.ADMOB_NATIVE_HOME_ID_ANDROID || 'ca-app-pub-3494213319779695/2307559512' }}" \
+              --dart-define=ADMOB_NATIVE_DETAILS_ID="${{ vars.ADMOB_NATIVE_DETAILS_ID_ANDROID || 'ca-app-pub-3494213319779695/6190964204' }}" \
               --dart-define=ADMOB_INTERSTITIAL_ID="${{ vars.ADMOB_INTERSTITIAL_ID_ANDROID || 'ca-app-pub-3494213319779695/7842123070' }}" \
               --dart-define=ADMOB_ENABLED="${{ vars.ADMOB_ENABLED || 'true' }}"; then
               exit 0

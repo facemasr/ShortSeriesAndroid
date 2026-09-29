@@ -1425,6 +1425,7 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
                   ),
                 ),
                 const AppAd('app_player_pre'),
+                const AdMobBanner(placement:'player',compact:true),
                 Expanded(
                   child: Container(
                     width: double.infinity,
@@ -1606,3 +1607,77 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
                                               ),
                                             ),
                                             PositionedDirectional(
+                                              start: 10,
+                                              end: 10,
+                                              bottom: 9,
+                                              child: Text(
+                                                (item['name'] ?? '').toString(),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return MediaCard(
+                                  item: item,
+                                  onTap: () async {
+                                    final id = (item['id'] as num?)?.toInt() ?? 0;
+                                    if (id <= 0 || transitioning) return;
+                                    final itemType = (item['type'] ?? '').toString();
+                                    final itemTitle = (item['title'] ??
+                                            item['original_title'] ??
+                                            '')
+                                        .toString();
+
+                                    await _saveProgress();
+                                    await player.pause();
+
+                                    if (itemType == 'movie') {
+                                      await _loadTarget('media', id, itemTitle);
+                                      return;
+                                    }
+
+                                    if (!mounted) return;
+                                    AppNavigator.open(
+                                      context,
+                                      ProDetailPage(id:id),
+                                      key:'media/$id',
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+      bottomNavigationBar:ValueListenableBuilder<int>(
+        valueListenable:AppShellController.tab,
+        builder:(_,selected,__){
+          final nav=AppShellController.items();
+          final safe=selected.clamp(0,nav.length-1);
+          return NavigationBar(
+            selectedIndex:safe,
+            onDestinationSelected:(index)=>unawaited(_leaveToTab(index)),
+            destinations:nav.map((item)=>NavigationDestination(
+              icon:Icon(item.icon),
+              selectedIcon:Icon(item.selected),
+              label:item.label,
+            )).toList(),
+          );
+        },
+      ),
+    );
+  }
+}

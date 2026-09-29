@@ -123,10 +123,10 @@ jobs:
 
           import java.util.Map;
 
-          import io.flutter.plugins.googlemobileads.GoogleMobileAdsPlugin;
+          import io.flutter.plugins.googlemobileads.NativeAdFactory;
 
           public final class ShortSeriesNativeAdFactory
-                  implements GoogleMobileAdsPlugin.NativeAdFactory {{
+                  implements NativeAdFactory {{
 
               private final Context context;
 

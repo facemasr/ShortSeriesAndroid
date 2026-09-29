@@ -11,10 +11,17 @@ class AdMobService {
 
   static const _testBanner='ca-app-pub-3940256099942544/9214589741';
   static const _testInterstitial='ca-app-pub-3940256099942544/1033173712';
+  static const _testNative='ca-app-pub-3940256099942544/2247696110';
+
+  static const _productionBannerFallback='ca-app-pub-3494213319779695/7715973870';
   static const _productionInterstitialFallback='ca-app-pub-3494213319779695/7842123070';
+  static const _productionNativeHomeFallback='ca-app-pub-3494213319779695/2307559512';
+  static const _productionNativeDetailsFallback='ca-app-pub-3494213319779695/6190964204';
 
   static const _defineBanner=String.fromEnvironment('ADMOB_BANNER_ID');
   static const _defineInterstitial=String.fromEnvironment('ADMOB_INTERSTITIAL_ID');
+  static const _defineNativeHome=String.fromEnvironment('ADMOB_NATIVE_HOME_ID');
+  static const _defineNativeDetails=String.fromEnvironment('ADMOB_NATIVE_DETAILS_ID');
   static const _defineEnabled=String.fromEnvironment('ADMOB_ENABLED');
 
   InterstitialAd? _interstitial;
@@ -56,7 +63,12 @@ class AdMobService {
     final hasProductionId=
         _defineBanner.trim().startsWith('ca-app-pub-')||
         _defineInterstitial.trim().startsWith('ca-app-pub-')||
-        _productionInterstitialFallback.startsWith('ca-app-pub-');
+        _defineNativeHome.trim().startsWith('ca-app-pub-')||
+        _defineNativeDetails.trim().startsWith('ca-app-pub-')||
+        _productionBannerFallback.startsWith('ca-app-pub-')||
+        _productionInterstitialFallback.startsWith('ca-app-pub-')||
+        _productionNativeHomeFallback.startsWith('ca-app-pub-')||
+        _productionNativeDetailsFallback.startsWith('ca-app-pub-');
     return !hasProductionId;
   }
 
@@ -67,7 +79,29 @@ class AdMobService {
     if(!testMode&&_defineBanner.trim().startsWith('ca-app-pub-')){
       return _defineBanner.trim();
     }
+    if(!testMode&&_productionBannerFallback.startsWith('ca-app-pub-')){
+      return _productionBannerFallback;
+    }
     return _testBanner;
+  }
+
+  String nativeId(String placement){
+    final details=placement=='details';
+    final remote=(
+      details
+        ?(_config['native_details_id_android']??_config['native_details_id'])
+        :(_config['native_home_id_android']??_config['native_home_id'])
+    )?.toString().trim()??'';
+
+    if(testMode)return _testNative;
+    if(remote.startsWith('ca-app-pub-'))return remote;
+
+    final defined=details?_defineNativeDetails.trim():_defineNativeHome.trim();
+    if(defined.startsWith('ca-app-pub-'))return defined;
+
+    return details
+      ?_productionNativeDetailsFallback
+      :_productionNativeHomeFallback;
   }
 
   String get interstitialId{
@@ -308,6 +342,91 @@ class _AdMobBannerState extends State<AdMobBanner>{
           ),
         );
       },
+    );
+  }
+}
+
+class AdMobNativeCard extends StatefulWidget {
+  final String placement;
+
+  const AdMobNativeCard({
+    super.key,
+    required this.placement,
+  });
+
+  @override
+  State<AdMobNativeCard> createState()=>_AdMobNativeCardState();
+}
+
+class _AdMobNativeCardState extends State<AdMobNativeCard>{
+  NativeAd? _ad;
+  bool _loaded=false;
+  bool _loading=false;
+
+  Future<void> _load() async{
+    if(!Platform.isAndroid||!AdMobService.I.enabled||_loading||_loaded)return;
+
+    _loading=true;
+    final ad=NativeAd(
+      adUnitId:AdMobService.I.nativeId(widget.placement),
+      factoryId:'shortSeriesNative',
+      request:const AdRequest(),
+      listener:NativeAdListener(
+        onAdLoaded:(loadedAd){
+          if(!mounted){
+            loadedAd.dispose();
+            return;
+          }
+          setState((){
+            _ad=loadedAd as NativeAd;
+            _loaded=true;
+            _loading=false;
+          });
+        },
+        onAdFailedToLoad:(failedAd,error){
+          failedAd.dispose();
+          if(mounted)setState(()=>_loading=false);
+        },
+      ),
+    );
+    _ad=ad;
+    await ad.load();
+  }
+
+  @override
+  void initState(){
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_){
+      if(mounted)unawaited(_load());
+    });
+  }
+
+  @override
+  void dispose(){
+    _ad?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context){
+    final ad=_ad;
+    if(!Platform.isAndroid||!AdMobService.I.enabled||!_loaded||ad==null){
+      return const SizedBox.shrink();
+    }
+
+    return Semantics(
+      label:Api.I.ar?'إعلان مدمج':'Native advertisement',
+      child:Padding(
+        padding:const EdgeInsets.fromLTRB(16,10,16,12),
+        child:ClipRRect(
+          borderRadius:BorderRadius.circular(18),
+          child:SizedBox(
+            height:292,
+            width:double.infinity,
+            child:AdWidget(ad:ad),
+          ),
+        ),
+      ),
     );
   }
 }

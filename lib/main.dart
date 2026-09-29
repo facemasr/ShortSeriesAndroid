@@ -136,9 +136,6 @@ class AppNavigator {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // None of the optional startup services should be able to prevent the
-  // application UI from opening. A failure in ads, MediaKit, or cache cleanup
-  // is isolated and the app continues to the first frame.
   try {
     MediaKit.ensureInitialized();
   } catch (error, stackTrace) {
@@ -146,6 +143,16 @@ Future<void> main() async {
     debugPrintStack(stackTrace: stackTrace);
   }
 
+  // Show the app UI first. Ads and cleanup are deliberately deferred so a
+  // third-party SDK failure can never block the first frame.
+  runApp(const ShortSerisApp());
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(_initializeAfterFirstFrame());
+  });
+}
+
+Future<void> _initializeAfterFirstFrame() async {
   try {
     await AdMobService.I
         .initialize()
@@ -172,8 +179,6 @@ Future<void> main() async {
     debugPrint('Page-cache startup error: $error');
     debugPrintStack(stackTrace: stackTrace);
   }
-
-  runApp(const ShortSerisApp());
 }
 
 class Api {

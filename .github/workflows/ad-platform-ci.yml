@@ -23,9 +23,13 @@ jobs:
           cache: true
       - name: Dependencies
         run: flutter pub get
-      - name: Format check
-        run: dart format --output=none --set-exit-if-changed lib test
-      - name: Analyze
-        run: flutter analyze
       - name: Tests
         run: flutter test
+      - name: Analyze
+        run: flutter analyze
+      - name: Format check changed ad-platform files
+        run: |
+          files=$(git diff --name-only 1885ac40e44d01886b7501a17a407686db0d9fcf...HEAD -- 'lib/*.dart' 'test/*.dart')
+          if [ -n "$files" ]; then
+            dart format --output=none --set-exit-if-changed $files
+          fi

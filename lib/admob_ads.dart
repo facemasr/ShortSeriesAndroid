@@ -1,5 +1,216 @@
 part of 'main.dart';
 
+enum AdAgeGroup { child, teen, adult, unknown }
+
+enum AdMembershipTier { free, premium, vip }
+
+enum AdSourceType {
+  none,
+  admobBanner,
+  admobNative,
+  admobInterstitial,
+  admobRewarded,
+  appOpen,
+  privateImage,
+  privateVideo,
+  vast,
+  vmap,
+}
+
+AdSourceType _adSourceTypeFrom(dynamic value) {
+  switch ((value ?? '').toString().trim().toLowerCase()) {
+    case 'admob_banner':
+    case 'banner':
+      return AdSourceType.admobBanner;
+    case 'admob_native':
+    case 'native':
+      return AdSourceType.admobNative;
+    case 'admob_interstitial':
+    case 'interstitial':
+      return AdSourceType.admobInterstitial;
+    case 'admob_rewarded':
+    case 'rewarded':
+      return AdSourceType.admobRewarded;
+    case 'app_open':
+    case 'appopen':
+      return AdSourceType.appOpen;
+    case 'private_image':
+    case 'image':
+      return AdSourceType.privateImage;
+    case 'private_video':
+    case 'video':
+      return AdSourceType.privateVideo;
+    case 'vast':
+      return AdSourceType.vast;
+    case 'vmap':
+      return AdSourceType.vmap;
+    default:
+      return AdSourceType.none;
+  }
+}
+
+bool _adBool(dynamic value, [bool fallback = false]) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  final normalized = (value ?? '').toString().trim().toLowerCase();
+  if (const {'1', 'true', 'yes', 'on'}.contains(normalized)) return true;
+  if (const {'0', 'false', 'no', 'off', ''}.contains(normalized)) return false;
+  return fallback;
+}
+
+int? _adNullableInt(dynamic value) {
+  if (value is num) return value.toInt();
+  return int.tryParse((value ?? '').toString());
+}
+
+class AdRequestContext {
+  final String placement;
+  final String platform;
+  final String appVersion;
+  final AdMembershipTier membershipTier;
+  final AdAgeGroup ageGroup;
+  final String locale;
+  final String contentType;
+  final int? contentId;
+  final List<int> genreIds;
+  final String sessionId;
+
+  const AdRequestContext({
+    required this.placement,
+    required this.platform,
+    required this.appVersion,
+    required this.membershipTier,
+    required this.ageGroup,
+    required this.locale,
+    this.contentType = '',
+    this.contentId,
+    this.genreIds = const <int>[],
+    this.sessionId = '',
+  });
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'placement': placement,
+        'platform': platform,
+        'app_version': appVersion,
+        'user_tier': membershipTier.name,
+        'age_group': ageGroup.name,
+        'locale': locale,
+        if (contentType.isNotEmpty) 'content_type': contentType,
+        if (contentId != null) 'content_id': contentId,
+        if (genreIds.isNotEmpty) 'genre_ids': genreIds,
+        if (sessionId.isNotEmpty) 'session_id': sessionId,
+      };
+}
+
+class AdCreative {
+  final AdSourceType sourceType;
+  final String mediaUrl;
+  final String clickUrl;
+  final String vastUrl;
+  final String vmapUrl;
+  final String cta;
+  final int? skipSeconds;
+  final Map<String, dynamic> metadata;
+
+  const AdCreative({
+    this.sourceType = AdSourceType.none,
+    this.mediaUrl = '',
+    this.clickUrl = '',
+    this.vastUrl = '',
+    this.vmapUrl = '',
+    this.cta = '',
+    this.skipSeconds,
+    this.metadata = const <String, dynamic>{},
+  });
+
+  factory AdCreative.fromJson(
+    dynamic raw, {
+    dynamic sourceType,
+  }) {
+    final map = raw is Map
+        ? Map<String, dynamic>.from(raw)
+        : <String, dynamic>{};
+    return AdCreative(
+      sourceType: _adSourceTypeFrom(sourceType ?? map['type']),
+      mediaUrl: (map['src'] ?? map['media_url'] ?? map['image_url'] ?? map['video_url'] ?? '')
+          .toString()
+          .trim(),
+      clickUrl: (map['click_url'] ?? map['url'] ?? '').toString().trim(),
+      vastUrl: (map['vast_url'] ?? '').toString().trim(),
+      vmapUrl: (map['vmap_url'] ?? '').toString().trim(),
+      cta: (map['cta'] ?? map['cta_label'] ?? '').toString().trim(),
+      skipSeconds: _adNullableInt(map['skip_after'] ?? map['skip_seconds']),
+      metadata: Map<String, dynamic>.from(map),
+    );
+  }
+}
+
+class AdDecision {
+  final bool showAd;
+  final String decisionId;
+  final String placement;
+  final AdCreative creative;
+  final String trackingToken;
+
+  const AdDecision({
+    required this.showAd,
+    this.decisionId = '',
+    this.placement = '',
+    this.creative = const AdCreative(),
+    this.trackingToken = '',
+  });
+
+  const AdDecision.noAd({String placement = ''})
+      : showAd = false,
+        decisionId = '',
+        placement = placement,
+        creative = const AdCreative(),
+        trackingToken = '';
+
+  factory AdDecision.fromJson(Map<String, dynamic> json) {
+    final show = _adBool(json['show_ad']);
+    final tracking = json['tracking'];
+    final trackingMap = tracking is Map
+        ? Map<String, dynamic>.from(tracking)
+        : const <String, dynamic>{};
+    final creative = AdCreative.fromJson(
+      json['creative'],
+      sourceType: json['type'],
+    );
+    return AdDecision(
+      showAd: show,
+      decisionId: (json['decision_id'] ?? '').toString(),
+      placement: (json['placement'] ?? '').toString(),
+      creative: show ? creative : const AdCreative(),
+      trackingToken: (trackingMap['token'] ?? json['tracking_token'] ?? '').toString(),
+    );
+  }
+}
+
+class AdEvent {
+  final String type;
+  final String decisionId;
+  final String token;
+  final DateTime timestamp;
+  final Map<String, dynamic> metadata;
+
+  AdEvent({
+    required this.type,
+    required this.decisionId,
+    required this.token,
+    DateTime? timestamp,
+    this.metadata = const <String, dynamic>{},
+  }) : timestamp = timestamp ?? DateTime.now().toUtc();
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'type': type,
+        'decision_id': decisionId,
+        'token': token,
+        'timestamp': timestamp.toIso8601String(),
+        if (metadata.isNotEmpty) 'metadata': metadata,
+      };
+}
+
 /// Central AdMob controller for SHORT SERIES TV.
 ///
 /// Production IDs can come from GitHub Actions --dart-define values or from

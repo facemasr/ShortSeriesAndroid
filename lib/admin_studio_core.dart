@@ -50,6 +50,16 @@ class _AdminStudioPageState extends State<AdminStudioPage>{
                 ),
               ),
               _AdminAction(
+                icon:Icons.campaign_outlined,
+                title:Api.I.ar?'استوديو الإعلانات':'Ads Studio',
+                subtitle:Api.I.ar?'الحالة والإحصائيات والتحكم بالإعلانات':'Ad status, analytics and management',
+                onTap:()=>AppNavigator.open(
+                  context,
+                  AdminAdsSummaryPage(userEmail:widget.userEmail),
+                  key:'admin/ads-summary',
+                ),
+              ),
+              _AdminAction(
                 icon:Icons.group_rounded,
                 title:Api.I.ar?'المشتركون والمستخدمون':'Subscribers & Users',
                 subtitle:Api.I.ar?'إدارة الحسابات والأدوار والحالة':'Manage accounts, roles and status',
@@ -111,6 +121,191 @@ class _AdminAction extends StatelessWidget{
   ));
 }
 
+typedef AdminAdsSummaryLoader=Future<Map<String,dynamic>> Function();
+
+class AdminAdsSummaryPage extends StatefulWidget{
+  static const fullManagementPath='/admin/ads';
+  final AdminAdsSummaryLoader? summaryLoader;
+  final VoidCallback? onOpenFullManagement;
+  final String userEmail;
+  const AdminAdsSummaryPage({
+    super.key,
+    this.summaryLoader,
+    this.onOpenFullManagement,
+    this.userEmail='',
+  });
+  @override
+  State<AdminAdsSummaryPage> createState()=>_AdminAdsSummaryPageState();
+}
+
+class _AdminAdsSummaryPageState extends State<AdminAdsSummaryPage>{
+  late Future<_AdminAdsSummaryState> _future;
+
+  @override
+  void initState(){
+    super.initState();
+    _future=_load();
+  }
+
+  bool _bool(dynamic value,[bool fallback=false]){
+    if(value is bool)return value;
+    if(value is num)return value!=0;
+    final text=(value??'').toString().trim().toLowerCase();
+    if(const {'1','true','yes','on','enabled'}.contains(text))return true;
+    if(const {'0','false','no','off','disabled'}.contains(text))return false;
+    return fallback;
+  }
+
+  int _int(dynamic value){
+    if(value is num)return value.toInt();
+    return int.tryParse((value??'').toString())??0;
+  }
+
+  Future<_AdminAdsSummaryState> _load() async{
+    try{
+      final result=await (widget.summaryLoader?.call()??Api.I.call('admin_ads_summary'));
+      final raw=result['data'];
+      final data=raw is Map?Map<String,dynamic>.from(raw):Map<String,dynamic>.from(result);
+      return _AdminAdsSummaryState(
+        serverAvailable:true,
+        enabled:_bool(data['enabled'],true),
+        activeCampaigns:_int(data['active_campaigns']),
+        impressions:_int(data['impressions_today']),
+        clicks:_int(data['clicks_today']),
+        errors:_int(data['errors_today']),
+      );
+    }catch(_){
+      final raw=Api.I.config['admob'];
+      final admob=raw is Map?Map<String,dynamic>.from(raw):<String,dynamic>{};
+      return _AdminAdsSummaryState(
+        serverAvailable:false,
+        enabled:_bool(admob['enabled'],false),
+        activeCampaigns:0,
+        impressions:0,
+        clicks:0,
+        errors:0,
+      );
+    }
+  }
+
+  void _openFullManagement(){
+    if(widget.onOpenFullManagement!=null){
+      widget.onOpenFullManagement!();
+      return;
+    }
+    AppNavigator.open(
+      context,
+      AdminWebPanelPage(
+        initialPath:AdminAdsSummaryPage.fullManagementPath,
+        title:Api.I.ar?'إدارة الإعلانات':'Ads Management',
+        userEmail:widget.userEmail,
+      ),
+      key:'admin/web/ads',
+    );
+  }
+
+  Widget _stat(String label,int value,IconData icon)=>Card(
+    child:Padding(
+      padding:const EdgeInsets.all(14),
+      child:Column(
+        crossAxisAlignment:CrossAxisAlignment.start,
+        children:[
+          Icon(icon,color:Colors.white70),
+          const Spacer(),
+          Text(value.toString(),style:const TextStyle(fontSize:22,fontWeight:FontWeight.w900)),
+          Text(label,style:const TextStyle(color:Colors.white60,fontSize:12)),
+        ],
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context)=>Scaffold(
+    appBar:AppBar(title:Text(Api.I.ar?'استوديو الإعلانات':'Ads Studio')),
+    body:FutureBuilder<_AdminAdsSummaryState>(
+      future:_future,
+      builder:(context,snapshot){
+        if(!snapshot.hasData)return const Center(child:CircularProgressIndicator());
+        final data=snapshot.data!;
+        final status=data.enabled?(Api.I.ar?'مفعّل':'Enabled'):(Api.I.ar?'متوقف':'Disabled');
+        return RefreshIndicator(
+          onRefresh:() async{
+            final next=_load();
+            setState(()=>_future=next);
+            await next;
+          },
+          child:ListView(
+            physics:const AlwaysScrollableScrollPhysics(),
+            padding:const EdgeInsets.fromLTRB(14,14,14,28),
+            children:[
+              Card(
+                child:ListTile(
+                  leading:CircleAvatar(child:Icon(data.enabled?Icons.check_circle_outline:Icons.pause_circle_outline)),
+                  title:Text(Api.I.ar?'حالة نظام الإعلانات':'Advertising system'),
+                  subtitle:Text(status),
+                  trailing:Text(status,style:const TextStyle(fontWeight:FontWeight.w900)),
+                ),
+              ),
+              if(!data.serverAvailable)
+                Padding(
+                  padding:const EdgeInsets.symmetric(vertical:10),
+                  child:Text(
+                    Api.I.ar?'واجهة Ads Studio على السيرفر لم يتم نشرها بعد.':'Ads Studio API is not deployed yet.',
+                    style:const TextStyle(color:Colors.amberAccent),
+                  ),
+                ),
+              const SizedBox(height:8),
+              GridView.count(
+                shrinkWrap:true,
+                physics:const NeverScrollableScrollPhysics(),
+                crossAxisCount:2,
+                childAspectRatio:1.55,
+                crossAxisSpacing:10,
+                mainAxisSpacing:10,
+                children:[
+                  _stat(Api.I.ar?'الحملات النشطة':'Active campaigns',data.activeCampaigns,Icons.campaign_outlined),
+                  _stat(Api.I.ar?'مرات الظهور اليوم':'Impressions today',data.impressions,Icons.visibility_outlined),
+                  _stat(Api.I.ar?'النقرات اليوم':'Clicks today',data.clicks,Icons.ads_click_outlined),
+                  _stat(Api.I.ar?'الأخطاء اليوم':'Errors today',data.errors,Icons.error_outline),
+                ],
+              ),
+              const SizedBox(height:16),
+              FilledButton.icon(
+                key:const Key('open-full-ads-studio'),
+                onPressed:_openFullManagement,
+                icon:const Icon(Icons.open_in_new_rounded),
+                label:Text(Api.I.ar?'فتح الإدارة الكاملة':'Open full Ads Studio'),
+              ),
+              const SizedBox(height:8),
+              Text(
+                Api.I.ar?'الإدارة الكاملة للحملات وVAST/VMAP والاستهداف تبقى في /admin/ads.':'Campaign, VAST/VMAP and targeting management remains canonical in /admin/ads.',
+                style:const TextStyle(color:Colors.white54,fontSize:12),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class _AdminAdsSummaryState{
+  final bool serverAvailable;
+  final bool enabled;
+  final int activeCampaigns;
+  final int impressions;
+  final int clicks;
+  final int errors;
+  const _AdminAdsSummaryState({
+    required this.serverAvailable,
+    required this.enabled,
+    required this.activeCampaigns,
+    required this.impressions,
+    required this.clicks,
+    required this.errors,
+  });
+}
+
 class ImporterCenterPage extends StatefulWidget{
   const ImporterCenterPage({super.key});
   @override
@@ -144,4 +339,3 @@ class _ImporterCenterPageState extends State<ImporterCenterPage>{
     ),
   );
 }
-

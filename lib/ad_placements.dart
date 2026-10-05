@@ -98,18 +98,17 @@ class _RemoteAdPlacementState extends State<RemoteAdPlacement> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureLoaded());
   }
 
-  Future<String> _resolveAppVersion() async {
-    final override = widget.appVersionOverride?.trim() ?? '';
-    if (override.isNotEmpty) return override;
-    try {
-      final info = await PackageInfo.fromPlatform();
-      return info.version;
-    } catch (_) {
-      return '';
-    }
+  String _resolveAppVersion() {
+  final override = widget.appVersionOverride?.trim() ?? '';
+  if (override.isNotEmpty) return override;
+  final raw = Api.I.config['app_version'];
+  if (raw != null && raw.toString().trim().isNotEmpty) {
+    return raw.toString().trim();
   }
+  return '';
+}
 
-  String get _platform {
+String get _platform {
     final override = widget.platformOverride?.trim() ?? '';
     if (override.isNotEmpty) return override;
     if (Platform.isAndroid) return 'android';
@@ -137,7 +136,7 @@ class _RemoteAdPlacementState extends State<RemoteAdPlacement> {
       return;
     }
 
-    final version = await _resolveAppVersion();
+    final version = _resolveAppVersion();
     final decision = await _client.decide(
       AdRequestContext(
         placement: widget.placement,

@@ -36,3 +36,5 @@ jobs:
           if [ -n "$files" ]; then
             dart format --output=none --set-exit-if-changed $files
           fi
+
+# CI trigger after player-ad coordinator wiring.

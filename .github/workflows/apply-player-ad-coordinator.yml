@@ -46,16 +46,17 @@ jobs:
                   1,
               )
 
-          method_pattern = re.compile(
-              r"  Future<bool> maybeShowPlaybackInterstitial\(\{\n"
-              r"\s+required bool betweenEpisodes,\n"
-              r"\s+\}\) async \{.*?\n  \}\n\}",
-              re.S,
-          )
-          match = method_pattern.search(s)
-          if not match:
-              raise SystemExit('playback interstitial method not found')
-          replacement = r'''  bool get _adPlatformEnabled {
+          if 'Future<bool> _maybeShowLegacyPlaybackInterstitial' not in s:
+              method_pattern = re.compile(
+                  r"  Future<bool> maybeShowPlaybackInterstitial\(\{\n"
+                  r"\s+required bool betweenEpisodes,\n"
+                  r"\s+\}\) async \{.*?\n  \}\n\}",
+                  re.S,
+              )
+              match = method_pattern.search(s)
+              if not match:
+                  raise SystemExit('playback interstitial method not found')
+              replacement = r'''  bool get _adPlatformEnabled {
             final raw = Api.I.config['ad_platform'];
             if (raw is! Map) return false;
             return _adBool(Map<String, dynamic>.from(raw)['enabled']);
@@ -157,23 +158,23 @@ jobs:
             return done.future;
           }
           }'''
-          s = s[:match.start()] + replacement + s[match.end():]
+              s = s[:match.start()] + replacement + s[match.end():]
           admob.write_text(s)
 
           player = Path('lib/pro_player.dart')
           s = player.read_text()
-          old = '''        await AdMobService.I.maybeShowPlaybackInterstitial(
-            betweenEpisodes:betweenEpisodes,
-          );'''
-          new = '''        await AdMobService.I.maybeShowPlaybackInterstitial(
-            betweenEpisodes:betweenEpisodes,
-            contentType:type,
-            contentId:id,
-          );'''
-          if old in s:
-              s = s.replace(old, new, 1)
-          elif 'contentType:type' not in s:
-              raise SystemExit('pro player ad call marker not found')
+          if 'contentType:type' not in s:
+              pattern = re.compile(
+                  r"(await\s+AdMobService\.I\.maybeShowPlaybackInterstitial\(\s*"
+                  r"betweenEpisodes\s*:\s*betweenEpisodes\s*,)(\s*\);)",
+                  re.S,
+              )
+              replacement = (
+                  r"\1\n          contentType:type,\n          contentId:id,\2"
+              )
+              s, count = pattern.subn(replacement, s, count=1)
+              if count != 1:
+                  raise SystemExit('pro player ad call marker not found')
           player.write_text(s)
           PY
       - name: Commit wiring

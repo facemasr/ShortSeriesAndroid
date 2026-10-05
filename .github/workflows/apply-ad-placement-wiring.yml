@@ -1,0 +1,69 @@
+name: Apply Ad Placement Wiring
+
+on:
+  push:
+    branches:
+      - feat/ad-platform-foundation
+    paths:
+      - .github/workflows/apply-ad-placement-wiring.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/ad-platform-foundation
+          fetch-depth: 0
+      - name: Wire remote ad placements
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          main = Path('lib/main.dart')
+          text = main.read_text()
+          marker = "part 'admob_ads.dart';\n"
+          if "part 'ad_placements.dart';" not in text:
+              if marker not in text:
+                  raise SystemExit('main part marker not found')
+              text = text.replace(marker, marker + "part 'ad_placements.dart';\n", 1)
+              main.write_text(text)
+
+          home = Path('lib/pro_home.dart')
+          text = home.read_text()
+          old_banner = "                const SliverToBoxAdapter(child: AdMobBanner(placement:'home')),"
+          new_banner = "                const SliverToBoxAdapter(\n                  child:RemoteAdPlacement(\n                    placement:'home_top',\n                    legacyFallback:AdMobBanner(placement:'home'),\n                  ),\n                ),"
+          if old_banner in text:
+              text = text.replace(old_banner, new_banner, 1)
+          elif "placement:'home_top'" not in text:
+              raise SystemExit('home banner marker not found')
+
+          old_native = "                const SliverToBoxAdapter(\n                  child:AdMobNativeCard(placement:'home'),\n                ),"
+          new_native = "                const SliverToBoxAdapter(\n                  child:RemoteAdPlacement(\n                    placement:'home_feed',\n                    legacyFallback:AdMobNativeCard(placement:'home'),\n                  ),\n                ),"
+          if old_native in text:
+              text = text.replace(old_native, new_native, 1)
+          elif "placement:'home_feed'" not in text:
+              raise SystemExit('home native marker not found')
+          home.write_text(text)
+
+          detail = Path('lib/pro_detail.dart')
+          text = detail.read_text()
+          old_detail = "                    const AdMobNativeCard(placement:'details'),"
+          new_detail = "                    RemoteAdPlacement(\n                      placement:'details',\n                      contentType:'media',\n                      contentId:widget.id,\n                      legacyFallback:const AdMobNativeCard(placement:'details'),\n                    ),"
+          if old_detail in text:
+              text = text.replace(old_detail, new_detail, 1)
+          elif "contentId:widget.id" not in text:
+              raise SystemExit('details native marker not found')
+          detail.write_text(text)
+          PY
+      - name: Commit wiring
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "shortseries-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add lib/main.dart lib/pro_home.dart lib/pro_detail.dart
+          git commit -m "feat: wire server controlled ad placements"
+          git push origin HEAD:feat/ad-platform-foundation

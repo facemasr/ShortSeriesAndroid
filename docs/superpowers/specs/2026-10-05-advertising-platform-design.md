@@ -14,6 +14,8 @@ The Android Flutter application already has an `AdMobService` with production/te
 
 The new system will extend these existing flows rather than replace them wholesale.
 
+The `facemasr/ShortSeriesAndroid` repository contains the Android application, not the full `shortseris.online` backend implementation. Server-side work for `/admin/ads` and `/mobile-api/ads/*` therefore requires access to the website/backend source code. Android-side work may proceed behind feature flags, but the complete advertising platform is not considered finished until the backend/admin source is available and the server endpoints are implemented and tested.
+
 ## Core Architecture
 
 The server is the source of truth for ad policy and campaign decisions. The Android application acts primarily as an ad renderer and playback coordinator.
@@ -61,11 +63,13 @@ The application shows an Age Gate at first launch or before ad policy is needed.
 
 The user enters a full date of birth. The application or server calculates an age category and then discards the raw date of birth. Only the age category and a policy-verification timestamp are persisted.
 
-Initial age groups:
+Age groups are defined as:
 
-- `child`
-- `teen`
-- `adult`
+- `child`: younger than 13.
+- `teen`: 13 through 17 inclusive.
+- `adult`: 18 or older.
+
+If age cannot be determined or consent state is unavailable, the user is handled using the most conservative child-safe/non-personalized policy until a valid state is established.
 
 The raw date of birth is not retained by the ad platform.
 
@@ -76,8 +80,6 @@ For `child` and conservative/unknown states:
 - Only explicitly child-safe eligible campaigns.
 - Non-personalized ad requests where required.
 - Consent and privacy handling must integrate with Google UMP or equivalent platform consent requirements.
-
-If age or consent state is unavailable, the system fails toward the more conservative policy.
 
 ## Membership Policy
 

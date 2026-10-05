@@ -22,6 +22,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('lib/admob_ads.dart')
           text = path.read_text()
@@ -76,22 +77,28 @@ jobs:
           '''
               text = text.replace(marker, policy + marker, 1)
 
-          text = text.replace(
-              "  static const _testNative = 'ca-app-pub-3940256099942544/2247696110';\n",
-              "  static const _testNative = 'ca-app-pub-3940256099942544/2247696110';\n"
-              "  static const _testRewarded = 'ca-app-pub-3940256099942544/5224354917';\n"
-              "  static const _testAppOpen = 'ca-app-pub-3940256099942544/9257395921';\n",
-              1,
-          )
+          if '_testRewarded' not in text:
+              old = "  static const _testNative = 'ca-app-pub-3940256099942544/2247696110';\n"
+              new = old + (
+                  "  static const _testRewarded = 'ca-app-pub-3940256099942544/5224354917';\n"
+                  "  static const _testAppOpen = 'ca-app-pub-3940256099942544/9257395921';\n"
+              )
+              if old not in text:
+                  raise SystemExit('test ID marker not found')
+              text = text.replace(old, new, 1)
 
-          text = text.replace(
-              "  static const _defineNativeDetails =\n      String.fromEnvironment('ADMOB_NATIVE_DETAILS_ID');\n  static const _defineEnabled = String.fromEnvironment('ADMOB_ENABLED');\n",
-              "  static const _defineNativeDetails =\n      String.fromEnvironment('ADMOB_NATIVE_DETAILS_ID');\n"
-              "  static const _defineRewarded = String.fromEnvironment('ADMOB_REWARDED_ID');\n"
-              "  static const _defineAppOpen = String.fromEnvironment('ADMOB_APP_OPEN_ID');\n"
-              "  static const _defineEnabled = String.fromEnvironment('ADMOB_ENABLED');\n",
-              1,
-          )
+          if '_defineRewarded' not in text:
+              pattern = re.compile(
+                  r"(  static const _defineNativeDetails =\n\s+String\.fromEnvironment\('ADMOB_NATIVE_DETAILS_ID'\);\n)"
+              )
+              replacement = (
+                  r"\1"
+                  "  static const _defineRewarded = String.fromEnvironment('ADMOB_REWARDED_ID');\n"
+                  "  static const _defineAppOpen = String.fromEnvironment('ADMOB_APP_OPEN_ID');\n"
+              )
+              text, count = pattern.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit('define ID marker not found')
 
           if 'String get rewardedId {' not in text:
               marker = '  int get minIntervalSeconds =>'
@@ -135,18 +142,22 @@ jobs:
           '''
               text = text.replace(marker, getters + marker, 1)
 
-          old_init = '''    if (_initialized ||
-                !Platform.isAndroid ||
-                ageGroup == AdAgeGroup.unknown) {
-              return;
-            }
-            _initialized = true;
-            await MobileAds.instance.initialize();
-            if (membershipTier != AdMembershipTier.vip) {
-              unawaited(preloadInterstitial());
-            }
-          }'''
-          new_init = '''    if (_initialized ||
+          init_pattern = re.compile(
+              r"(  Future<void> initializeFor\(\{\n"
+              r"\s+required AdAgeGroup ageGroup,\n"
+              r"\s+required AdMembershipTier membershipTier,\n"
+              r"\s+\}\) async \{\n"
+              r"\s+_ageGroup = ageGroup;\n"
+              r"\s+_membershipTier = membershipTier;\n"
+              r"\s+policyRevision\.value\+\+;\n)"
+              r".*?"
+              r"(\n  Future<void> preloadInterstitial\(\) async \{)",
+              re.S,
+          )
+          match = init_pattern.search(text)
+          if not match:
+              raise SystemExit('initializeFor regex marker not found')
+          body = r'''    if (_initialized ||
                 !Platform.isAndroid ||
                 ageGroup == AdAgeGroup.unknown ||
                 membershipTier == AdMembershipTier.vip) {
@@ -159,12 +170,14 @@ jobs:
             );
             await MobileAds.instance.initialize();
             unawaited(preloadInterstitial());
-          }'''
-          if old_init not in text:
-              raise SystemExit('initializeFor body marker not found')
-          text = text.replace(old_init, new_init, 1)
+          }
+          '''
+          text = text[:match.start()] + match.group(1) + body + match.group(2) + text[match.end():]
 
-          text = text.replace('request: const AdRequest(),', 'request: AdMobService.I.adRequest,')
+          text = text.replace(
+              'request: const AdRequest(),',
+              'request: AdMobService.I.adRequest,',
+          )
 
           path.write_text(text)
           PY

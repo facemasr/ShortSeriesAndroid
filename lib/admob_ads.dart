@@ -319,6 +319,124 @@ class AdEvent {
       };
 }
 
+typedef AdApiTransport = Future<Map<String, dynamic>> Function(
+  String action,
+  Map<String, dynamic> data,
+);
+
+Future<Map<String, dynamic>> _productionAdTransport(
+  String action,
+  Map<String, dynamic> data,
+) =>
+    Api.I.call(action, method: 'POST', data: data);
+
+class AdDecisionClient {
+  final AdApiTransport transport;
+  final Duration timeout;
+
+  AdDecisionClient({
+    required this.transport,
+    this.timeout = const Duration(milliseconds: 2500),
+  });
+
+  factory AdDecisionClient.production() => AdDecisionClient(
+        transport: _productionAdTransport,
+      );
+
+  static final AdDecisionClient I = AdDecisionClient.production();
+
+  Future<AdDecision> decide(AdRequestContext context) async {
+    if (context.membershipTier == AdMembershipTier.vip) {
+      return AdDecision.noAd(placement: context.placement);
+    }
+    try {
+      final raw = await transport(
+        'ads_decision',
+        context.toJson(),
+      ).timeout(timeout);
+      final nested = raw['data'];
+      final payload = nested is Map
+          ? Map<String, dynamic>.from(nested)
+          : Map<String, dynamic>.from(raw);
+      if (!payload.containsKey('show_ad')) {
+        return AdDecision.noAd(placement: context.placement);
+      }
+      final decision = AdDecision.fromJson(payload);
+      if (!decision.showAd) {
+        return AdDecision.noAd(placement: context.placement);
+      }
+      return decision;
+    } catch (_) {
+      return AdDecision.noAd(placement: context.placement);
+    }
+  }
+}
+
+class AdTrackingQueue {
+  final AdApiTransport transport;
+  final int capacity;
+  final List<AdEvent> _pending = <AdEvent>[];
+  bool _flushing = false;
+
+  AdTrackingQueue({
+    required this.transport,
+    this.capacity = 100,
+  }) : assert(capacity > 0);
+
+  factory AdTrackingQueue.production() => AdTrackingQueue(
+        transport: _productionAdTransport,
+      );
+
+  static final AdTrackingQueue I = AdTrackingQueue.production();
+
+  int get pendingCount => _pending.length;
+
+  static const Set<String> _criticalTypes = <String>{
+    'impression',
+    'click',
+    'complete',
+  };
+
+  bool _isCritical(AdEvent event) =>
+      _criticalTypes.contains(event.type.trim().toLowerCase());
+
+  void enqueue(AdEvent event) {
+    if (_pending.length >= capacity) {
+      final removable = _pending.indexWhere((item) => !_isCritical(item));
+      if (removable >= 0) {
+        _pending.removeAt(removable);
+      } else if (!_isCritical(event)) {
+        return;
+      } else {
+        _pending.removeAt(0);
+      }
+    }
+    _pending.add(event);
+  }
+
+  Future<bool> flush() async {
+    if (_pending.isEmpty) return true;
+    if (_flushing) return false;
+    _flushing = true;
+    final snapshot = List<AdEvent>.from(_pending);
+    try {
+      await transport(
+        'ads_events',
+        <String, dynamic>{
+          'events': snapshot.map((event) => event.toJson()).toList(),
+        },
+      );
+      final removeCount = snapshot.length.clamp(0, _pending.length);
+      _pending.removeRange(0, removeCount);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _flushing = false;
+    }
+  }
+}
+
 class AgeGatePage extends StatefulWidget {
   final AdProfileStore? store;
 

@@ -564,6 +564,49 @@ class _AgeGatePageState extends State<AgeGatePage> {
   }
 }
 
+class AdMobRequestPolicy {
+  final bool nonPersonalized;
+  final AgeRestrictedTreatment ageTreatment;
+
+  const AdMobRequestPolicy({
+    required this.nonPersonalized,
+    required this.ageTreatment,
+  });
+
+  factory AdMobRequestPolicy.forAge(AdAgeGroup ageGroup) {
+    switch (ageGroup) {
+      case AdAgeGroup.child:
+        return const AdMobRequestPolicy(
+          nonPersonalized: true,
+          ageTreatment: AgeRestrictedTreatment.child,
+        );
+      case AdAgeGroup.teen:
+        return const AdMobRequestPolicy(
+          nonPersonalized: true,
+          ageTreatment: AgeRestrictedTreatment.teen,
+        );
+      case AdAgeGroup.adult:
+        return const AdMobRequestPolicy(
+          nonPersonalized: false,
+          ageTreatment: AgeRestrictedTreatment.unspecified,
+        );
+      case AdAgeGroup.unknown:
+        return const AdMobRequestPolicy(
+          nonPersonalized: true,
+          ageTreatment: AgeRestrictedTreatment.child,
+        );
+    }
+  }
+
+  AdRequest toAdRequest() => AdRequest(
+        nonPersonalizedAds: nonPersonalized,
+      );
+
+  RequestConfiguration toRequestConfiguration() => RequestConfiguration(
+        ageRestrictedTreatment: ageTreatment,
+      );
+}
+
 /// Central AdMob controller for SHORT SERIES TV.
 ///
 /// Production IDs can come from GitHub Actions --dart-define values or from
@@ -576,6 +619,8 @@ class AdMobService {
   static const _testBanner = 'ca-app-pub-3940256099942544/9214589741';
   static const _testInterstitial = 'ca-app-pub-3940256099942544/1033173712';
   static const _testNative = 'ca-app-pub-3940256099942544/2247696110';
+  static const _testRewarded = 'ca-app-pub-3940256099942544/5224354917';
+  static const _testAppOpen = 'ca-app-pub-3940256099942544/9257395921';
 
   static const _productionBannerFallback =
       'ca-app-pub-3494213319779695/7715973870';
@@ -593,6 +638,8 @@ class AdMobService {
       String.fromEnvironment('ADMOB_NATIVE_HOME_ID');
   static const _defineNativeDetails =
       String.fromEnvironment('ADMOB_NATIVE_DETAILS_ID');
+  static const _defineRewarded = String.fromEnvironment('ADMOB_REWARDED_ID');
+  static const _defineAppOpen = String.fromEnvironment('ADMOB_APP_OPEN_ID');
   static const _defineEnabled = String.fromEnvironment('ADMOB_ENABLED');
 
   InterstitialAd? _interstitial;
@@ -709,6 +756,41 @@ class AdMobService {
     return _testInterstitial;
   }
 
+  String get rewardedId {
+  if (testMode) return _testRewarded;
+  final remote = (_config['rewarded_id_android'] ?? _config['rewarded_id'] ?? '')
+      .toString()
+      .trim();
+  if (remote.startsWith('ca-app-pub-')) return remote;
+  final defined = _defineRewarded.trim();
+  if (defined.startsWith('ca-app-pub-')) return defined;
+  return '';
+}
+
+String get appOpenId {
+  if (testMode) return _testAppOpen;
+  final remote = (_config['app_open_id_android'] ?? _config['app_open_id'] ?? '')
+      .toString()
+      .trim();
+  if (remote.startsWith('ca-app-pub-')) return remote;
+  final defined = _defineAppOpen.trim();
+  if (defined.startsWith('ca-app-pub-')) return defined;
+  return '';
+}
+
+bool get rewardedEnabled =>
+    policyAllowsAds &&
+    rewardedId.isNotEmpty &&
+    _asBool(_config['rewarded_enabled'], true);
+
+bool get appOpenEnabled =>
+    policyAllowsAds &&
+    appOpenId.isNotEmpty &&
+    _asBool(_config['app_open_enabled'], true);
+
+AdRequest get adRequest =>
+    AdMobRequestPolicy.forAge(_ageGroup).toAdRequest();
+
   int get minIntervalSeconds =>
       _asInt(_config['interstitial_min_interval_seconds'], 420).clamp(60, 3600);
 
@@ -757,16 +839,19 @@ class AdMobService {
     _membershipTier = membershipTier;
     policyRevision.value++;
     if (_initialized ||
-        !Platform.isAndroid ||
-        ageGroup == AdAgeGroup.unknown) {
-      return;
-    }
-    _initialized = true;
-    await MobileAds.instance.initialize();
-    if (membershipTier != AdMembershipTier.vip) {
-      unawaited(preloadInterstitial());
-    }
+      !Platform.isAndroid ||
+      ageGroup == AdAgeGroup.unknown ||
+      membershipTier == AdMembershipTier.vip) {
+    return;
   }
+  _initialized = true;
+  final requestPolicy = AdMobRequestPolicy.forAge(ageGroup);
+  await MobileAds.instance.updateRequestConfiguration(
+    requestPolicy.toRequestConfiguration(),
+  );
+  await MobileAds.instance.initialize();
+  unawaited(preloadInterstitial());
+}
 
   Future<void> preloadInterstitial() async {
     if (!Platform.isAndroid ||
@@ -780,7 +865,7 @@ class AdMobService {
     _loadingInterstitial = true;
     InterstitialAd.load(
       adUnitId: interstitialId,
-      request: const AdRequest(),
+      request: AdMobService.I.adRequest,
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           _loadingInterstitial = false;
@@ -910,7 +995,7 @@ class _AdMobBannerState extends State<AdMobBanner> {
 
     final banner = BannerAd(
       adUnitId: AdMobService.I.bannerId,
-      request: const AdRequest(),
+      request: AdMobService.I.adRequest,
       size: size,
       listener: BannerAdListener(
         onAdLoaded: (ad) {
@@ -1028,7 +1113,7 @@ class _AdMobNativeCardState extends State<AdMobNativeCard> {
     final ad = NativeAd(
       adUnitId: AdMobService.I.nativeId(widget.placement),
       factoryId: 'shortSeriesNative',
-      request: const AdRequest(),
+      request: AdMobService.I.adRequest,
       listener: NativeAdListener(
         onAdLoaded: (loadedAd) {
           if (!mounted) {

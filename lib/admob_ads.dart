@@ -25,7 +25,11 @@ class AgePolicy {
     final current = DateTime(today.year, today.month, today.day);
     final birth = DateTime(birthDate.year, birthDate.month, birthDate.day);
     if (birth.isAfter(current)) {
-      throw ArgumentError.value(birthDate, 'birthDate', 'Birth date cannot be in the future');
+      throw ArgumentError.value(
+        birthDate,
+        'birthDate',
+        'Birth date cannot be in the future',
+      );
     }
 
     var age = current.year - birth.year;
@@ -89,7 +93,10 @@ class AdProfileStore {
       return;
     }
     await _write('ad_age_group', group.name);
-    await _write('ad_age_verified_at', DateTime.now().toUtc().toIso8601String());
+    await _write(
+      'ad_age_verified_at',
+      DateTime.now().toUtc().toIso8601String(),
+    );
   }
 
   Future<void> clearAgeGroup() async {
@@ -313,11 +320,11 @@ class AdEvent {
 }
 
 class AgeGatePage extends StatefulWidget {
-  final AdProfileStore store;
+  final AdProfileStore? store;
 
   const AgeGatePage({
     super.key,
-    this.store = AdProfileStore.I,
+    this.store,
   });
 
   @override
@@ -351,7 +358,7 @@ class _AgeGatePageState extends State<AgeGatePage> {
     setState(() => _saving = true);
     try {
       final group = AgePolicy.classify(birthDate);
-      await widget.store.writeAgeGroup(group);
+      await (widget.store ?? AdProfileStore.I).writeAgeGroup(group);
       if (mounted) Navigator.of(context).pop(group);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -396,7 +403,10 @@ class _AgeGatePageState extends State<AgeGatePage> {
                               ? 'نستخدم تاريخ الميلاد مرة واحدة فقط لحساب الفئة العمرية. لا يتم حفظ تاريخ الميلاد نفسه.'
                               : 'Your date of birth is used once to calculate an age group. The birth date itself is not stored.',
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white60, height: 1.5),
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            height: 1.5,
+                          ),
                         ),
                         const SizedBox(height: 24),
                         OutlinedButton.icon(
@@ -404,13 +414,16 @@ class _AgeGatePageState extends State<AgeGatePage> {
                           icon: const Icon(Icons.calendar_month_rounded),
                           label: Text(
                             _birthDate == null
-                                ? (ar ? 'اختيار تاريخ الميلاد' : 'Choose date of birth')
+                                ? (ar
+                                    ? 'اختيار تاريخ الميلاد'
+                                    : 'Choose date of birth')
                                 : _formatDate(_birthDate!),
                           ),
                         ),
                         const SizedBox(height: 14),
                         FilledButton.icon(
-                          onPressed: _birthDate == null || _saving ? null : _continue,
+                          onPressed:
+                              _birthDate == null || _saving ? null : _continue,
                           icon: _saving
                               ? const SizedBox(
                                   width: 18,
@@ -458,7 +471,8 @@ class AdMobService {
   static const _defineBanner = String.fromEnvironment('ADMOB_BANNER_ID');
   static const _defineInterstitial =
       String.fromEnvironment('ADMOB_INTERSTITIAL_ID');
-  static const _defineNativeHome = String.fromEnvironment('ADMOB_NATIVE_HOME_ID');
+  static const _defineNativeHome =
+      String.fromEnvironment('ADMOB_NATIVE_HOME_ID');
   static const _defineNativeDetails =
       String.fromEnvironment('ADMOB_NATIVE_DETAILS_ID');
   static const _defineEnabled = String.fromEnvironment('ADMOB_ENABLED');
@@ -477,7 +491,8 @@ class AdMobService {
   AdAgeGroup get ageGroup => _ageGroup;
   AdMembershipTier get membershipTier => _membershipTier;
   bool get policyAllowsAds =>
-      _ageGroup != AdAgeGroup.unknown && _membershipTier != AdMembershipTier.vip;
+      _ageGroup != AdAgeGroup.unknown &&
+      _membershipTier != AdMembershipTier.vip;
 
   Map<String, dynamic> get _config {
     final raw = Api.I.config['admob'];
@@ -542,7 +557,8 @@ class AdMobService {
     final remote = (details
                 ? (_config['native_details_id_android'] ??
                     _config['native_details_id'])
-                : (_config['native_home_id_android'] ?? _config['native_home_id']))
+                : (_config['native_home_id_android'] ??
+                    _config['native_home_id']))
             ?.toString()
             .trim() ??
         '';
@@ -550,7 +566,8 @@ class AdMobService {
     if (testMode) return _testNative;
     if (remote.startsWith('ca-app-pub-')) return remote;
 
-    final defined = details ? _defineNativeDetails.trim() : _defineNativeHome.trim();
+    final defined =
+        details ? _defineNativeDetails.trim() : _defineNativeHome.trim();
     if (defined.startsWith('ca-app-pub-')) return defined;
 
     return details
@@ -621,7 +638,9 @@ class AdMobService {
     _ageGroup = ageGroup;
     _membershipTier = membershipTier;
     policyRevision.value++;
-    if (_initialized || !Platform.isAndroid || ageGroup == AdAgeGroup.unknown) {
+    if (_initialized ||
+        !Platform.isAndroid ||
+        ageGroup == AdAgeGroup.unknown) {
       return;
     }
     _initialized = true;

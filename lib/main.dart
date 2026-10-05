@@ -20,6 +20,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 part 'offline_downloads.dart';
 part 'page_cache.dart';
 part 'admob_ads.dart';
+part 'ad_placements.dart';
 part 'admin_web_portal.dart';
 part 'pro_home.dart';
 part 'pro_detail.dart';

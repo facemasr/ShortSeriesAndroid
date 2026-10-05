@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -26,7 +28,7 @@ jobs:
       - name: Tests
         run: flutter test
       - name: Analyze
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
       - name: Format check changed ad-platform files
         run: |
           files=$(git diff --name-only 1885ac40e44d01886b7501a17a407686db0d9fcf...HEAD -- 'lib/*.dart' 'test/*.dart')

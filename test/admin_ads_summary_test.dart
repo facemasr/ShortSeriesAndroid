@@ -65,7 +65,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(AdminAdsSummaryPage.fullManagementPath, '/admin/ads');
-    await tester.tap(find.byKey(const Key('open-full-ads-studio')));
+    await tester.drag(find.byType(ListView), const Offset(0, -500));
+    await tester.pumpAndSettle();
+    final managementButton=find.byKey(const Key('open-full-ads-studio'));
+    expect(managementButton, findsOneWidget);
+    await tester.tap(managementButton);
     await tester.pump();
     expect(opened, isTrue);
   });

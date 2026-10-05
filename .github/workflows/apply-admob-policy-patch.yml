@@ -1,0 +1,178 @@
+name: Apply AdMob Policy Patch
+
+on:
+  push:
+    branches:
+      - feat/ad-platform-foundation
+    paths:
+      - .github/workflows/apply-admob-policy-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/ad-platform-foundation
+          fetch-depth: 0
+      - name: Apply age-aware AdMob policy
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/admob_ads.dart')
+          text = path.read_text()
+
+          if 'class AdMobRequestPolicy {' not in text:
+              marker = '/// Central AdMob controller for SHORT SERIES TV.'
+              if marker not in text:
+                  raise SystemExit('AdMob controller marker not found')
+              policy = r'''class AdMobRequestPolicy {
+            final bool nonPersonalized;
+            final AgeRestrictedTreatment ageTreatment;
+
+            const AdMobRequestPolicy({
+              required this.nonPersonalized,
+              required this.ageTreatment,
+            });
+
+            factory AdMobRequestPolicy.forAge(AdAgeGroup ageGroup) {
+              switch (ageGroup) {
+                case AdAgeGroup.child:
+                  return const AdMobRequestPolicy(
+                    nonPersonalized: true,
+                    ageTreatment: AgeRestrictedTreatment.child,
+                  );
+                case AdAgeGroup.teen:
+                  return const AdMobRequestPolicy(
+                    nonPersonalized: true,
+                    ageTreatment: AgeRestrictedTreatment.teen,
+                  );
+                case AdAgeGroup.adult:
+                  return const AdMobRequestPolicy(
+                    nonPersonalized: false,
+                    ageTreatment: AgeRestrictedTreatment.unspecified,
+                  );
+                case AdAgeGroup.unknown:
+                  return const AdMobRequestPolicy(
+                    nonPersonalized: true,
+                    ageTreatment: AgeRestrictedTreatment.child,
+                  );
+              }
+            }
+
+            AdRequest toAdRequest() => AdRequest(
+                  nonPersonalizedAds: nonPersonalized,
+                );
+
+            RequestConfiguration toRequestConfiguration() => RequestConfiguration(
+                  ageRestrictedTreatment: ageTreatment,
+                );
+          }
+
+          '''
+              text = text.replace(marker, policy + marker, 1)
+
+          text = text.replace(
+              "  static const _testNative = 'ca-app-pub-3940256099942544/2247696110';\n",
+              "  static const _testNative = 'ca-app-pub-3940256099942544/2247696110';\n"
+              "  static const _testRewarded = 'ca-app-pub-3940256099942544/5224354917';\n"
+              "  static const _testAppOpen = 'ca-app-pub-3940256099942544/9257395921';\n",
+              1,
+          )
+
+          text = text.replace(
+              "  static const _defineNativeDetails =\n      String.fromEnvironment('ADMOB_NATIVE_DETAILS_ID');\n  static const _defineEnabled = String.fromEnvironment('ADMOB_ENABLED');\n",
+              "  static const _defineNativeDetails =\n      String.fromEnvironment('ADMOB_NATIVE_DETAILS_ID');\n"
+              "  static const _defineRewarded = String.fromEnvironment('ADMOB_REWARDED_ID');\n"
+              "  static const _defineAppOpen = String.fromEnvironment('ADMOB_APP_OPEN_ID');\n"
+              "  static const _defineEnabled = String.fromEnvironment('ADMOB_ENABLED');\n",
+              1,
+          )
+
+          if 'String get rewardedId {' not in text:
+              marker = '  int get minIntervalSeconds =>'
+              if marker not in text:
+                  raise SystemExit('interval marker not found')
+              getters = r'''  String get rewardedId {
+            if (testMode) return _testRewarded;
+            final remote = (_config['rewarded_id_android'] ?? _config['rewarded_id'] ?? '')
+                .toString()
+                .trim();
+            if (remote.startsWith('ca-app-pub-')) return remote;
+            final defined = _defineRewarded.trim();
+            if (defined.startsWith('ca-app-pub-')) return defined;
+            return '';
+          }
+
+          String get appOpenId {
+            if (testMode) return _testAppOpen;
+            final remote = (_config['app_open_id_android'] ?? _config['app_open_id'] ?? '')
+                .toString()
+                .trim();
+            if (remote.startsWith('ca-app-pub-')) return remote;
+            final defined = _defineAppOpen.trim();
+            if (defined.startsWith('ca-app-pub-')) return defined;
+            return '';
+          }
+
+          bool get rewardedEnabled =>
+              policyAllowsAds &&
+              rewardedId.isNotEmpty &&
+              _asBool(_config['rewarded_enabled'], true);
+
+          bool get appOpenEnabled =>
+              policyAllowsAds &&
+              appOpenId.isNotEmpty &&
+              _asBool(_config['app_open_enabled'], true);
+
+          AdRequest get adRequest =>
+              AdMobRequestPolicy.forAge(_ageGroup).toAdRequest();
+
+          '''
+              text = text.replace(marker, getters + marker, 1)
+
+          old_init = '''    if (_initialized ||
+                !Platform.isAndroid ||
+                ageGroup == AdAgeGroup.unknown) {
+              return;
+            }
+            _initialized = true;
+            await MobileAds.instance.initialize();
+            if (membershipTier != AdMembershipTier.vip) {
+              unawaited(preloadInterstitial());
+            }
+          }'''
+          new_init = '''    if (_initialized ||
+                !Platform.isAndroid ||
+                ageGroup == AdAgeGroup.unknown ||
+                membershipTier == AdMembershipTier.vip) {
+              return;
+            }
+            _initialized = true;
+            final requestPolicy = AdMobRequestPolicy.forAge(ageGroup);
+            await MobileAds.instance.updateRequestConfiguration(
+              requestPolicy.toRequestConfiguration(),
+            );
+            await MobileAds.instance.initialize();
+            unawaited(preloadInterstitial());
+          }'''
+          if old_init not in text:
+              raise SystemExit('initializeFor body marker not found')
+          text = text.replace(old_init, new_init, 1)
+
+          text = text.replace('request: const AdRequest(),', 'request: AdMobService.I.adRequest,')
+
+          path.write_text(text)
+          PY
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "shortseries-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add lib/admob_ads.dart
+          git commit -m "feat: make AdMob policy age aware"
+          git push origin HEAD:feat/ad-platform-foundation

@@ -429,6 +429,8 @@ class _ProPlayerPageState extends State<ProPlayerPage> with RouteAware, WidgetsB
             ownerType=='episode'&&type=='episode'&&ownerId!=id;
         await AdMobService.I.maybeShowPlaybackInterstitial(
           betweenEpisodes:betweenEpisodes,
+          contentType:type,
+          contentId:id,
         );
       }
 

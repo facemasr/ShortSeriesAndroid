@@ -21,6 +21,7 @@ part 'offline_downloads.dart';
 part 'page_cache.dart';
 part 'admob_ads.dart';
 part 'ad_placements.dart';
+part 'player_ads.dart';
 part 'admin_web_portal.dart';
 part 'pro_home.dart';
 part 'pro_detail.dart';

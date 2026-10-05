@@ -649,6 +649,7 @@ class AdMobService {
   bool _initializing = false;
   int _playStarts = 0;
   int _episodeTransitions = 0;
+  bool _playerAdRequestInFlight = false;
   AdAgeGroup _ageGroup = AdAgeGroup.unknown;
   AdMembershipTier _membershipTier = AdMembershipTier.free;
   final ValueNotifier<int> policyRevision = ValueNotifier<int>(0);
@@ -894,61 +895,107 @@ AdRequest get adRequest =>
     );
   }
 
-  Future<bool> maybeShowPlaybackInterstitial({
-    required bool betweenEpisodes,
-  }) async {
-    if (!Platform.isAndroid || !enabled || _showingInterstitial) return false;
+  bool get _adPlatformEnabled {
+  final raw = Api.I.config['ad_platform'];
+  if (raw is! Map) return false;
+  return _adBool(Map<String, dynamic>.from(raw)['enabled']);
+}
 
-    if (betweenEpisodes) {
-      _episodeTransitions++;
-      if (_episodeTransitions % episodeEvery != 0) {
-        unawaited(preloadInterstitial());
-        return false;
-      }
-    } else {
-      _playStarts++;
-      if (_playStarts % playbackEvery != 0) {
-        unawaited(preloadInterstitial());
-        return false;
-      }
-    }
+String get _configuredAppVersion {
+  final value = Api.I.config['app_version'];
+  return (value ?? '').toString().trim();
+}
 
-    if (!await _intervalAllows()) {
-      unawaited(preloadInterstitial());
-      return false;
-    }
-
-    final ad = _interstitial;
-    if (ad == null) {
-      unawaited(preloadInterstitial());
-      return false;
-    }
-
-    _interstitial = null;
-    _showingInterstitial = true;
-    final done = Completer<bool>();
-
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdShowedFullScreenContent: (_) {
-        unawaited(_markShown());
-      },
-      onAdDismissedFullScreenContent: (shownAd) {
-        shownAd.dispose();
-        _showingInterstitial = false;
-        if (!done.isCompleted) done.complete(true);
-        unawaited(preloadInterstitial());
-      },
-      onAdFailedToShowFullScreenContent: (failedAd, error) {
-        failedAd.dispose();
-        _showingInterstitial = false;
-        if (!done.isCompleted) done.complete(false);
-        unawaited(preloadInterstitial());
-      },
+Future<bool> maybeShowPlaybackInterstitial({
+  required bool betweenEpisodes,
+  String contentType = '',
+  int? contentId,
+  List<int> genreIds = const <int>[],
+}) async {
+  if (_playerAdRequestInFlight) return false;
+  _playerAdRequestInFlight = true;
+  try {
+    final coordinator = PlayerAdCoordinator(
+      decisionClient: AdDecisionClient.I,
+      showInterstitial: ({required bool betweenEpisodes}) =>
+          _maybeShowLegacyPlaybackInterstitial(
+        betweenEpisodes: betweenEpisodes,
+      ),
+      ageGroup: _ageGroup,
+      membershipTier: _membershipTier,
+      remoteEnabled: _adPlatformEnabled,
+      platform: Platform.isAndroid ? 'android' : 'other',
+      appVersion: _configuredAppVersion,
+      locale: Api.I.locale,
     );
-
-    ad.show();
-    return done.future;
+    return await coordinator.maybeShow(
+      betweenEpisodes: betweenEpisodes,
+      contentType: contentType,
+      contentId: contentId,
+      genreIds: genreIds,
+    );
+  } catch (_) {
+    return false;
+  } finally {
+    _playerAdRequestInFlight = false;
   }
+}
+
+Future<bool> _maybeShowLegacyPlaybackInterstitial({
+  required bool betweenEpisodes,
+}) async {
+  if (!Platform.isAndroid || !enabled || _showingInterstitial) return false;
+
+  if (betweenEpisodes) {
+    _episodeTransitions++;
+    if (_episodeTransitions % episodeEvery != 0) {
+      unawaited(preloadInterstitial());
+      return false;
+    }
+  } else {
+    _playStarts++;
+    if (_playStarts % playbackEvery != 0) {
+      unawaited(preloadInterstitial());
+      return false;
+    }
+  }
+
+  if (!await _intervalAllows()) {
+    unawaited(preloadInterstitial());
+    return false;
+  }
+
+  final ad = _interstitial;
+  if (ad == null) {
+    unawaited(preloadInterstitial());
+    return false;
+  }
+
+  _interstitial = null;
+  _showingInterstitial = true;
+  final done = Completer<bool>();
+
+  ad.fullScreenContentCallback = FullScreenContentCallback(
+    onAdShowedFullScreenContent: (_) {
+      unawaited(_markShown());
+    },
+    onAdDismissedFullScreenContent: (shownAd) {
+      shownAd.dispose();
+      _showingInterstitial = false;
+      if (!done.isCompleted) done.complete(true);
+      unawaited(preloadInterstitial());
+    },
+    onAdFailedToShowFullScreenContent: (failedAd, error) {
+      failedAd.dispose();
+      _showingInterstitial = false;
+      if (!done.isCompleted) done.complete(false);
+      unawaited(preloadInterstitial());
+    },
+  );
+
+  ad.show();
+  return done.future;
+}
 }
 
 class AdMobBanner extends StatefulWidget {

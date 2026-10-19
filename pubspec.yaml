@@ -1,32 +1,20 @@
-name: shortseris_app
-description: SHORT SERIES TV native streaming app powered by the ShortSeris JSON API.
+name: egyshow_mobile
+description: EGYSHOW Android preview app connected to https://egyshow.com.
 publish_to: "none"
-version: 1.13.3+18
+version: 0.1.0+1
 
 environment:
-  sdk: ">=3.10.0 <4.0.0"
+  sdk: ">=3.6.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
-  dio: ^5.11.1
-  flutter_secure_storage: ^11.2.0
-  cached_network_image: ^3.4.1
-  media_kit: ^1.2.6
-  media_kit_video: ^2.0.1
-  media_kit_libs_video: ^1.0.7
-  package_info_plus: ^10.2.1
+  webview_flutter: ^4.13.0
   url_launcher: ^6.3.2
-  cryptography: ^2.7.0
-  path_provider: ^2.1.5
-  webview_flutter: ^4.13.1
-  google_mobile_ads: ^9.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true

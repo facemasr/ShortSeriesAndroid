@@ -8,6 +8,7 @@ import 'native_api.dart';
 import 'native_player.dart';
 import 'native_reels.dart';
 import 'native_banner_ads.dart';
+import 'native_sections.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -392,6 +393,7 @@ class _NativeShellState extends State<NativeShell> {
 
   Widget _live() => RefreshIndicator(onRefresh: _loadLive,
     child: ListView(children: [
+      EgyshowBannerAd(api: api, placement: 'banner'),
       if (error.isNotEmpty) _error(),
       Padding(padding: const EdgeInsets.all(16),
         child: Text(tr(ar, 'القنوات المباشرة', 'Live TV'),
@@ -478,15 +480,41 @@ class _NativeShellState extends State<NativeShell> {
     Expanded(child: _grid(searchResults)),
   ]);
 
+  Widget _navItem(int index, IconData glyph, String label) {
+    final selected = tab == index;
+    return InkWell(
+      onTap: () => _select(index),
+      child: SizedBox(width: 80,
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: selected ? const Color(0xFF60121A) : Colors.transparent,
+              borderRadius: BorderRadius.circular(16)),
+            child: Icon(glyph, size: 24,
+              color: selected ? red : Colors.white70)),
+          const SizedBox(height: 4),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 10.5,
+              color: selected ? Colors.white : Colors.white60,
+              fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
+        ])),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isSearch = tab == 6;
+    final isSearch = tab == 8;
     Widget body;
     if (tab == 0) body = _home();
     else if (tab >= 1 && tab <= 3) {
       final type = ['movie', 'series', 'short_series'][tab - 1];
       body = _grid(catalogs[type] ?? [], paginate: true, type: type);
     } else if (tab == 4) body = _live();
+    else if (tab == 5 || tab == 6) body = WebsiteSection(
+      key: ValueKey('section-' + tab.toString() + (ar ? '-ar' : '-en')),
+      kind: tab == 5 ? 'matches' : 'youtube', ar: ar);
     else if (isSearch) body = _searchBody();
     else body = _profile();
     return Directionality(textDirection: ar ? TextDirection.rtl : TextDirection.ltr,
@@ -497,32 +525,27 @@ class _NativeShellState extends State<NativeShell> {
           actions: [
             IconButton(
               tooltip: tr(ar, 'بحث', 'Search'),
-              onPressed: () => setState(() { tab = isSearch ? 0 : 6; error = ''; }),
+              onPressed: () => setState(() { tab = isSearch ? 0 : 8; error = ''; }),
               icon: Icon(isSearch ? Icons.close : Icons.search_rounded)),
             IconButton(
               tooltip: 'AR/EN', onPressed: _switchLang,
               icon: const Icon(Icons.translate_outlined)),
           ]),
         body: body,
-        bottomNavigationBar: NavigationBar(
-          height: 73,
-          selectedIndex: tab == 6 ? 0 : tab,
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          onDestinationSelected: _select,
-          destinations: [
-            NavigationDestination(icon: const Icon(Icons.home_outlined),
-              selectedIcon: const Icon(Icons.home), label: tr(ar, 'الرئيسية', 'Home')),
-            NavigationDestination(icon: const Icon(Icons.movie_outlined),
-              label: tr(ar, 'أفلام', 'Movies')),
-            NavigationDestination(icon: const Icon(Icons.tv_outlined),
-              label: tr(ar, 'مسلسلات', 'Series')),
-            NavigationDestination(icon: const Icon(Icons.smart_display_outlined),
-              label: tr(ar, 'قصيرة', 'Shorts')),
-            NavigationDestination(icon: const Icon(Icons.live_tv_outlined),
-              label: tr(ar, 'مباشر', 'Live')),
-            NavigationDestination(icon: const Icon(Icons.person_outline),
-              label: tr(ar, 'حسابي', 'Profile')),
-          ],
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: SizedBox(height: 75,
+            child: ListView(scrollDirection: Axis.horizontal, children: [
+              _navItem(0, Icons.home_outlined, tr(ar, 'الرئيسية', 'Home')),
+              _navItem(1, Icons.movie_outlined, tr(ar, 'أفلام', 'Movies')),
+              _navItem(2, Icons.tv_outlined, tr(ar, 'مسلسلات', 'Series')),
+              _navItem(3, Icons.smart_display_outlined, tr(ar, 'قصيرة', 'Shorts')),
+              _navItem(4, Icons.live_tv_outlined, tr(ar, 'مباشر', 'Live')),
+              _navItem(5, Icons.sports_soccer_outlined, tr(ar, 'مباريات', 'Matches')),
+              _navItem(6, Icons.play_circle_outline, 'YouTube'),
+              _navItem(7, Icons.person_outline, tr(ar, 'حسابي', 'Profile')),
+            ]),
+          ),
         ),
       ),
     );

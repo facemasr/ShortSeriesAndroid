@@ -15,8 +15,7 @@ class _WebsiteSectionState extends State<WebsiteSection> {
   int progress = 0;
   Uri get uri => Uri.parse(widget.kind == 'matches'
     ? 'https://egyshow.com/matches/'
-    : widget.ar ? 'https://egyshow.com/ar/youtube'
-      : 'https://egyshow.com/en/youtube');
+    : 'https://egyshow.com/ar/youtube');
   @override
   void initState() {
     super.initState();

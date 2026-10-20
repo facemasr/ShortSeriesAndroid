@@ -47,6 +47,7 @@ class _EgyshowBannerAdState extends State<EgyshowBannerAd> {
           '<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
           '<body style="margin:0;display:flex;align-items:center;justify-content:center;background:transparent;overflow:hidden">'
           + html + '</body></html>',
+          baseUrl: 'https://egyshow.com/',
         );
         browser = controller;
       }

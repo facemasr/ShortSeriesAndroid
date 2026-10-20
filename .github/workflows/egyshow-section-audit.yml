@@ -1,0 +1,41 @@
+name: Audit EGYSHOW section APIs
+on:
+  push:
+    branches: [egyshow-native-mobile]
+    paths: [.github/workflows/egyshow-section-audit.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Identify endpoint paths and response shape
+        run: |
+          python3 - <<'PY'
+          import urllib.request, urllib.error, re, json
+          host='https://egyshow.com'
+          scripts=['/assets/web/youtube-section.js','/assets/web/egyshow-matches.js','/assets/web/matches-section.js','/matches/nav.js']
+          for path in scripts:
+            try:
+              with urllib.request.urlopen(host+path,timeout=15) as r:s=r.read().decode('utf-8','replace')
+              print('SCRIPT',path,'LEN',len(s))
+              for m in list(re.finditer(r'fetch\s*\(|(?:api|endpoint|url|baseUrl|API_URL)\s*[=:]|/matches/|/youtube/',s,re.I))[:30]:
+                print('REF',re.sub(r'\s+',' ',s[max(0,m.start()-90):m.end()+210])[:300])
+              print('LITERAL_URLS',list(dict.fromkeys(re.findall(r'''["'\x60]([^"'\x60]*(?:api|matches|youtube)[^"'\x60]{0,180})["'\x60]''',s,re.I)))[:35])
+            except Exception as e:print('ERROR',path,str(e)[:180])
+          paths=['/api/v1/youtube/categories','/api/v1/youtube/videos','/api/v1/youtube/videos?category=music','/api/v1/recommendations/26926','/matches/api/matches','/matches/api/matches?day=today','/matches/api/v1/matches','/matches/api/fixtures','/matches/data/today','/api/matches','/api/matches/today']
+          for path in paths:
+            try:
+              with urllib.request.urlopen(host+path,timeout=10) as r:
+                ct=r.headers.get('content-type','');raw=r.read().decode('utf-8','replace')
+                print('DATA',path,'STATUS',r.status,'CT',ct,'SIZE',len(raw))
+                if 'json' in ct:
+                  j=json.loads(raw)
+                  print('KEYS',list(j) if isinstance(j,dict) else 'array')
+                  for k,v in (j.items() if isinstance(j,dict) else []):
+                    if isinstance(v,list):print('SAMPLE',k,len(v),str(v[0] if v else None)[:1000])
+                    elif isinstance(v,dict):print('SAMPLE',k,'dict',str(v)[:800])
+              if 'html' in ct:print('HEAD',raw[:130])
+            except urllib.error.HTTPError as e:print('DATA',path,'STATUS',e.code)
+            except Exception as e:print('DATAERROR',path,type(e).__name__,str(e)[:150])
+          PY

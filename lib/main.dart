@@ -9,6 +9,7 @@ import 'native_player.dart';
 import 'native_reels.dart';
 import 'native_banner_ads.dart';
 import 'native_sections.dart';
+import 'native_home_sections.dart';
 import 'native_visit_analytics.dart';
 
 void main() {
@@ -372,6 +373,8 @@ class _NativeShellState extends State<NativeShell> {
       EgyshowBannerAd(api: api, placement: 'home'),
       _rail(tr(ar, 'الأكثر مشاهدة', 'Trending'), homeData['trending'] ?? []),
       _rail(tr(ar, 'أضيف حديثًا', 'Just added'), homeData['latest'] ?? []),
+      HomeExtras(api: api, ar: ar, openMedia: _open,
+        play: _play, openTab: (section) { _select(section); }),
       EgyshowBannerAd(api: api, placement: 'banner'),
       const SizedBox(height: 24),
     ]));
@@ -528,7 +531,7 @@ class _NativeShellState extends State<NativeShell> {
     } else if (tab == 4) body = _live();
     else if (tab == 5 || tab == 6) body = WebsiteSection(
       key: ValueKey('section-' + tab.toString() + (ar ? '-ar' : '-en')),
-      kind: tab == 5 ? 'matches' : 'youtube', ar: ar);
+      kind: tab == 5 ? 'matches' : 'youtube', ar: ar, api: api);
     else if (isSearch) body = _searchBody();
     else body = _profile();
     return Directionality(textDirection: ar ? TextDirection.rtl : TextDirection.ltr,
@@ -541,6 +544,14 @@ class _NativeShellState extends State<NativeShell> {
               tooltip: tr(ar, 'بحث', 'Search'),
               onPressed: () => setState(() { tab = isSearch ? 0 : 8; error = ''; }),
               icon: Icon(isSearch ? Icons.close : Icons.search_rounded)),
+            IconButton(
+              tooltip: tr(ar, 'المباريات','Matches'),
+              onPressed: () => _select(5),
+              icon: const Icon(Icons.sports_soccer_outlined)),
+            IconButton(
+              tooltip: 'YouTube',
+              onPressed: () => _select(6),
+              icon: const Icon(Icons.play_circle_outline)),
             IconButton(
               tooltip: 'AR/EN', onPressed: _switchLang,
               icon: const Icon(Icons.translate_outlined)),
@@ -605,7 +616,19 @@ class _NativeDetailsState extends State<NativeDetails> {
     if (mounted) setState(() { suggestionsBusy = true; suggestionsError = ''; });
     try {
       final nextPage = suggestionPage + 1;
-      final page = await widget.api.catalog(widget.media.type, page: nextPage);
+      List<Media> page;
+      if (nextPage == 1) {
+        // Use the site's actual recommendation engine before generic listings.
+        try {
+          final response = await widget.api.call(
+            '/api/v1/recommendations/' + widget.media.id.toString());
+          page = asList(response['items']).map((e) => Media(asMap(e))).toList();
+        } catch (_) {
+          page = await widget.api.catalog(widget.media.type, page: nextPage);
+        }
+      } else {
+        page = await widget.api.catalog(widget.media.type, page: nextPage);
+      }
       if (!mounted) return;
       final existing = suggestions.map((m) => m.key).toSet();
       final fresh = page.where((m) =>

@@ -1,0 +1,58 @@
+name: Audit Live EGYSHOW API
+on:
+  push:
+    branches:
+      - egyshow-native-mobile
+    paths:
+      - .github/workflows/egyshow-site-audit.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Audit public website routes and API shape
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import urllib.request,urllib.error,json,re,html
+          origin='https://egyshow.com'
+          paths=['/api/v1/home','/api/v1/media?type=movie&page=1&limit=2','/api/v1/media?type=series&page=1&limit=2','/api/v1/media?type=short_series&page=1&limit=2','/api/v1/live?page=1&limit=2','/api/v1/search?q=adam&limit=2','/api/v1/media/26926','/api/v1/player/context?target_type=movie&target_id=26926','/api/v1/matches','/api/v1/matches/today','/api/v1/youtube','/api/v1/youtube/videos','/api/v1/videos','/api/v1/ads','/api/v1/ads/placements','/api/v1/settings','/api/v1/analytics','/matches/','/ar/youtube','/ar/short-series','/ar/channels','/ar/series']
+          for path in paths:
+            try:
+              req=urllib.request.Request(origin+path,headers={'User-Agent':'EGYSHOW Android App Audit'})
+              with urllib.request.urlopen(req,timeout=13) as res:
+                data=res.read().decode('utf-8','replace');ct=res.headers.get('content-type','')
+                print('PATH',path,'HTTP',res.status,'CT',ct,'BYTES',len(data))
+                if 'json' in ct:
+                  v=json.loads(data)
+                  if isinstance(v,dict):
+                    print('KEYS',list(v))
+                    for k,x in v.items():
+                      if isinstance(x,list):
+                        print('LIST',k,'COUNT',len(x),'FIRST',str(x[0] if x else '')[:1400])
+                      elif isinstance(x,dict):
+                        print('OBJ',k,'KEYS',list(x),'FIRST',str(x)[:400])
+                      else:print('VAL',k,str(x)[:100])
+                else:
+                  title=re.findall(r'<title[^>]*>(.*?)</title>',data,re.I|re.S)
+                  print('TITLE',html.unescape(title[0])[:180] if title else '')
+                  print('SCRIPTS',re.findall(r'<script[^>]+src=["\\x27]([^"\\x27]+)',data,re.I)[:14])
+            except urllib.error.HTTPError as e:
+              print('PATH',path,'HTTP',e.code,'ERROR',e.read(300).decode('utf-8','replace'))
+            except Exception as e:print('PATH',path,'ERROR',type(e).__name__,str(e)[:190])
+          for path in ['/assets/web/app.js','/assets/web/egyshow-matches.js','/assets/web/matches-section.js','/assets/web/canonical-player.js']:
+            try:
+              req=urllib.request.Request(origin+path,headers={'User-Agent':'EGYSHOW Android App Audit'})
+              with urllib.request.urlopen(req,timeout=20) as res:source=res.read().decode('utf-8','replace')
+              print('SCRIPT',path,'LEN',len(source))
+              literals=sorted(set(re.findall(r"/api/v1/[A-Za-z0-9_/?=&.:-]{3,140}",source)))
+              print('API_LITERALS',literals[:130])
+              for needle in ['youtube','matches','/api/','/embed/','banner','placement']:
+                found=list(re.finditer(re.escape(needle),source,re.I))
+                print('NEEDLE',needle,'COUNT',len(found))
+                for m in found[:4]:
+                  print('CONTEXT',re.sub(r'\s+',' ',source[max(0,m.start()-110):m.end()+150])[:300])
+            except Exception as e:print('SCRIPTERROR',path,type(e).__name__,str(e)[:150])
+          PY

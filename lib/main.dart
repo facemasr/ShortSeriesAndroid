@@ -9,6 +9,7 @@ import 'native_player.dart';
 import 'native_reels.dart';
 import 'native_banner_ads.dart';
 import 'native_sections.dart';
+import 'native_visit_analytics.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,6 +44,11 @@ class EgyshowNativeApp extends StatelessWidget {
         style: FilledButton.styleFrom(backgroundColor: red)),
     ),
     home: const NativeShell(),
+    builder: (context, child) => Stack(fit: StackFit.expand, children: [
+      if (child != null) child,
+      const Positioned(right: 0, bottom: 0, width: 1, height: 1,
+        child: EgyshowVisitPixel()),
+    ]),
   );
 }
 
@@ -182,6 +188,9 @@ class _NativeShellState extends State<NativeShell> {
 
   Future<void> _select(int next) async {
     setState(() { tab = next; error = ''; });
+    if (next != 5 && next != 6) {
+      EgyshowVisitAnalytics.instance.track(EgyshowVisitAnalytics.tabPath(next));
+    }
     if (next >= 1 && next <= 3) {
       final t = ['movie', 'series', 'short_series'][next - 1];
       if (!catalogs.containsKey(t)) await _loadCatalog(t, fresh: true);
@@ -253,11 +262,15 @@ class _NativeShellState extends State<NativeShell> {
   }
 
   void _open(Media media) {
+    final previousPath = EgyshowVisitAnalytics.instance.current.value.path;
+    EgyshowVisitAnalytics.instance.track(EgyshowVisitAnalytics.mediaPath(media));
     Navigator.push(context, MaterialPageRoute(builder: (_) =>
       NativeDetails(api: api, media: media, ar: ar,
         favorite: favorites.containsKey(media.key),
         onFavorite: _favorite, onPlay: _play, onReels: _openReels,
-        onOpenMedia: _open)));
+        onOpenMedia: _open))).then((_) {
+      EgyshowVisitAnalytics.instance.track(previousPath);
+    });
   }
 
   void _openReels(Media media, int episodeIndex) {

@@ -256,7 +256,8 @@ class _NativeShellState extends State<NativeShell> {
     Navigator.push(context, MaterialPageRoute(builder: (_) =>
       NativeDetails(api: api, media: media, ar: ar,
         favorite: favorites.containsKey(media.key),
-        onFavorite: _favorite, onPlay: _play, onReels: _openReels)));
+        onFavorite: _favorite, onPlay: _play, onReels: _openReels,
+        onOpenMedia: _open)));
   }
 
   void _openReels(Media media, int episodeIndex) {
@@ -555,7 +556,7 @@ class _NativeShellState extends State<NativeShell> {
 class NativeDetails extends StatefulWidget {
   const NativeDetails({super.key, required this.api, required this.media,
     required this.ar, required this.favorite, required this.onFavorite,
-    required this.onPlay, required this.onReels});
+    required this.onPlay, required this.onReels, required this.onOpenMedia});
   final EgyApi api;
   final Media media;
   final bool ar;
@@ -563,6 +564,7 @@ class NativeDetails extends StatefulWidget {
   final Future<void> Function(Media) onFavorite;
   final void Function(String, int, String, [String]) onPlay;
   final void Function(Media, int) onReels;
+  final void Function(Media) onOpenMedia;
   @override
   State<NativeDetails> createState() => _NativeDetailsState();
 }
@@ -573,12 +575,54 @@ class _NativeDetailsState extends State<NativeDetails> {
   bool favorite = false;
   int selectedSeason = 0;
   int visibleEpisodes = 12;
+  int visibleSuggestions = 9, suggestionPage = 0;
+  bool suggestionsBusy = false, suggestionsHaveMore = true;
+  List<Media> suggestions = [];
+  String suggestionsError = '';
   @override
   void initState() {
     super.initState();
     favorite = widget.favorite;
     _fetch();
+    _loadSuggestions();
   }
+
+  Future<void> _loadSuggestions() async {
+    if (suggestionsBusy || !suggestionsHaveMore) return;
+    if (mounted) setState(() { suggestionsBusy = true; suggestionsError = ''; });
+    try {
+      final nextPage = suggestionPage + 1;
+      final page = await widget.api.catalog(widget.media.type, page: nextPage);
+      if (!mounted) return;
+      final existing = suggestions.map((m) => m.key).toSet();
+      final fresh = page.where((m) =>
+        m.id != widget.media.id && !existing.contains(m.key)).toList();
+      setState(() {
+        suggestions = [...suggestions, ...fresh];
+        suggestionPage = nextPage;
+        suggestionsHaveMore = page.length >= 24;
+        suggestionsBusy = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() {
+        suggestionsBusy = false;
+        suggestionsError = e.toString();
+      });
+    }
+  }
+
+  Future<void> _showMoreSuggestions() async {
+    if (visibleSuggestions < suggestions.length) {
+      setState(() => visibleSuggestions += 9);
+    } else if (suggestionsHaveMore) {
+      final before = suggestions.length;
+      await _loadSuggestions();
+      if (mounted && suggestions.length > before) {
+        setState(() => visibleSuggestions += 9);
+      }
+    }
+  }
+
   Future<void> _fetch() async {
     try {
       final d = await widget.api.details(widget.media.id);
@@ -685,6 +729,58 @@ class _NativeDetailsState extends State<NativeDetails> {
                         ' (' + (episodes.length - visibleEpisodes).toString() + ')'),
                     ))),
               ],
+              // Content recommendations are shown for movies and both
+              // standard/short series, independently of the episode list.
+              const SizedBox(height: 24),
+              Row(children: [
+                const Icon(Icons.video_collection_outlined, color: red),
+                const SizedBox(width: 9),
+                Expanded(child: Text(tr(ar, 'مشاهدة المزيد', 'Watch more'),
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900))),
+              ]),
+              const SizedBox(height: 4),
+              Text(tr(ar, 'محتوى آخر من نفس القسم', 'More from this category'),
+                style: const TextStyle(color: Colors.white60, fontSize: 12)),
+              const SizedBox(height: 15),
+              if (suggestions.isNotEmpty)
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3, childAspectRatio: 0.52,
+                    mainAxisSpacing: 12, crossAxisSpacing: 9),
+                  itemCount: suggestions.length < visibleSuggestions
+                    ? suggestions.length : visibleSuggestions,
+                  itemBuilder: (_, index) {
+                    final other = suggestions[index];
+                    return PosterCard(media: other, ar: ar, width: 150,
+                        tap: () => widget.onOpenMedia(other));
+                  },
+                ),
+              if (suggestionsBusy)
+                const Padding(padding: EdgeInsets.all(18),
+                  child: Center(child: CircularProgressIndicator())),
+              if (suggestionsError.isNotEmpty) ...[
+                Text(suggestionsError,
+                  style: const TextStyle(color: Colors.orangeAccent)),
+                OutlinedButton.icon(onPressed: _loadSuggestions,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(tr(ar, 'إعادة المحاولة', 'Retry'))),
+              ],
+              if (!suggestionsBusy &&
+                  (visibleSuggestions < suggestions.length || suggestionsHaveMore))
+                Padding(padding: const EdgeInsets.only(top: 16, bottom: 14),
+                  child: SizedBox(width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _showMoreSuggestions,
+                      icon: const Icon(Icons.expand_more_rounded),
+                      label: Text(tr(ar, 'مشاهدة المزيد', 'Show more')),
+                    ))),
+              if (!suggestionsBusy && suggestions.isEmpty &&
+                  !suggestionsHaveMore && suggestionsError.isEmpty)
+                Padding(padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Text(tr(ar, 'لا يوجد محتوى إضافي حاليًا', 'No more titles available'),
+                    style: const TextStyle(color: Colors.white54))),
             ])),
         ])));
   }

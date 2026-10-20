@@ -390,7 +390,6 @@ class _NativeShellState extends State<NativeShell> {
             ])),
           ),
         ),
-      ),
     ]));
 
   Widget _profile() {

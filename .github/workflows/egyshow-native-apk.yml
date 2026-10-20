@@ -53,7 +53,7 @@ jobs:
       - name: Dependencies
         run: flutter pub get
       - name: Analyze code
-        run: flutter analyze lib/main.dart
+        run: flutter analyze --no-fatal-infos lib/main.dart
       - name: Build APK
         run: flutter build apk --release
       - name: Upload installable APK

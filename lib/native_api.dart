@@ -124,12 +124,12 @@ class EgyApi {
   }
   Future<Map<String, dynamic>> playerContext(String type, int id) =>
       call('/api/v1/player/context?target_type=' + type + '&target_id=' + id.toString());
-  Future<Map<String, dynamic>> lease(Map<String, dynamic> source, {bool bypassCache = false}) =>
+  Future<Map<String, dynamic>> lease(Map<String, dynamic> source, {bool bypassCache = false, bool forceRelay = false}) =>
       call('/api/v1/player/source/' + numId(source['id']).toString() + '/lease',
         method: 'POST', data: {
           'target_type': txt(source['target_type']),
           'target_id': numId(source['target_id']),
-          'allow_failover': true, 'force_relay': false, 'bypass_cache': bypassCache,
+          'allow_failover': true, 'force_relay': forceRelay, 'bypass_cache': bypassCache,
         });
   Future<Map<String, dynamic>> refreshLease(String id) =>
       call('/api/v1/player/lease/' + Uri.encodeComponent(id) + '/refresh',

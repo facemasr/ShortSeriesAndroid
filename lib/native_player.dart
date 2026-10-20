@@ -29,6 +29,9 @@ class _NativePlayerState extends State<NativePlayer> {
   int active = -1;
   Duration lastStored = Duration.zero;
   bool disposed = false;
+  bool recovering = false, currentRelay = false;
+  int generation = 0;
+  Duration? pendingSeek;
   double playbackSpeed = 1;
 
   @override
@@ -61,51 +64,91 @@ class _NativePlayerState extends State<NativePlayer> {
     }
   }
 
-  Future<void> _choose(int index, {bool retry = false}) async {
+  // Try both direct and server-relayed transports before changing sources.
+  // The Android decoder needs the headers returned with the lease, not just its URL.
+  Future<void> _choose(int index, {bool retry = false, bool relayFirst = false}) async {
     if (index < 0 || index >= sources.length || disposed) return;
-    if (mounted) setState(() { busy = true; message = ''; active = index; });
+    final attempt = ++generation;
+    refreshTimer?.cancel();
+    if (mounted) setState(() {
+      busy = true; message = ''; active = index;
+    });
     final previous = video;
     video = null;
     await previous?.dispose();
-    try {
-      final result = await widget.api.lease(sources[index], bypassCache: retry);
-      if (disposed || !mounted) return;
-      final url = txt(result['playUrl']);
-      final type = txt(result['type']).toLowerCase();
-      if (!url.startsWith('https://') && !url.startsWith('http://')) {
-        throw const ApiException('رابط المشاهدة غير صالح');
-      }
-      if (type == 'embed' || type == 'iframe' || type == 'youtube') {
-        throw const ApiException('هذا السيرفر يحتاج مصدر فيديو مباشر لتشغيله داخل التطبيق');
-      }
-      final candidate = VideoPlayerController.networkUrl(
-        Uri.parse(url),
-        formatHint: type.contains('hls') || url.contains('.m3u8')
-            ? VideoFormat.hls : type.contains('dash') || url.contains('.mpd')
-                ? VideoFormat.dash : VideoFormat.other,
-      );
-      video = candidate;
-      await candidate.initialize().timeout(const Duration(seconds: 28));
-      if (disposed || !mounted) { await candidate.dispose(); return; }
-      leaseData = result;
-      candidate.addListener(_onVideo);
-      await candidate.setLooping(false);
-      await candidate.setPlaybackSpeed(playbackSpeed);
-      if (widget.resume > Duration.zero && widget.resume < candidate.value.duration) {
-        await candidate.seekTo(widget.resume);
-      }
-      await candidate.play();
-      refreshTimer?.cancel();
-      refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) => _keepAlive());
-      setState(() { busy = false; paused = false; message = ''; });
-    } catch (e) {
-      if (disposed || !mounted) return;
-      if (index + 1 < sources.length) {
-        await _choose(index + 1, retry: true);
-      } else {
-        setState(() { busy = false; message = 'تعذر تشغيل المصادر المتاحة. ' + e.toString(); });
+    final source = sources[index];
+    String lastFailure = '';
+    final relayModes = relayFirst ? <bool>[true, false] : <bool>[false, true];
+    for (final relay in relayModes) {
+      VideoPlayerController? candidate;
+      try {
+        final result = await widget.api.lease(source,
+          bypassCache: retry || relay, forceRelay: relay);
+        if (disposed || !mounted || attempt != generation) return;
+        final url = txt(result['playUrl']);
+        final type = txt(result['type']).toLowerCase();
+        if (!(url.startsWith('https://') || url.startsWith('http://'))) {
+          throw const ApiException('رابط المشاهدة غير صالح');
+        }
+        if (type == 'embed' || type == 'iframe' || type == 'youtube') {
+          throw const ApiException('هذا السيرفر يحتاج رابط فيديو مباشر');
+        }
+        final headers = <String, String>{};
+        for (final entry in asMap(result['headers']).entries) {
+          if (entry.value is String) headers[entry.key] = entry.value as String;
+        }
+        // Match the browser playback's first-party context for servers
+        // which require a valid site referrer.
+        headers.putIfAbsent('Referer', () => origin + '/');
+        headers.putIfAbsent('User-Agent', () =>
+          'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36');
+        final low = url.toLowerCase();
+        candidate = VideoPlayerController.networkUrl(
+          Uri.parse(url), httpHeaders: headers,
+          formatHint: type.contains('hls') || low.contains('.m3u8')
+            ? VideoFormat.hls : type.contains('dash') || low.contains('.mpd')
+              ? VideoFormat.dash : null,
+        );
+        await candidate.initialize().timeout(const Duration(seconds: 30));
+        if (disposed || !mounted || attempt != generation) {
+          await candidate.dispose();
+          return;
+        }
+        video = candidate;
+        leaseData = result;
+        currentRelay = relay;
+        candidate.addListener(_onVideo);
+        await candidate.setLooping(false);
+        await candidate.setPlaybackSpeed(playbackSpeed);
+        final restore = pendingSeek ?? widget.resume;
+        if (restore > Duration.zero &&
+            (candidate.value.duration == Duration.zero ||
+             restore < candidate.value.duration)) {
+          await candidate.seekTo(restore);
+        }
+        pendingSeek = null;
+        await candidate.play();
+        refreshTimer?.cancel();
+        refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) => _keepAlive());
+        if (mounted) setState(() {
+          busy = false; paused = false; message = '';
+        });
+        return;
+      } catch (e) {
+        lastFailure = e.toString();
+        if (candidate != null && identical(candidate, video)) video = null;
+        await candidate?.dispose();
+        if (disposed || !mounted || attempt != generation) return;
       }
     }
+    if (index + 1 < sources.length) {
+      await _choose(index + 1, retry: true);
+      return;
+    }
+    if (mounted) setState(() {
+      busy = false;
+      message = 'تعذر تشغيل جميع السيرفرات. راجع اتصال التطبيق أو مصدر الفيديو. ' + lastFailure;
+    });
   }
 
   void _onVideo() {
@@ -113,7 +156,23 @@ class _NativePlayerState extends State<NativePlayer> {
     final c = video;
     if (c == null || !c.value.isInitialized) return;
     if (c.value.hasError && !busy) {
-      setState(() { message = txt(c.value.errorDescription); });
+      if (recovering) return;
+      recovering = true;
+      pendingSeek = c.value.position;
+      final failed = active;
+      final next = !currentRelay ? failed : failed + 1;
+      Future<void>(() async {
+        try {
+          if (next >= sources.length) {
+            if (mounted) setState(() =>
+              message = c.value.errorDescription ?? 'تعذر تشغيل الفيديو');
+          } else {
+            await _choose(next, retry: true, relayFirst: !currentRelay);
+          }
+        } finally {
+          recovering = false;
+        }
+      });
       return;
     }
     if (c.value.position - lastStored > const Duration(seconds: 12)) {
@@ -127,38 +186,32 @@ class _NativePlayerState extends State<NativePlayer> {
   }
 
   Future<void> _keepAlive() async {
-    if (disposed || busy) return;
-    final expires = leaseData['expiresAt'];
-    if (expires == null) return;
-    final expiry = numId(expires);
-    if (expiry == 0) return;
-    final expiryMs = expiry > 1000000000000 ? expiry : expiry * 1000;
-    final remaining = expiryMs - DateTime.now().millisecondsSinceEpoch;
-    if (remaining > 45000) return;
+    if (disposed || busy || recovering || active < 0) return;
+    final expiry = numId(leaseData['expiresAt']);
+    if (expiry <= 0) return;
+    final when = expiry > 1000000000000 ? expiry : expiry * 1000;
+    if (when - DateTime.now().millisecondsSinceEpoch > 45000) return;
     final old = video;
     final position = old?.value.position ?? Duration.zero;
-    final playing = old?.value.isPlaying ?? false;
+    final wasPlaying = old?.value.isPlaying ?? false;
     try {
       final id = txt(leaseData['leaseId']);
-      final fresh = id.isNotEmpty
+      final renewed = id.isNotEmpty
           ? await widget.api.refreshLease(id)
-          : await widget.api.lease(sources[active], bypassCache: true);
+          : await widget.api.lease(sources[active],
+              bypassCache: true, forceRelay: currentRelay);
       if (disposed || !mounted) return;
-      final url = txt(fresh['playUrl']);
-      if (url.isEmpty) return;
-      final type = txt(fresh['type']);
-      final next = VideoPlayerController.networkUrl(Uri.parse(url),
-        formatHint: type == 'hls' ? VideoFormat.hls : VideoFormat.other);
-      await next.initialize();
-      await next.seekTo(position);
-      if (playing) await next.play();
-      next.addListener(_onVideo);
-      video = next;
-      leaseData = fresh;
-      await old?.dispose();
-      if (mounted) setState(() {});
+      final renewedUrl = txt(renewed['playUrl']);
+      if (renewedUrl.isEmpty) return;
+      if (renewedUrl == txt(leaseData['playUrl'])) {
+        leaseData = renewed;
+        return;
+      }
+      pendingSeek = position;
+      await _choose(active, retry: true, relayFirst: currentRelay);
+      if (!wasPlaying) await video?.pause();
     } catch (_) {
-      // The next explicit server selection will request a fresh lease.
+      // A user can select another source when the lease expires.
     }
   }
 
@@ -194,6 +247,7 @@ class _NativePlayerState extends State<NativePlayer> {
   @override
   void dispose() {
     disposed = true;
+    generation++;
     refreshTimer?.cancel();
     widget.onProgress?.call(video?.value.position.inSeconds ?? 0);
     video?.dispose();

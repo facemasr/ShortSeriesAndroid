@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'native_api.dart';
 import 'native_player.dart';
+import 'native_reels.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -128,6 +129,7 @@ class _NativeShellState extends State<NativeShell> {
   }
 
   Future<void> _start() async {
+    // Public home must not depend on reading a saved login token.
     try {
       prefs = await SharedPreferences.getInstance();
       ar = prefs?.getBool('language_ar') ?? true;
@@ -137,6 +139,9 @@ class _NativeShellState extends State<NativeShell> {
           if (media.id > 0) favorites[media.key] = media;
         } catch (_) {}
       }
+    } catch (_) {}
+    await _loadHome();
+    try {
       api.token = await secure.read(key: 'egyshow_auth');
       if (api.token != null) {
         try {
@@ -146,19 +151,30 @@ class _NativeShellState extends State<NativeShell> {
           await secure.delete(key: 'egyshow_auth');
         }
       }
-      await _loadHome();
-    } catch (e) {
-      if (mounted) setState(() { busy = false; error = e.toString(); });
-    }
+    } catch (_) {}
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadHome() async {
     if (mounted) setState(() { busy = true; error = ''; });
     try {
       final data = await api.home();
-      if (mounted) setState(() { homeData = data; busy = false; });
+      if (mounted) setState(() { homeData = data; busy = false; error = ''; });
     } catch (e) {
-      if (mounted) setState(() { busy = false; error = e.toString(); });
+      final fallback = <Media>[];
+      for (final type in ['movie', 'series', 'short_series']) {
+        try { fallback.addAll(await api.catalog(type)); } catch (_) {}
+      }
+      if (!mounted) return;
+      setState(() {
+        homeData = fallback.isEmpty ? {} : {
+          'featured': fallback.take(1).toList(),
+          'trending': fallback.take(20).toList(),
+          'latest': fallback.take(24).toList(),
+        };
+        busy = false;
+        error = fallback.isEmpty ? e.toString() : '';
+      });
     }
   }
 
@@ -238,7 +254,16 @@ class _NativeShellState extends State<NativeShell> {
     Navigator.push(context, MaterialPageRoute(builder: (_) =>
       NativeDetails(api: api, media: media, ar: ar,
         favorite: favorites.containsKey(media.key),
-        onFavorite: _favorite, onPlay: _play)));
+        onFavorite: _favorite, onPlay: _play, onReels: _openReels)));
+  }
+
+  void _openReels(Media media, int episodeIndex) {
+    if (media.episodes.isEmpty) return;
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) =>
+      EpisodeReels(api: api, media: media, episodes: media.episodes, ar: ar,
+        initialIndex: episodeIndex < 0 ? 0 : episodeIndex,
+        onProgress: (id, seconds) =>
+          prefs?.setInt('progress_episode:' + id.toString(), seconds))));
   }
 
   void _play(String type, int id, String title, [String mediaKey = '']) {
@@ -310,7 +335,8 @@ class _NativeShellState extends State<NativeShell> {
     if (busy) return const Center(child: CircularProgressIndicator());
     if (homeData.isEmpty) return _error();
     final featured = homeData['featured'] ?? [];
-    return RefreshIndicator(onRefresh: _loadHome, child: ListView(children: [
+    return RefreshIndicator(onRefresh: _loadHome, child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(), children: [
       if (featured.isNotEmpty) GestureDetector(
         onTap: () => _open(featured.first),
         child: Stack(children: [
@@ -504,13 +530,14 @@ class _NativeShellState extends State<NativeShell> {
 class NativeDetails extends StatefulWidget {
   const NativeDetails({super.key, required this.api, required this.media,
     required this.ar, required this.favorite, required this.onFavorite,
-    required this.onPlay});
+    required this.onPlay, required this.onReels});
   final EgyApi api;
   final Media media;
   final bool ar;
   final bool favorite;
   final Future<void> Function(Media) onFavorite;
   final void Function(String, int, String, [String]) onPlay;
+  final void Function(Media, int) onReels;
   @override
   State<NativeDetails> createState() => _NativeDetailsState();
 }
@@ -520,6 +547,7 @@ class _NativeDetailsState extends State<NativeDetails> {
   String error = '';
   bool favorite = false;
   int selectedSeason = 0;
+  int visibleEpisodes = 12;
   @override
   void initState() {
     super.initState();
@@ -540,6 +568,7 @@ class _NativeDetailsState extends State<NativeDetails> {
     final ar = widget.ar;
     final episodes = m.episodes.where((e) =>
         selectedSeason == 0 || e.season == selectedSeason).toList();
+    final shownEpisodes = episodes.take(visibleEpisodes).toList();
     final seasons = m.seasons.map((e) => numId(e['season_number'])).toSet().toList()..sort();
     return Directionality(textDirection: ar ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(appBar: AppBar(title: Text(m.title(ar), maxLines: 1,
@@ -566,9 +595,10 @@ class _NativeDetailsState extends State<NativeDetails> {
               const SizedBox(height: 20),
               Row(children: [
                 Expanded(child: FilledButton.icon(
-                  onPressed: m.isSeries ? (episodes.isEmpty ? null : () =>
-                    widget.onPlay('episode', episodes.first.id, m.title(ar))) : () =>
-                    widget.onPlay('movie', m.id, m.title(ar)),
+                  onPressed: m.isSeries ? (episodes.isEmpty ? null : () {
+                    if (m.type == 'short_series') widget.onReels(m, 0);
+                    else widget.onPlay('episode', episodes.first.id, m.title(ar));
+                  }) : () => widget.onPlay('movie', m.id, m.title(ar)),
                   icon: const Icon(Icons.play_arrow_rounded),
                   label: Text(tr(ar, 'المشاهدة الآن', 'Play now')),
                 )),
@@ -595,19 +625,19 @@ class _NativeDetailsState extends State<NativeDetails> {
                     child: Row(children: [
                       ChoiceChip(label: Text(tr(ar, 'الكل', 'All')),
                         selected: selectedSeason == 0,
-                        onSelected: (_) => setState(() => selectedSeason = 0)),
+                        onSelected: (_) => setState(() { selectedSeason = 0; visibleEpisodes = 12; })),
                       ...seasons.map((n) => Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         child: ChoiceChip(
                           label: Text(tr(ar, 'الموسم ', 'Season ') + n.toString()),
                           selected: selectedSeason == n,
-                          onSelected: (_) => setState(() => selectedSeason = n)),
+                          onSelected: (_) => setState(() { selectedSeason = n; visibleEpisodes = 12; })),
                       )),
                     ])),
                 if (episodes.isEmpty && detail != null)
                   Padding(padding: const EdgeInsets.all(15), child: Text(
                     tr(ar, 'لا توجد حلقات منشورة', 'No episodes available'))),
-                ...episodes.map((ep) => Card(color: panel, child: ListTile(
+                ...shownEpisodes.map((ep) => Card(color: panel, child: ListTile(
                   leading: SizedBox(width: 80, height: 50,
                     child: ClipRRect(borderRadius: BorderRadius.circular(5),
                       child: Art(ep.image.isNotEmpty ? ep.image : m.backdrop))),
@@ -616,8 +646,19 @@ class _NativeDetailsState extends State<NativeDetails> {
                     ep.season.toString() + ' • ' +
                     tr(ar, 'الحلقة ', 'Episode ') + ep.number.toString()),
                   trailing: const Icon(Icons.play_circle_outline, color: red),
-                  onTap: () => widget.onPlay('episode', ep.id, m.title(ar)),
+                  onTap: () {
+                    if (m.type == 'short_series') widget.onReels(m, m.episodes.indexWhere((e) => e.id == ep.id));
+                    else widget.onPlay('episode', ep.id, m.title(ar));
+                  },
                 ))),
+                if (episodes.length > visibleEpisodes)
+                  Padding(padding: const EdgeInsets.all(12),
+                    child: Center(child: FilledButton.icon(
+                      onPressed: () => setState(() => visibleEpisodes += 12),
+                      icon: const Icon(Icons.expand_more),
+                      label: Text(tr(ar, 'مشاهدة المزيد من الحلقات', 'Show more episodes') +
+                        ' (' + (episodes.length - visibleEpisodes).toString() + ')'),
+                    ))),
               ],
             ])),
         ])));

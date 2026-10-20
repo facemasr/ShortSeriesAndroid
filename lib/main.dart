@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'native_api.dart';
 import 'native_player.dart';
 import 'native_reels.dart';
+import 'native_banner_ads.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -353,14 +354,17 @@ class _NativeShellState extends State<NativeShell> {
                 icon: const Icon(Icons.play_arrow), label: Text(tr(ar, 'شاهد الآن', 'Watch now'))),
             ])),
         ])),
+      EgyshowBannerAd(api: api, placement: 'home'),
       _rail(tr(ar, 'الأكثر مشاهدة', 'Trending'), homeData['trending'] ?? []),
       _rail(tr(ar, 'أضيف حديثًا', 'Just added'), homeData['latest'] ?? []),
+      EgyshowBannerAd(api: api, placement: 'banner'),
       const SizedBox(height: 24),
     ]));
   }
 
   Widget _grid(List<Media> data, {bool paginate = false, String type = ''}) =>
       ListView(children: [
+        EgyshowBannerAd(api: api, placement: 'banner'),
         if (error.isNotEmpty) _error(),
         Padding(padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
           child: Text(paginate ? categoryTitle(type, ar) :

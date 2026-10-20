@@ -260,18 +260,16 @@ class _NativeShellState extends State<NativeShell> {
   void _openReels(Media media, int episodeIndex) {
     if (media.episodes.isEmpty) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) =>
-      EpisodeReels(api: api, media: media, episodes: media.episodes, ar: ar,
-        initialIndex: episodeIndex < 0 ? 0 : episodeIndex,
-        onProgress: (id, seconds) =>
-          prefs?.setInt('progress_episode:' + id.toString(), seconds))));
+      EpisodeReels(media: media, episodes: media.episodes, ar: ar,
+        token: api.token, initialIndex: episodeIndex < 0 ? 0 : episodeIndex)));
   }
 
   void _play(String type, int id, String title, [String mediaKey = '']) {
-    final seconds = prefs?.getInt('progress_' + type + ':' + id.toString()) ?? 0;
+    final parentId = type == 'episode'
+        ? (int.tryParse(mediaKey) ?? id) : id;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => NativePlayer(
-      api: api, type: type, id: id, title: title,
-      resume: Duration(seconds: seconds),
-      onProgress: (s) => prefs?.setInt('progress_' + type + ':' + id.toString(), s),
+      type: type, id: id, mediaId: parentId, title: title,
+      token: api.token,
     )));
   }
 
@@ -597,7 +595,7 @@ class _NativeDetailsState extends State<NativeDetails> {
                 Expanded(child: FilledButton.icon(
                   onPressed: m.isSeries ? (episodes.isEmpty ? null : () {
                     if (m.type == 'short_series') widget.onReels(m, 0);
-                    else widget.onPlay('episode', episodes.first.id, m.title(ar));
+                    else widget.onPlay('episode', episodes.first.id, m.title(ar), m.id.toString());
                   }) : () => widget.onPlay('movie', m.id, m.title(ar)),
                   icon: const Icon(Icons.play_arrow_rounded),
                   label: Text(tr(ar, 'المشاهدة الآن', 'Play now')),
@@ -648,7 +646,7 @@ class _NativeDetailsState extends State<NativeDetails> {
                   trailing: const Icon(Icons.play_circle_outline, color: red),
                   onTap: () {
                     if (m.type == 'short_series') widget.onReels(m, m.episodes.indexWhere((e) => e.id == ep.id));
-                    else widget.onPlay('episode', ep.id, m.title(ar));
+                    else widget.onPlay('episode', ep.id, m.title(ar), m.id.toString());
                   },
                 ))),
                 if (episodes.length > visibleEpisodes)

@@ -1,0 +1,49 @@
+name: Publish EGYSHOW Android release
+on:
+  push:
+    branches: [egyshow-native-mobile]
+    paths: [.github/workflows/publish-egyshow-android-release.yml]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Obtain verified native APK from successful build
+        uses: actions/download-artifact@v4
+        with:
+          name: EGYSHOW-Native-Android-APK
+          run-id: 39410470083
+          github-token: ${{ github.token }}
+          path: distribution
+      - name: Verify APK and prepare public download
+        run: |
+          set -eu
+          find distribution -maxdepth 2 -type f -printf '%p %s bytes\n'
+          INPUT="$(find distribution -type f -name '*.apk' -print -quit)"
+          test -n "$INPUT" && test -s "$INPUT"
+          python3 - "$INPUT" <<'PY'
+          import sys,zipfile
+          p=sys.argv[1]
+          with zipfile.ZipFile(p) as z:
+            names=set(z.namelist())
+            assert 'AndroidManifest.xml' in names, 'APK is missing AndroidManifest.xml'
+            assert 'classes.dex' in names, 'APK is missing classes.dex'
+          print('Verified APK: '+p)
+          PY
+          mkdir -p release
+          cp "$INPUT" release/EGYSHOW-Android-v2.0.0.apk
+          sha256sum release/*.apk
+      - name: Publish release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release create egyshow-android-v2.0.0 \
+            release/EGYSHOW-Android-v2.0.0.apk \
+            --repo "${{ github.repository }}" \
+            --title 'EGYSHOW Android v2.0.0' \
+            --notes 'Android native catalogs, matches, YouTube, reels and original EGYSHOW site player. APK release build.' \
+            --latest

@@ -7,6 +7,8 @@ import android.graphics.BitmapFactory
 import android.content.Context
 import android.net.Uri
 import android.graphics.Color
+import android.media.AudioManager
+import androidx.media3.common.C
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -71,7 +73,19 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private val speedButton = text("1.0×",13f,Color.WHITE)
     private val pipButton = text("▣",19f,Color.WHITE)
     private val overlayControls = LinearLayout(host)
-    private val centerPlay = text("▶",30f,Color.WHITE)
+    private val centerPlay = text("▶",32f,Color.WHITE)
+    private val lowerToolbar = LinearLayout(host)
+    private val toolbarPlay = text("▶",20f,Color.WHITE)
+    private val nextButton = text("⏭",19f,Color.WHITE)
+    private val volumeButton = text("◖))",16f,Color.WHITE)
+    private val volumeBar = SeekBar(host)
+    private val compactClock = text("0:00 / 0:00",12f,Color.WHITE)
+    private val captionsButton = text("CC",13f,Color.WHITE)
+    private val settingsButton = text("⚙",22f,Color.WHITE)
+    private val audioManager = host.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    private var previousVolume=4
+    private var captionsEnabled=false
+    private var nextRecommendation:StreamInfoItem?=null
     private val bottomLayer = LinearLayout(host)
     private val timeline = SeekBar(host)
     private val elapsed = text("0:00",12f,Color.WHITE)
@@ -152,38 +166,22 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       gestureSurface.setOnTouchListener{_,e->detector.onTouchEvent(e);true}
       viewport.addView(gestureSurface,FrameLayout.LayoutParams(-1,-1))
 
-      // Overlay controls live inside the player, independently of the page below.
+      // Small upper overlay. Main controls are in a compact black footer, as in the reference.
       val chrome=overlayControls
       chrome.orientation=HORIZONTAL
       chrome.gravity=Gravity.CENTER_VERTICAL
-      chrome.background=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0xe20c0d13.toInt(),0x000c0d13))
-      padding(chrome,3,3,3,3)
-      val back=text("‹",30f,Color.WHITE)
+      chrome.background=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0xa9000000.toInt(),0x00000000))
+      padding(chrome,7,1,7,1)
+      val back=text("‹",27f,Color.WHITE)
       back.gravity=Gravity.CENTER
-      chrome.addView(back,LinearLayout.LayoutParams(dp(42),dp(39)))
-      back.setOnClickListener { if(fullscreen)exitFullScreen() else exit.run() }
-      val space=Space(host)
-      chrome.addView(space,LinearLayout.LayoutParams(0,dp(1),1f))
-      qualityButton.gravity=Gravity.CENTER
-      padding(qualityButton,5,5,5,5)
-      chrome.addView(qualityButton,LinearLayout.LayoutParams(-2,dp(39)))
-      qualityButton.setOnClickListener { showChrome();showQuality() }
-      speedButton.gravity=Gravity.CENTER
-      padding(speedButton,4,4,4,4)
-      chrome.addView(speedButton,LinearLayout.LayoutParams(dp(45),dp(39)))
-      speedButton.setOnClickListener{showChrome();showSpeedOptions()}
-      pipButton.gravity=Gravity.CENTER
-      pipButton.contentDescription="تشغيل الفيديو في نافذة عائمة PiP"
-      chrome.addView(pipButton,LinearLayout.LayoutParams(dp(37),dp(39)))
-      pipButton.setOnClickListener{enterPictureInPicture()}
-      fitButton.gravity=Gravity.CENTER
-      padding(fitButton,6,5,6,5)
-      chrome.addView(fitButton,LinearLayout.LayoutParams(-2,dp(39)))
-      fitButton.setOnClickListener{ showChrome();zoomed=!zoomed;mediaView.resizeMode=if(zoomed)AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT;fitButton.text=if(zoomed)"↔ احتواء" else "↔ ملاءمة" }
-      expandButton.gravity=Gravity.CENTER
-      chrome.addView(expandButton,LinearLayout.LayoutParams(dp(45),dp(39)))
-      expandButton.setOnClickListener { showChrome();setFull(!fullscreen) }
-      viewport.addView(chrome,FrameLayout.LayoutParams(-1,dp(45),Gravity.TOP))
+      back.contentDescription="العودة لقائمة الفيديوهات"
+      chrome.addView(back,LinearLayout.LayoutParams(dp(38),dp(38)))
+      back.setOnClickListener{if(fullscreen)exitFullScreen() else exit.run()}
+      val nowPlaying=text("EGYTUBE",13f,Color.WHITE)
+      nowPlaying.setTypeface(null,android.graphics.Typeface.BOLD)
+      padding(nowPlaying,7,0,5,0)
+      chrome.addView(nowPlaying,LinearLayout.LayoutParams(0,dp(38),1f))
+      viewport.addView(chrome,FrameLayout.LayoutParams(-1,dp(42),Gravity.TOP))
       // Ten-second transport controls sit at the sides of the video, away from ExoPlayer seekbar.
       backwardButton.gravity=Gravity.CENTER
       backwardButton.setBackgroundColor(0x44000000)
@@ -202,7 +200,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
 
       // Central play/pause overlays the actual native ExoPlayer video.
       centerPlay.gravity=Gravity.CENTER
-      centerPlay.setBackgroundColor(0xbb161820.toInt())
+      centerPlay.background=GradientDrawable().apply{
+        shape=GradientDrawable.OVAL
+        setColor(0xfff52e41.toInt())
+        setStroke(dp(2),0xccffffff.toInt())
+      }
       centerPlay.contentDescription="تشغيل أو إيقاف الفيديو مؤقتًا"
       viewport.addView(centerPlay,FrameLayout.LayoutParams(dp(68),dp(68),Gravity.CENTER))
       centerPlay.setOnClickListener{
@@ -211,34 +213,87 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           updatePlayIcon();showChrome()
         }
       }
-      // Scrubbable YouTube-style red timeline with elapsed and total time.
+      // Thin red seek line sits above the compact dark playback control strip.
       bottomLayer.orientation=VERTICAL
       bottomLayer.layoutDirection=View.LAYOUT_DIRECTION_LTR
-      bottomLayer.background=GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,intArrayOf(0xe80c0d13.toInt(),0x000c0d13))
+      bottomLayer.setBackgroundColor(0xf6090a0d.toInt())
       timeline.max=1000
-      timeline.progressTintList=ColorStateList.valueOf(0xffed1c24.toInt())
-      timeline.progressBackgroundTintList=ColorStateList.valueOf(0x77ffffff)
-      timeline.thumbTintList=ColorStateList.valueOf(0xffed1c24.toInt())
-      bottomLayer.addView(timeline,LinearLayout.LayoutParams(-1,dp(32)))
+      timeline.progressTintList=ColorStateList.valueOf(0xfff32d40.toInt())
+      timeline.progressBackgroundTintList=ColorStateList.valueOf(0x77e9e9e9)
+      timeline.thumbTintList=ColorStateList.valueOf(0xfff32d40.toInt())
+      timeline.splitTrack=false
+      bottomLayer.addView(timeline,LinearLayout.LayoutParams(-1,dp(23)))
       timeline.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
         override fun onStartTrackingTouch(v:SeekBar){scrubbing=true;uiHandler.removeCallbacks(autoHide)}
         override fun onProgressChanged(v:SeekBar,value:Int,fromUser:Boolean){
-          if(fromUser && player.duration>0)elapsed.text=renderTime(player.duration*value/1000L)
+          if(fromUser && player.duration>0)compactClock.text=renderTime(player.duration*value/1000L)+" / "+renderTime(player.duration)
         }
         override fun onStopTrackingTouch(v:SeekBar){
           if(player.duration>0)player.seekTo(player.duration*v.progress/1000L)
           scrubbing=false;showChrome()
         }
       })
-      val timeRow=LinearLayout(host)
-      timeRow.orientation=HORIZONTAL;timeRow.gravity=Gravity.CENTER_VERTICAL
-      padding(timeRow,14,0,14,3)
-      timeRow.addView(elapsed)
-      timeRow.addView(text(" / ",12f,Color.WHITE))
-      timeRow.addView(total)
-      timeRow.addView(Space(host),LinearLayout.LayoutParams(0,1,1f))
-      bottomLayer.addView(timeRow,LinearLayout.LayoutParams(-1,dp(25)))
-      viewport.addView(bottomLayer,FrameLayout.LayoutParams(-1,dp(59),Gravity.BOTTOM))
+      lowerToolbar.layoutDirection=View.LAYOUT_DIRECTION_LTR
+      lowerToolbar.gravity=Gravity.CENTER_VERTICAL
+      padding(lowerToolbar,5,0,5,4)
+      fun button(t:TextView,content:String,width:Int){
+        t.gravity=Gravity.CENTER
+        t.contentDescription=content
+        lowerToolbar.addView(t,LinearLayout.LayoutParams(dp(width),dp(39)))
+      }
+      button(toolbarPlay,"تشغيل أو إيقاف",36)
+      toolbarPlay.setOnClickListener{
+        if(player.currentMediaItem!=null){
+          if(player.isPlaying)player.pause() else player.play()
+          updatePlayIcon();showChrome()
+        }
+      }
+      button(nextButton,"الفيديو التالي",34)
+      nextButton.setOnClickListener{playNext()}
+      button(volumeButton,"كتم أو تفعيل الصوت",31)
+      volumeButton.setOnClickListener{
+        val current=audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        if(current>0){
+          previousVolume=current
+          audioManager.setStreamVolume(AudioManager.STREAM_MUSIC,0,0)
+        } else {
+          audioManager.setStreamVolume(AudioManager.STREAM_MUSIC,previousVolume.coerceAtLeast(1),0)
+        }
+        syncVolume()
+      }
+      volumeBar.max=audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+      volumeBar.progress=audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+      lowerToolbar.addView(volumeBar,LinearLayout.LayoutParams(dp(58),dp(36)))
+      volumeBar.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
+        override fun onStartTrackingTouch(s:SeekBar){uiHandler.removeCallbacks(autoHide)}
+        override fun onProgressChanged(s:SeekBar,value:Int,fromUser:Boolean){
+          if(fromUser){
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC,value,0)
+            syncVolume()
+          }
+        }
+        override fun onStopTrackingTouch(s:SeekBar){showChrome()}
+      })
+      compactClock.setSingleLine(true)
+      compactClock.gravity=Gravity.CENTER
+      lowerToolbar.addView(compactClock,LinearLayout.LayoutParams(-2,dp(39)))
+      lowerToolbar.addView(Space(host),LinearLayout.LayoutParams(0,dp(1),1f))
+      button(captionsButton,"الترجمة النصية",31)
+      captionsButton.setOnClickListener{toggleCaptions()}
+      button(settingsButton,"إعدادات الجودة والسرعة والملاءمة",34)
+      settingsButton.setOnClickListener{showPlayerMenu()}
+      pipButton.text="▣"
+      button(pipButton,"الصورة داخل الصورة",32)
+      pipButton.setOnClickListener{enterPictureInPicture()}
+      expandButton.text="⛶"
+      button(expandButton,"ملء الشاشة",36)
+      expandButton.setOnClickListener{setFull(!fullscreen);showChrome()}
+      val rowScroller=HorizontalScrollView(host)
+      rowScroller.isHorizontalScrollBarEnabled=false
+      rowScroller.fillViewport=true
+      rowScroller.addView(lowerToolbar)
+      bottomLayer.addView(rowScroller,LinearLayout.LayoutParams(-1,dp(43)))
+      viewport.addView(bottomLayer,FrameLayout.LayoutParams(-1,dp(66),Gravity.BOTTOM))
       spinner.indeterminateTintList=ColorStateList.valueOf(Color.WHITE)
       spinner.visibility=View.GONE
       viewport.addView(spinner,FrameLayout.LayoutParams(dp(36),dp(36),Gravity.CENTER))
@@ -247,6 +302,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       settingsPanel.background=GradientDrawable().apply{setColor(0xf414161e.toInt());cornerRadius=dp(12).toFloat()}
       viewport.addView(settingsPanel,FrameLayout.LayoutParams(dp(240),dp(175),Gravity.RIGHT or Gravity.TOP).apply{topMargin=dp(48);rightMargin=dp(10)})
       updatePlayIcon()
+      syncVolume()
       addView(viewport,LinearLayout.LayoutParams(-1,dp(220)))
 
       val adBox=LinearLayout(host)
@@ -346,6 +402,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       videoHeight=if(videoWidth==9)16 else 9
       resize()
       suggestions.removeAllViews()
+      nextRecommendation=null
       state.text="جارٍ تحميل روابط المشاهدة..."
       player.stop();player.clearMediaItems()
       details.scrollTo(0,0)
@@ -378,6 +435,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun showSuggestions(items:List<StreamInfoItem>){
       suggestions.removeAllViews()
+      nextRecommendation=items.firstOrNull{it.url.contains("v=") || it.url.contains("youtu.be/")}
       for(item in items){
         val match=Regex("(?:v=|youtu\\.be/|shorts/)([A-Za-z0-9_-]{11})").find(item.url)
         val id=match?.groupValues?.get(1)?:continue
@@ -485,7 +543,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         val cell=text((if(index==selected)"✓  " else "    ")+label,14f,if(index==selected)0xffff727c.toInt() else Color.WHITE)
         padding(cell,12,7,12,7)
         values.addView(cell,LinearLayout.LayoutParams(-1,dp(40)))
-        cell.setOnClickListener{chooseItem(index);closeSettings();showChrome()}
+        cell.setOnClickListener{
+          closeSettings()
+          chooseItem(index)
+          if(!settingsOpen)showChrome()
+        }
       }
       list.addView(values)
       settingsPanel.addView(list,LinearLayout.LayoutParams(-1,0,1f))
@@ -509,6 +571,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       val duration=player.duration
       elapsed.text=renderTime(player.currentPosition)
       total.text=if(duration>0)renderTime(duration) else "--:--"
+      compactClock.text=elapsed.text.toString()+" / "+total.text.toString()
       if(duration>0){
         timeline.progress=(player.currentPosition.coerceAtLeast(0)*1000L/duration).coerceIn(0L,1000L).toInt()
         timeline.secondaryProgress=(player.bufferedPosition.coerceAtLeast(0)*1000L/duration).coerceIn(0L,1000L).toInt()
@@ -516,8 +579,46 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun updatePlayIcon(){
       centerPlay.text=if(player.isPlaying)"Ⅱ" else "▶"
+      toolbarPlay.text=if(player.isPlaying)"Ⅱ" else "▶"
       centerPlay.contentDescription=if(player.isPlaying)"إيقاف مؤقت" else "تشغيل"
       centerPlay.visibility=if(controlsVisible && !pipActive && spinner.visibility!=View.VISIBLE)View.VISIBLE else View.GONE
+    }
+    private fun syncVolume(){
+      val current=audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+      volumeButton.text=if(current==0)"◖×" else "◖))"
+      if(volumeBar.progress!=current)volumeBar.progress=current
+    }
+    private fun playNext(){
+      val info=nextRecommendation
+      val id=info?.url?.let{Regex("(?:v=|youtu\\\\.be/)([A-Za-z0-9_-]{11})").find(it)?.groupValues?.getOrNull(1)}
+      if(id==null){
+        Toast.makeText(host,"لا يوجد فيديو تالٍ متاح",Toast.LENGTH_SHORT).show()
+        return
+      }
+      openVideo(id,info.name,info.uploaderName.orEmpty())
+    }
+    private fun toggleCaptions(){
+      captionsEnabled=!captionsEnabled
+      player.trackSelectionParameters=player.trackSelectionParameters.buildUpon()
+        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT,!captionsEnabled).build()
+      captionsButton.setTextColor(if(captionsEnabled)0xffff4e60.toInt() else Color.WHITE)
+      Toast.makeText(host,if(captionsEnabled)"تم تفعيل الترجمة عند توفرها" else "تم إيقاف الترجمة",Toast.LENGTH_SHORT).show()
+      showChrome()
+    }
+    private fun showPlayerMenu(){
+      openSettings("إعدادات المشغّل",listOf(
+         "الجودة  ·  "+(formats.getOrNull(active)?.label ?: "تلقائي"),
+         "السرعة  ·  "+String.format(Locale.US,"%.2g×",playingRate),
+         if(zoomed)"العرض  ·  احتواء الفيديو" else "العرض  ·  ملء الإطار",
+         if(captionsEnabled)"الترجمة  ·  تشغيل" else "الترجمة  ·  إيقاف"
+      ),-1){index->
+         when(index){
+           0->showQuality()
+           1->showSpeedOptions()
+           2->{zoomed=!zoomed;mediaView.resizeMode=if(zoomed)AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT}
+           3->toggleCaptions()
+         }
+      }
     }
     private fun skipBy(delta:Long){
       if(player.currentMediaItem==null)return

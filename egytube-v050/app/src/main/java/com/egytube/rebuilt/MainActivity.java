@@ -489,7 +489,7 @@ public class MainActivity extends Activity {
             Video v=rows.get(i);list.add(v);
             if(onlyShorts)addShortCard(v);
             else if(selected==0 && i<4)addCard(v,false);
-            else if(selected!=0)compactRow(v);
+            else compactRow(v);
             if(i==3)addAd(AdSlots.RECT_300x250);
             if(i==9)addAd(AdSlots.BANNER_468x60);
             if(i==16)addAd(AdSlots.BONEPA_4);

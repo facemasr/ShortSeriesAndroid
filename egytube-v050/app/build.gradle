@@ -1,0 +1,7 @@
+plugins { id 'com.android.application' }
+android { namespace 'com.egytube.rebuilt'; compileSdk 35
+ defaultConfig { applicationId 'com.egytube.rebuilt'; minSdk 26; targetSdk 34; versionCode 50; versionName '0.5.0' }
+ buildTypes { release { minifyEnabled false }; debug { debuggable true } }
+ compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies { implementation 'org.jsoup:jsoup:1.18.3' }

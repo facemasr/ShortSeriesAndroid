@@ -39,6 +39,7 @@ public class MainActivity extends Activity {
   private final ExecutorService pool=Executors.newFixedThreadPool(5);
   private final Map<String,Bitmap> images=Collections.synchronizedMap(new LinkedHashMap<>());
   private final ArrayList<Video> list=new ArrayList<>();
+  private final LinkedHashMap<String,Video> knownVideos=new LinkedHashMap<>();
   private LinearLayout app,feed,bottom;
   private FrameLayout shell;
   private NativeWatchView watchView;
@@ -100,20 +101,29 @@ public class MainActivity extends Activity {
   }
   private void setupHeader(){
     LinearLayout h=linear(LinearLayout.HORIZONTAL);h.setGravity(Gravity.CENTER_VERTICAL);pad(h,15,7,12,6);
-    TextView title=text("▶ EGYTUBE",22,RED,true);title.setSingleLine(true);title.setLetterSpacing(0.025f);
-    h.addView(title,new LinearLayout.LayoutParams(0,dp(46),1));
-    TextView cast=text("⟳",24,GREY,false);cast.setGravity(Gravity.CENTER);
-    h.addView(cast,new LinearLayout.LayoutParams(dp(45),dp(46)));
-    cast.setOnClickListener(v->show(selected));
-    TextView find=text("⌕",28,DARK,true);find.setGravity(Gravity.CENTER);
-    h.addView(find,new LinearLayout.LayoutParams(dp(48),dp(46)));
+    ImageView logo=new ImageView(this);logo.setImageResource(R.drawable.ic_app);
+    logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+    h.addView(logo,new LinearLayout.LayoutParams(dp(36),dp(43)));
+    TextView title=text("EGYTUBE",23,DARK,true);title.setSingleLine(true);
+    android.text.SpannableString brand=new android.text.SpannableString("EGYTUBE");
+    brand.setSpan(new android.text.style.ForegroundColorSpan(RED),3,7,0);
+    title.setText(brand);
+    title.setLetterSpacing(0.015f);
+    LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(0,dp(46),1);
+    titleLp.rightMargin=dp(6);
+    h.addView(title,titleLp);
+    TextView cast=text("▣",21,GREY,false);cast.setGravity(Gravity.CENTER);
+    cast.setContentDescription("تحديث النتائج");
+    h.addView(cast,new LinearLayout.LayoutParams(dp(39),dp(46)));
+    cast.setOnClickListener(v->show(selected==5?0:selected));
+    TextView find=text("⌕",27,DARK,true);find.setGravity(Gravity.CENTER);
+    h.addView(find,new LinearLayout.LayoutParams(dp(41),dp(46)));
     find.setOnClickListener(v->show(5));
-    TextView more=text("⋮",26,DARK,true);more.setGravity(Gravity.CENTER);
-    h.addView(more,new LinearLayout.LayoutParams(dp(35),dp(46)));
-    more.setOnClickListener(v->new AlertDialog.Builder(this).setItems(new String[]{"تحديث الرئيسية","حول EGYTUBE","فتح رابط فيديو"},(d,i)->{
-      if(i==0)show(0);else if(i==1)notice("EGYTUBE 0.6.8 — مشغّل أصلي، PiP، تشغيل صوت في الخلفية، ومكتبة محلية.");
-      else askLink();
-    }).show());
+    TextView account=text("◉",22,DARK,true);account.setGravity(Gravity.CENTER);
+    account.setBackground(background(0xfff4f4f4,24));
+    LinearLayout.LayoutParams alp=new LinearLayout.LayoutParams(dp(37),dp(37));alp.leftMargin=dp(4);
+    h.addView(account,alp);account.setOnClickListener(v->show(4));
+    account.setContentDescription("الملف الشخصي");
     app.addView(h);
   }
   private void askLink(){
@@ -223,6 +233,165 @@ public class MainActivity extends Activity {
     rowLp.setMargins(dp(13),dp(7),dp(13),dp(9));
     feed.addView(banner,rowLp);
     banner.setOnClickListener(v->play(video));
+  }
+  private void remember(Video video){
+    if(video==null || video.url==null || video.url.isEmpty())return;
+    knownVideos.remove(video.url);
+    knownVideos.put(video.url,video);
+    while(knownVideos.size()>130)knownVideos.remove(knownVideos.keySet().iterator().next());
+  }
+  private ArrayList<Video> collection(String kind,int limit){
+    ArrayList<Video> results=new ArrayList<>();
+    JSONArray arr=new JSONArray();
+    try{arr=new JSONArray(prefs.getString(kind,"[]"));}catch(Exception ignored){}
+    for(int i=0;i<arr.length()&&results.size()<limit;i++){
+      JSONObject obj=arr.optJSONObject(i);
+      if(obj!=null)results.add(Video.parse(obj));
+    }
+    return results;
+  }
+  private TextView circleAvatar(String value,int diameter){
+    String letter=(value==null||value.trim().isEmpty())?"▶":value.trim().substring(0,1);
+    TextView avatar=text(letter,23,RED,true);avatar.setGravity(Gravity.CENTER);
+    GradientDrawable bg=background(0xfffaf0f1,diameter);
+    bg.setStroke(dp(2),RED);
+    avatar.setBackground(bg);
+    return avatar;
+  }
+  private void sectionHead(String title,Runnable action){
+    LinearLayout bar=linear(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER_VERTICAL);
+    pad(bar,14,8,14,8);
+    TextView heading=text(title,21,DARK,true);
+    heading.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+    bar.addView(heading,new LinearLayout.LayoutParams(0,dp(42),1));
+    if(action!=null){
+      TextView all=text("عرض الكل ‹",13,RED,true);
+      all.setGravity(Gravity.LEFT|Gravity.CENTER_VERTICAL);
+      bar.addView(all,new LinearLayout.LayoutParams(dp(100),dp(42)));
+      all.setOnClickListener(v->action.run());
+    }
+    feed.addView(bar);
+  }
+  private View miniCard(Video video,int width){
+    LinearLayout card=linear(LinearLayout.VERTICAL);
+    int w=dp(width),h=(int)(w*9.0/16);
+    FrameLayout cover=new FrameLayout(this);
+    cover.setBackground(background(LIGHT,13));cover.setClipToOutline(true);
+    ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+    cover.addView(image,new FrameLayout.LayoutParams(-1,-1));showImage(video.image,image);
+    if(video.duration>0){
+      TextView duration=text(formatted(video.duration),12,WHITE,true);
+      duration.setBackground(background(0xcc000000,6));pad(duration,4,1,4,1);
+      FrameLayout.LayoutParams t=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.RIGHT);
+      t.setMargins(0,0,dp(6),dp(7));cover.addView(duration,t);
+    }
+    card.addView(cover,new LinearLayout.LayoutParams(w,h));
+    TextView title=text(video.title,13,DARK,true);
+    title.setMaxLines(2);title.setEllipsize(TextUtils.TruncateAt.END);
+    pad(title,3,6,3,2);card.addView(title,new LinearLayout.LayoutParams(w,dp(45)));
+    TextView maker=text(video.uploader,12,GREY,false);pad(maker,3,0,3,2);
+    maker.setSingleLine(true);maker.setEllipsize(TextUtils.TruncateAt.END);
+    card.addView(maker,new LinearLayout.LayoutParams(w,dp(22)));
+    cover.setOnClickListener(v->play(video));
+    card.setOnClickListener(v->play(video));
+    card.setOnLongClickListener(v->{menu(video);return true;});
+    return card;
+  }
+  private void horizontalRail(java.util.List<Video> videos,int width){
+    if(videos.isEmpty())return;
+    HorizontalScrollView scrollX=new HorizontalScrollView(this);
+    scrollX.setHorizontalScrollBarEnabled(false);
+    LinearLayout row=linear(LinearLayout.HORIZONTAL);pad(row,13,3,13,9);
+    for(Video video:videos){
+      View tile=miniCard(video,width);
+      LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(width),-2);
+      lp.leftMargin=dp(11);row.addView(tile,lp);
+    }
+    scrollX.addView(row);feed.addView(scrollX);
+  }
+  private void shortRail(int token){
+    sectionHead("المقاطع القصيرة",()->show(1));
+    LinearLayout holder=linear(LinearLayout.HORIZONTAL);
+    holder.setGravity(Gravity.CENTER_VERTICAL);pad(holder,15,10,15,10);
+    TextView pending=text("جارٍ جلب المقاطع القصيرة...",13,GREY,false);
+    holder.addView(pending);feed.addView(holder);
+    pool.execute(()->{
+      ArrayList<Video> clips=new ArrayList<>();
+      try{
+        SearchInfo results=SearchInfo.getInfo(NewPipe.getService(0),
+          NewPipe.getService(0).getSearchQHFactory().fromQuery("shorts"));
+        for(InfoItem item:results.getRelatedItems()){
+          if(!(item instanceof StreamInfoItem))continue;
+          StreamInfoItem v=(StreamInfoItem)item;
+          if(v.getStreamType()!=null && v.getStreamType().name().toUpperCase(Locale.ROOT).contains("LIVE"))continue;
+          long dur=v.getDuration();
+          if(!(v.isShortFormContent() || (dur>0&&dur<=180)))continue;
+          Video itemVideo=new Video(v.getName(),v.getUrl(),
+            v.getThumbnails().isEmpty()?"":v.getThumbnails().get(0).getUrl(),
+            v.getUploaderName(),v.getUploaderUrl(),dur);
+          if(itemVideo.id!=null)clips.add(itemVideo);
+          if(clips.size()>=8)break;
+        }
+      }catch(Exception ignored){}
+      runOnUiThread(()->{
+        if(isDestroyed()||isFinishing()||token!=requestId||selected!=0)return;
+        holder.removeAllViews();
+        if(clips.isEmpty()){
+          TextView open=actionChip("استكشف المقاطع القصيرة",()->show(1));holder.addView(open);
+          return;
+        }
+        HorizontalScrollView x=new HorizontalScrollView(this);x.setHorizontalScrollBarEnabled(false);
+        LinearLayout track=linear(LinearLayout.HORIZONTAL);
+        for(Video clip:clips){
+          remember(clip);
+          FrameLayout poster=new FrameLayout(this);
+          poster.setBackground(background(0xff101014,15));poster.setClipToOutline(true);
+          ImageView img=new ImageView(this);img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+          poster.addView(img,new FrameLayout.LayoutParams(-1,-1));showImage(clip.image,img);
+          GradientDrawable tint=new GradientDrawable(
+            GradientDrawable.Orientation.BOTTOM_TOP,new int[]{0xce000000,0x00000000});
+          View dark=new View(this);dark.setBackground(tint);
+          poster.addView(dark,new FrameLayout.LayoutParams(-1,-1));
+          TextView name=text(clip.title,13,WHITE,true);name.setMaxLines(3);
+          pad(name,7,3,7,10);
+          poster.addView(name,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
+          LinearLayout.LayoutParams t=new LinearLayout.LayoutParams(dp(132),dp(220));
+          t.leftMargin=dp(9);track.addView(poster,t);
+          poster.setOnClickListener(v->play(clip));
+        }
+        x.addView(track);holder.addView(x,new LinearLayout.LayoutParams(-1,-2));
+      });
+    });
+  }
+  private void compactRow(Video video){
+    LinearLayout row=linear(LinearLayout.HORIZONTAL);pad(row,13,7,13,8);
+    row.setGravity(Gravity.CENTER_VERTICAL);
+    LinearLayout info=linear(LinearLayout.VERTICAL);pad(info,7,0,7,0);
+    TextView title=text(video.title,15,DARK,true);title.setMaxLines(3);
+    title.setEllipsize(TextUtils.TruncateAt.END);
+    info.addView(title);
+    TextView subtitle=text(video.uploader,12,GREY,false);pad(subtitle,0,7,0,0);
+    info.addView(subtitle);
+    TextView menu=text("⋮",24,DARK,true);menu.setGravity(Gravity.CENTER);
+    row.addView(menu,new LinearLayout.LayoutParams(dp(28),dp(90)));
+    menu.setOnClickListener(v->menu(video));
+    row.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+    FrameLayout photo=new FrameLayout(this);
+    photo.setBackground(background(LIGHT,12));photo.setClipToOutline(true);
+    ImageView img=new ImageView(this);img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+    photo.addView(img,new FrameLayout.LayoutParams(-1,-1));showImage(video.image,img);
+    if(video.duration>0){
+      TextView dur=text(formatted(video.duration),12,WHITE,true);
+      dur.setBackground(background(0xc9000000,5));pad(dur,3,1,3,1);
+      FrameLayout.LayoutParams durationLp=new FrameLayout.LayoutParams(-2,-2,Gravity.BOTTOM|Gravity.RIGHT);
+      durationLp.bottomMargin=dp(5);durationLp.rightMargin=dp(5);
+      photo.addView(dur,durationLp);
+    }
+    row.addView(photo,new LinearLayout.LayoutParams(dp(152),dp(91)));
+    row.setOnClickListener(v->play(video));
+    feed.addView(row);
+    View div=new View(this);div.setBackgroundColor(0xfff4f4f4);
+    feed.addView(div,new LinearLayout.LayoutParams(-1,dp(1)));
   }
   private void notice(String s){new AlertDialog.Builder(this).setMessage(s).setPositiveButton("موافق",null).show();}
   private void placeholder(String s){

@@ -290,7 +290,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       expandButton.setOnClickListener{setFull(!fullscreen);showChrome()}
       val rowScroller=HorizontalScrollView(host)
       rowScroller.isHorizontalScrollBarEnabled=false
-      rowScroller.fillViewport=true
+      rowScroller.isFillViewport=true
       rowScroller.addView(lowerToolbar)
       bottomLayer.addView(rowScroller,LinearLayout.LayoutParams(-1,dp(43)))
       viewport.addView(bottomLayer,FrameLayout.LayoutParams(-1,dp(66),Gravity.BOTTOM))
@@ -590,7 +590,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun playNext(){
       val info=nextRecommendation
-      val id=info?.url?.let{Regex("(?:v=|youtu\\\\.be/)([A-Za-z0-9_-]{11})").find(it)?.groupValues?.getOrNull(1)}
+      val id=info?.url?.let{Regex("(?:v=|youtu[.]be/)([A-Za-z0-9_-]{11})").find(it)?.groupValues?.getOrNull(1)}
       if(id==null){
         Toast.makeText(host,"لا يوجد فيديو تالٍ متاح",Toast.LENGTH_SHORT).show()
         return

@@ -56,9 +56,9 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private val heading = TextView(host)
     private val creator = TextView(host)
     private val state = TextView(host)
-    private val qualityButton = TextView(host)
-    private val expandButton = TextView(host)
-    private val fitButton = TextView(host)
+    private val qualityButton = text("⚙ جودة",13f,Color.WHITE)
+    private val expandButton = text("⛶",27f,Color.WHITE)
+    private val fitButton = text("↔ ملاءمة",12f,Color.WHITE)
     private val advertisement = WebView(host)
     private val formats = mutableListOf<Source>()
     private var active = -1
@@ -70,6 +70,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private var videoWidth = 16
     private var videoHeight = 9
     private var shutdown = false
+    private lateinit var adContainer:LinearLayout
     private val colorText = Color.rgb(25,25,25)
     private fun dp(x:Int)=(x*resources.displayMetrics.density+.5f).toInt()
     private fun text(value:String, size:Float, fg:Int=Color.BLACK):TextView {
@@ -100,17 +101,14 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       back.setOnClickListener { if(fullscreen)exitFullScreen() else exit.run() }
       val space=Space(host)
       chrome.addView(space,LinearLayout.LayoutParams(0,dp(1),1f))
-      qualityButton=text("⚙ جودة",13f,Color.WHITE)
       qualityButton.gravity=Gravity.CENTER
       padding(qualityButton,8,5,8,5)
       chrome.addView(qualityButton,LinearLayout.LayoutParams(-2,dp(39)))
       qualityButton.setOnClickListener { showQuality() }
-      fitButton=text("↔ ملاءمة",12f,Color.WHITE)
       fitButton.gravity=Gravity.CENTER
       padding(fitButton,6,5,6,5)
       chrome.addView(fitButton,LinearLayout.LayoutParams(-2,dp(39)))
       fitButton.setOnClickListener{ zoomed=!zoomed;mediaView.resizeMode=if(zoomed)AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT;fitButton.text=if(zoomed)"↔ احتواء" else "↔ ملاءمة" }
-      expandButton=text("⛶",27f,Color.WHITE)
       expandButton.gravity=Gravity.CENTER
       chrome.addView(expandButton,LinearLayout.LayoutParams(dp(45),dp(39)))
       expandButton.setOnClickListener { setFull(!fullscreen) }
@@ -128,7 +126,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       adContainer=adBox
 
       below.orientation=VERTICAL
-      details.fillViewport=true
+      details.isFillViewport=true
       details.addView(below)
       addView(details,LinearLayout.LayoutParams(-1,0,1f))
       padding(heading,15,14,15,7)
@@ -184,7 +182,6 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       })
       resize()
     }
-    private lateinit var adContainer:LinearLayout
 
     fun openVideo(id:String,title:String,channel:String){
       if(!Regex("[A-Za-z0-9_-]{11}").matches(id))return

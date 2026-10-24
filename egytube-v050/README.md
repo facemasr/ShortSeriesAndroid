@@ -1,15 +1,11 @@
-# EGYTUBE 0.6.4 — Professional native watch player
-Native YouTube-only Android app using Media3/ExoPlayer. Preserves the 0.6.3 same-page video watch and YouTube search/feed/Shorts, favorites, local history, recommendations and user-supplied ads.
-
-## New
-- Native Android picture-in-picture with a PiP button within the player on Android 8.0+ (when supported); Android 12+ supports auto-enter from active playback when leaving the app
-- In-player quality selector with adaptive HLS/DASH (when sources support it) and manual MP4 sources
-- Playback speed (0.5–2×), ten-second seeking backward/forward, and automatic overlay control hiding
-- Fit/zoom, full screen, video aspect ratio adapts to portrait/landscape, and display remains awake while watching
-- Resume playback positions stored locally (except videos at completion)
-- PiP displays only the playing video; player survives while the activity is in PiP and returns to the same watch panel
-
-## Caveats
-- Unofficial NewPipe extractor means video playback/search may stop working if YouTube changes interfaces; not all video sources offer adaptive quality.
-- Third-party ads are shown outside playback view and should be screened for suitability and legal terms before publishing.
-- Debug-signed APK, build and signing validated via GitHub Actions; not tested on physical Android device.
+# EGYTUBE v0.6.5 — Native YouTube-style player
+Professional native Media3 ExoPlayer controls while retaining the YouTube-only application.
+- Same-page video watch, related videos and other app screens remain intact
+- Custom overlay: central play/pause, 10-second buttons, single tap show/hide, double-tap ±10 seconds
+- Video timeline with elapsed/total time, buffered section and seeking, plus loading spinner
+- In-player settings panel for streaming qualities and 0.5×–2× speed
+- Fullscreen, fit/zoom, dynamic aspect ratio for shorts/portrait and landscape
+- PiP on Android 8+, Android 12+ optional auto-enter; listening to headphones and resuming video position
+- All 4 existing ad placements preserved, ad click opens phone browser
+- YouTube API/extraction is unofficial and can fail for some videos; no bypass of content controls.
+- Build and signing checks are not physical-device playback tests; debug APK.

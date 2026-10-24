@@ -40,6 +40,8 @@ public class MainActivity extends Activity {
   private final Map<String,Bitmap> images=Collections.synchronizedMap(new LinkedHashMap<>());
   private final ArrayList<Video> list=new ArrayList<>();
   private LinearLayout app,feed,bottom;
+  private FrameLayout shell;
+  private NativeWatchView watchView;
   private EditText searchInput;
   private ScrollView scroll;
   private SharedPreferences prefs;
@@ -84,7 +86,8 @@ public class MainActivity extends Activity {
     getWindow().setStatusBarColor(WHITE);getWindow().setNavigationBarColor(WHITE);
     getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
     try{NewPipe.init(new HttpDownloader());}catch(Exception ignored){}
-    app=linear(LinearLayout.VERTICAL);app.setBackgroundColor(WHITE);app.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);setContentView(app);
+    app=linear(LinearLayout.VERTICAL);app.setBackgroundColor(WHITE);app.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+    shell=new FrameLayout(this);shell.addView(app,new FrameLayout.LayoutParams(-1,-1));setContentView(shell);
     setupHeader();
     scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setVerticalScrollBarEnabled(false);
     feed=linear(LinearLayout.VERTICAL);scroll.addView(feed);app.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
@@ -257,8 +260,35 @@ public class MainActivity extends Activity {
   private void play(Video v){
     if(v.id==null){notice("رابط فيديو غير مدعوم");return;}
     archive("history",v);
-    Intent i=new Intent(this,PlayerActivity.class);i.putExtra("videoId",v.id);i.putExtra("videoTitle",v.title);
-    startActivity(i);
+    if(watchView==null){
+      watchView=new NativeWatchView(this, ()->closeWatch());
+      shell.addView(watchView,new FrameLayout.LayoutParams(-1,-1));
+    }
+    watchView.openVideo(v.id,v.title,v.uploader);
+  }
+  void playFromWatch(String url,String title,String uploader){
+    play(new Video(title,url,"",uploader,"",0));
+  }
+  private void closeWatch(){
+    if(watchView==null)return;
+    watchView.release();
+    shell.removeView(watchView);
+    watchView=null;
+    getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+    getWindow().setStatusBarColor(WHITE);
+    getWindow().setNavigationBarColor(WHITE);
+  }
+  @Override public void onBackPressed(){
+    if(watchView!=null){
+      if(watchView.isFullScreen()){watchView.exitFullScreen();}
+      else closeWatch();
+      return;
+    }
+    super.onBackPressed();
+  }
+  @Override public void onConfigurationChanged(android.content.res.Configuration c){
+    super.onConfigurationChanged(c);
+    if(watchView!=null)watchView.onScreenChanged();
   }
   private void showImage(String source,ImageView target){
     if(source==null||!source.startsWith("https://"))return;
@@ -329,5 +359,5 @@ public class MainActivity extends Activity {
     placeholder("EGYTUBE — خاص بيوتيوب فقط. المفضلة والسجل محفوظان على الهاتف. لن تتم إزالة إعلانات يوتيوب أو تجاوز قيود المحتوى.");
     addAd(AdSlots.BONEPA_4);
   }
-  @Override protected void onDestroy(){pool.shutdownNow();super.onDestroy();}
+  @Override protected void onDestroy(){if(watchView!=null)closeWatch();pool.shutdownNow();super.onDestroy();}
 }

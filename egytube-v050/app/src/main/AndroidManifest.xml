@@ -5,7 +5,7 @@
  <application android:label="EGYTUBE" android:theme="@android:style/Theme.Material.Light.NoActionBar"
   android:usesCleartextTraffic="false" android:icon="@drawable/ic_app" android:supportsRtl="true">
   <activity android:name=".PlayerActivity" android:exported="false" android:configChanges="orientation|screenSize"/>
-  <activity android:name=".MainActivity" android:exported="true">
+  <activity android:name=".MainActivity" android:configChanges="orientation|screenSize" android:exported="true">
    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
    <intent-filter><action android:name="android.intent.action.SEND"/><category android:name="android.intent.category.DEFAULT"/><data android:mimeType="text/plain"/></intent-filter>
   </activity>

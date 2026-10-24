@@ -1,13 +1,9 @@
-# EGYTUBE v0.6.2 — YouTube-only Android app
-- Built from Android/Kotlin native code with Media3 ExoPlayer as the app's own player, not a full YouTube WebView player
-- Home video feed, Shorts, search, local channel follows, favorites and history
-- Four user-supplied ad units, marked "إعلان":
-  1. 300 x 250 in feed (data527.click)
-  2. responsive 468 x 60 in feed (data527.click)
-  3. 320 x 50 beneath native player (data527.click)
-  4. Bonepa unit in feed and library
-- On deliberate ad click, navigate using Android ACTION_VIEW to the default browser. Handle iframe links and popup targets; ignore unsolicited popup requests and non-http(s) schemes. No auto-open in background, no JS-native bridge, no overlay over player controls.
-- The ads are third-party scripts; content, fill and destination websites are controlled by providers, not by this app. Screen ad content/age appropriateness and check their terms before public release.
-- Content search/extraction uses unofficial NewPipeExtractor and may stop working as YouTube changes. Videos may not work in all circumstances.
-- Build verification checks APK ZIP integrity, signing and MainActivity presence; on-device tests are still required.
-- Independent install ID com.egytube.rebuilt. Debug, not production-signed.
+# EGYTUBE 0.6.3 — Native inline watch page
+- YouTube-only mobile app, no EGYSHOW content or references.
+- Tapping a video opens an in-page native watch panel in MainActivity; closing returns to the same feed and scroll position.
+- Video stays pinned at top while details and related recommendations scroll underneath.
+- ExoPlayer/Media3 remains the actual native player, not an official YouTube iframe.
+- Quality button appears inside player overlay; real available HLS/DASH adaptive quality and manual formats; switching attempts to retain playback position.
+- In-player fit/zoom and fullscreen controls. Height adapts to actual video dimensions, portrait/landscape, without forcing orientation.
+- 320×50 data527 banner under player; other user-supplied ads remain in feed, open in external browser on click.
+- Upload is debug signed and has not been tested on a physical device. Unofficial NewPipeExtractor may fail for individual YouTube videos or regional restrictions.

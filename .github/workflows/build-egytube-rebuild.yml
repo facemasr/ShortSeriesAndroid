@@ -36,14 +36,9 @@ jobs:
           unzip -t "$APK" | tail -1
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
           unzip -p "$APK" classes.dex | strings | grep 'MainActivity' > /dev/null
-          cp "$APK" EGYTUBE-Native-v0.5.0-FIXED.apk
+          cp "$APK" EGYTUBE-YouTube-Only-v0.6.0.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYTUBE-Native-v050-APK
+          name: EGYTUBE-YouTube-Only-v060-APK
           path: EGYTUBE-Native-v0.5.0-FIXED.apk
           if-no-files-found: error
-      - name: Publish standalone test APK on GitHub Releases
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "egytube-native-v0.5.0-fixed" EGYTUBE-Native-v0.5.0-FIXED.apk --target "$GITHUB_SHA" --title "EGYTUBE Native 0.5.0 Test" --notes "Fresh rebuild; independent install; native lists; official YouTube embed; EGYSHOW categories. Debug APK: not verified on physical device." --prerelease || gh release upload "egytube-native-v0.5.0-fixed" EGYTUBE-Native-v0.5.0-FIXED.apk --clobber

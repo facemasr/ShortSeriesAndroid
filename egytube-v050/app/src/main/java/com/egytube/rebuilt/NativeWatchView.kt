@@ -75,7 +75,12 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private val speedButton = text("1.0×",13f,Color.WHITE)
     private val pipButton = text("▣",19f,Color.WHITE)
     private val overlayControls = LinearLayout(host)
-    private val centerPlay = text("▶",32f,Color.WHITE)
+    private val centerPlay = text("▶",27f,Color.WHITE)
+    private val seekFeedback = text("",18f,Color.WHITE)
+    private val fastBadge = text("2×  تشغيل سريع",15f,Color.WHITE)
+    private var holdSpeedActive=false
+    private var speedBeforeHold=1f
+    private var miniTarget:ViewGroup?=null
     private val lowerToolbar = LinearLayout(host)
     private val toolbarPlay = text("▶",20f,Color.WHITE)
     private val nextButton = text("⏭",19f,Color.WHITE)
@@ -159,14 +164,29 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           return true
         }
         override fun onDoubleTap(e:MotionEvent):Boolean {
-          skipBy(if(e.x<viewport.width/2f)-10000L else 10000L)
-          Toast.makeText(host,if(e.x<viewport.width/2f)"↶ 10 ثوانٍ" else "10 ثوانٍ ↷",Toast.LENGTH_SHORT).show()
+          val backwards=e.x<viewport.width/2f
+          skipBy(if(backwards)-10000L else 10000L,false)
+          flashSeekFeedback(if(backwards)"−10 ثوانٍ" else "+10 ثوانٍ")
           return true
+        }
+        override fun onLongPress(e:MotionEvent){
+          if(!shutdown && miniTarget==null && player.currentMediaItem!=null && player.isPlaying && !holdSpeedActive){
+            speedBeforeHold=player.playbackParameters.speed
+            holdSpeedActive=true
+            player.setPlaybackSpeed(2f)
+            fastBadge.visibility=View.VISIBLE
+            fastBadge.alpha=1f
+            uiHandler.removeCallbacks(autoHide)
+          }
         }
       })
       val gestureSurface=View(host)
       gestureSurface.isClickable=true
-      gestureSurface.setOnTouchListener{_,e->detector.onTouchEvent(e);true}
+      gestureSurface.setOnTouchListener{_,e->
+        detector.onTouchEvent(e)
+        if(e.actionMasked==MotionEvent.ACTION_UP || e.actionMasked==MotionEvent.ACTION_CANCEL)restoreHoldSpeed()
+        true
+      }
       viewport.addView(gestureSurface,FrameLayout.LayoutParams(-1,-1))
 
       // Small upper overlay. Main controls are in a compact black footer, as in the reference.
@@ -185,31 +205,35 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       padding(nowPlaying,7,0,5,0)
       chrome.addView(nowPlaying,LinearLayout.LayoutParams(0,dp(38),1f))
       viewport.addView(chrome,FrameLayout.LayoutParams(-1,dp(42),Gravity.TOP))
-      // Ten-second transport controls sit at the sides of the video, away from ExoPlayer seekbar.
-      backwardButton.gravity=Gravity.CENTER
-      backwardButton.setBackgroundColor(0x44000000)
-      backwardButton.contentDescription="الرجوع عشر ثوانٍ"
-      val backPosition=FrameLayout.LayoutParams(dp(53),dp(47),Gravity.LEFT or Gravity.CENTER_VERTICAL)
-      backPosition.leftMargin=dp(12)
-      viewport.addView(backwardButton,backPosition)
-      backwardButton.setOnClickListener{skipBy(-10000L)}
-      forwardButton.gravity=Gravity.CENTER
-      forwardButton.setBackgroundColor(0x44000000)
-      forwardButton.contentDescription="التقدم عشر ثوانٍ"
-      val forwardPosition=FrameLayout.LayoutParams(dp(53),dp(47),Gravity.RIGHT or Gravity.CENTER_VERTICAL)
-      forwardPosition.rightMargin=dp(12)
-      viewport.addView(forwardButton,forwardPosition)
-      forwardButton.setOnClickListener{skipBy(10000L)}
-
+      // Transport seeking is available by double-tapping either side of the video.
+      // No permanently visible 10-second buttons cover the picture.
       // Central play/pause overlays the actual native ExoPlayer video.
       centerPlay.gravity=Gravity.CENTER
       centerPlay.background=GradientDrawable().apply{
         shape=GradientDrawable.OVAL
-        setColor(0xfff52e41.toInt())
-        setStroke(dp(2),0xccffffff.toInt())
+        setColor(0x66000000)
+        setStroke(dp(1),0x55ffffff)
       }
       centerPlay.contentDescription="تشغيل أو إيقاف الفيديو مؤقتًا"
-      viewport.addView(centerPlay,FrameLayout.LayoutParams(dp(68),dp(68),Gravity.CENTER))
+      centerPlay.alpha=0f
+      centerPlay.visibility=View.GONE
+      viewport.addView(centerPlay,FrameLayout.LayoutParams(dp(56),dp(56),Gravity.CENTER))
+      seekFeedback.gravity=Gravity.CENTER
+      seekFeedback.background=GradientDrawable().apply{
+        setColor(0x99000000.toInt())
+        cornerRadius=dp(17).toFloat()
+      }
+      seekFeedback.visibility=View.GONE
+      viewport.addView(seekFeedback,FrameLayout.LayoutParams(dp(146),dp(44),Gravity.CENTER))
+      fastBadge.gravity=Gravity.CENTER
+      fastBadge.background=GradientDrawable().apply{
+        setColor(0x88000000.toInt())
+        cornerRadius=dp(17).toFloat()
+      }
+      fastBadge.visibility=View.GONE
+      viewport.addView(fastBadge,FrameLayout.LayoutParams(dp(156),dp(38),Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply{
+        topMargin=dp(56)
+      })
       centerPlay.setOnClickListener{
         if(player.currentMediaItem!=null){
           if(player.isPlaying)player.pause() else player.play()
@@ -365,6 +389,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           showChrome();updatePlayIcon()
         }
         override fun onIsPlayingChanged(isPlaying:Boolean){
+          host.onMiniPlaybackChanged(isPlaying)
           updatePlayIcon()
           if(isPlaying)scheduleChromeHide() else showChrome()
           updatePiPParameters()
@@ -591,7 +616,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       centerPlay.text=if(player.isPlaying)"Ⅱ" else "▶"
       toolbarPlay.text=if(player.isPlaying)"Ⅱ" else "▶"
       centerPlay.contentDescription=if(player.isPlaying)"إيقاف مؤقت" else "تشغيل"
-      centerPlay.visibility=if(controlsVisible && !pipActive && spinner.visibility!=View.VISIBLE)View.VISIBLE else View.GONE
+      if(!controlsVisible || pipActive || miniTarget!=null){
+        centerPlay.animate().cancel()
+        centerPlay.visibility=View.GONE
+      }
     }
     private fun syncVolume(){
       val current=audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -630,29 +658,60 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
          }
       }
     }
-    private fun skipBy(delta:Long){
+    private fun restoreHoldSpeed(){
+      if(!holdSpeedActive)return
+      holdSpeedActive=false
+      if(!shutdown && player.currentMediaItem!=null)player.setPlaybackSpeed(speedBeforeHold)
+      fastBadge.visibility=View.GONE
+      scheduleChromeHide()
+    }
+    private fun flashSeekFeedback(label:String){
+      seekFeedback.animate().cancel()
+      seekFeedback.text=label
+      seekFeedback.alpha=0f
+      seekFeedback.visibility=View.VISIBLE
+      seekFeedback.animate().alpha(1f).setDuration(100).withEndAction{
+        seekFeedback.animate().alpha(0f).setStartDelay(390).setDuration(170)
+          .withEndAction{seekFeedback.visibility=View.GONE}.start()
+      }.start()
+    }
+    private fun flashCenterIcon(){
+      if(pipActive || miniTarget!=null || spinner.visibility==View.VISIBLE)return
+      centerPlay.animate().cancel()
+      centerPlay.alpha=0f
+      centerPlay.visibility=View.VISIBLE
+      centerPlay.animate().alpha(1f).setDuration(100).withEndAction{
+        centerPlay.animate().alpha(0f).setStartDelay(600).setDuration(210)
+          .withEndAction{centerPlay.visibility=View.GONE}.start()
+      }.start()
+    }
+    private fun skipBy(delta:Long,showControls:Boolean=true){
       if(player.currentMediaItem==null)return
       val max=if(player.duration>0)player.duration else Long.MAX_VALUE
       player.seekTo((player.currentPosition+delta).coerceIn(0L,max))
-      showChrome()
+      if(showControls)showChrome()
     }
     private fun setChromeVisibility(visible:Boolean){
       controlsVisible=visible
       overlayControls.visibility=if(visible)View.VISIBLE else View.GONE
-      backwardButton.visibility=if(visible)View.VISIBLE else View.GONE
-      forwardButton.visibility=if(visible)View.VISIBLE else View.GONE
       bottomLayer.visibility=if(visible)View.VISIBLE else View.GONE
+      if(!visible){
+        centerPlay.animate().cancel()
+        centerPlay.visibility=View.GONE
+      }
       updatePlayIcon()
     }
     private fun showChrome(){
       if(pipActive)return
       uiHandler.removeCallbacks(autoHide)
       setChromeVisibility(true)
+      flashCenterIcon()
       scheduleChromeHide()
     }
     private fun scheduleChromeHide(){
       uiHandler.removeCallbacks(autoHide)
-      if(!pipActive && player.isPlaying && !scrubbing && !settingsOpen)uiHandler.postDelayed(autoHide,4500L)
+      if(!pipActive && !holdSpeedActive && player.isPlaying && !scrubbing && !settingsOpen)
+        uiHandler.postDelayed(autoHide,3100L)
     }
     private fun rememberPosition(){
       if(videoId.isEmpty() || player.currentMediaItem==null)return
@@ -677,7 +736,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       try{
         val params=PictureInPictureParams.Builder().setAspectRatio(pipRatio())
         val visible=Rect()
-        if(viewport.getGlobalVisibleRect(visible)&&!visible.isEmpty)params.setSourceRectHint(visible)
+        if((miniTarget ?: viewport).getGlobalVisibleRect(visible)&&!visible.isEmpty)params.setSourceRectHint(visible)
         // Android 12+ can enter PiP when the user goes Home during active playback.
         if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)params.setAutoEnterEnabled(player.isPlaying)
         host.setPictureInPictureParams(params.build())
@@ -692,6 +751,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         Toast.makeText(host,"يجب تشغيل الفيديو أولاً",Toast.LENGTH_SHORT).show()
         return
       }
+      host.prepareWatchForPip()
       if(fullscreen)setFull(false)
       try{
         val builder=PictureInPictureParams.Builder().setAspectRatio(pipRatio())
@@ -712,7 +772,35 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(!inPip)showChrome()
       resize()
     }
+    fun hasVideo()=!shutdown && videoId.isNotBlank()
+    fun currentVideoTitle()=videoTitle
     fun isPlayingVideo()=player.isPlaying && !shutdown
+    fun toggleMiniPlayback(){
+      if(!hasVideo() || player.currentMediaItem==null)return
+      if(player.isPlaying)player.pause() else player.play()
+      updatePlayIcon()
+    }
+    fun dockIntoMini(container:ViewGroup){
+      if(shutdown || miniTarget===container)return
+      restoreHoldSpeed()
+      centerPlay.animate().cancel()
+      centerPlay.visibility=View.GONE
+      closeSettings()
+      (mediaView.parent as? ViewGroup)?.removeView(mediaView)
+      container.addView(mediaView,ViewGroup.LayoutParams(-1,-1))
+      miniTarget=container
+      updatePiPParameters()
+    }
+    fun restoreFromMini(){
+      if(shutdown || miniTarget==null)return
+      (mediaView.parent as? ViewGroup)?.removeView(mediaView)
+      viewport.addView(mediaView,0,FrameLayout.LayoutParams(-1,-1))
+      miniTarget=null
+      mediaView.useController=false
+      resize()
+      updatePiPParameters()
+      showChrome()
+    }
     private fun resize(){
       if(shutdown)return
       val landscape=resources.configuration.orientation==Configuration.ORIENTATION_LANDSCAPE
@@ -758,6 +846,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       closeSettings()
       shutdown=true;ticket++
       uiHandler.removeCallbacksAndMessages(null)
+      restoreHoldSpeed()
+      if(miniTarget!=null){
+        (mediaView.parent as? ViewGroup)?.removeView(mediaView)
+        miniTarget=null
+      }
       host.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
       worker.shutdownNow();images.shutdownNow()
       player.removeListener(playerListener)

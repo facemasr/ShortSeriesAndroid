@@ -7,6 +7,12 @@ import android.graphics.BitmapFactory
 import android.content.Context
 import android.net.Uri
 import android.graphics.Color
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.app.PictureInPictureParams
+import android.util.Rational
+import android.view.MotionEvent
 import android.content.res.Configuration
 import android.view.Gravity
 import android.view.View
@@ -59,6 +65,22 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private val qualityButton = text("⚙ جودة",13f,Color.WHITE)
     private val expandButton = text("⛶",27f,Color.WHITE)
     private val fitButton = text("↔ ملاءمة",12f,Color.WHITE)
+    private val speedButton = text("1.0×",13f,Color.WHITE)
+    private val pipButton = text("▣",19f,Color.WHITE)
+    private val overlayControls = LinearLayout(host)
+    private val backwardButton = text("↶10",16f,Color.WHITE)
+    private val forwardButton = text("10↷",16f,Color.WHITE)
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private val autoHide = Runnable { if(!shutdown && !pipActive && player.isPlaying) setChromeVisibility(false) }
+    private var pipActive = false
+    private var playingRate = 1.0f
+    private val progressSaver = object: Runnable {
+      override fun run() {
+        if(shutdown)return
+        rememberPosition()
+        uiHandler.postDelayed(this,5000L)
+      }
+    }
     private val advertisement = WebView(host)
     private val formats = mutableListOf<Source>()
     private var active = -1
@@ -87,14 +109,18 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       mediaView.player=player
       mediaView.useController=true
       mediaView.resizeMode=AspectRatioFrameLayout.RESIZE_MODE_FIT
+      mediaView.controllerShowTimeoutMs=4000
+      mediaView.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+      host.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+      player.setHandleAudioBecomingNoisy(true)
       viewport.addView(mediaView,FrameLayout.LayoutParams(-1,-1))
 
       // Overlay controls live inside the player, independently of the page below.
-      val chrome=LinearLayout(host)
+      val chrome=overlayControls
       chrome.orientation=HORIZONTAL
       chrome.gravity=Gravity.CENTER_VERTICAL
-      chrome.setBackgroundColor(0x77000000)
-      padding(chrome,8,3,8,3)
+      chrome.setBackgroundColor(0x880a0b10.toInt())
+      padding(chrome,3,3,3,3)
       val back=text("‹",30f,Color.WHITE)
       back.gravity=Gravity.CENTER
       chrome.addView(back,LinearLayout.LayoutParams(dp(42),dp(39)))
@@ -102,17 +128,44 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       val space=Space(host)
       chrome.addView(space,LinearLayout.LayoutParams(0,dp(1),1f))
       qualityButton.gravity=Gravity.CENTER
-      padding(qualityButton,8,5,8,5)
+      padding(qualityButton,5,5,5,5)
       chrome.addView(qualityButton,LinearLayout.LayoutParams(-2,dp(39)))
-      qualityButton.setOnClickListener { showQuality() }
+      qualityButton.setOnClickListener { showChrome();showQuality() }
+      speedButton.gravity=Gravity.CENTER
+      padding(speedButton,4,4,4,4)
+      chrome.addView(speedButton,LinearLayout.LayoutParams(dp(45),dp(39)))
+      speedButton.setOnClickListener{showChrome();showSpeedOptions()}
+      pipButton.gravity=Gravity.CENTER
+      pipButton.contentDescription="تشغيل الفيديو في نافذة عائمة PiP"
+      chrome.addView(pipButton,LinearLayout.LayoutParams(dp(37),dp(39)))
+      pipButton.setOnClickListener{enterPictureInPicture()}
       fitButton.gravity=Gravity.CENTER
       padding(fitButton,6,5,6,5)
       chrome.addView(fitButton,LinearLayout.LayoutParams(-2,dp(39)))
-      fitButton.setOnClickListener{ zoomed=!zoomed;mediaView.resizeMode=if(zoomed)AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT;fitButton.text=if(zoomed)"↔ احتواء" else "↔ ملاءمة" }
+      fitButton.setOnClickListener{ showChrome();zoomed=!zoomed;mediaView.resizeMode=if(zoomed)AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT;fitButton.text=if(zoomed)"↔ احتواء" else "↔ ملاءمة" }
       expandButton.gravity=Gravity.CENTER
       chrome.addView(expandButton,LinearLayout.LayoutParams(dp(45),dp(39)))
-      expandButton.setOnClickListener { setFull(!fullscreen) }
+      expandButton.setOnClickListener { showChrome();setFull(!fullscreen) }
       viewport.addView(chrome,FrameLayout.LayoutParams(-1,dp(45),Gravity.TOP))
+      // Ten-second transport controls sit at the sides of the video, away from ExoPlayer seekbar.
+      backwardButton.gravity=Gravity.CENTER
+      backwardButton.setBackgroundColor(0x44000000)
+      backwardButton.contentDescription="الرجوع عشر ثوانٍ"
+      val backPosition=FrameLayout.LayoutParams(dp(53),dp(47),Gravity.LEFT or Gravity.CENTER_VERTICAL)
+      backPosition.leftMargin=dp(12)
+      viewport.addView(backwardButton,backPosition)
+      backwardButton.setOnClickListener{skipBy(-10000L)}
+      forwardButton.gravity=Gravity.CENTER
+      forwardButton.setBackgroundColor(0x44000000)
+      forwardButton.contentDescription="التقدم عشر ثوانٍ"
+      val forwardPosition=FrameLayout.LayoutParams(dp(53),dp(47),Gravity.RIGHT or Gravity.CENTER_VERTICAL)
+      forwardPosition.rightMargin=dp(12)
+      viewport.addView(forwardButton,forwardPosition)
+      forwardButton.setOnClickListener{skipBy(10000L)}
+      mediaView.setOnTouchListener{_,event->
+        if(event.actionMasked==MotionEvent.ACTION_DOWN)showChrome()
+        false
+      }
       addView(viewport,LinearLayout.LayoutParams(-1,dp(220)))
 
       val adBox=LinearLayout(host)
@@ -169,28 +222,39 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       player.addListener(object:Player.Listener {
         override fun onPlayerError(error:PlaybackException){
           state.text="تعذر تشغيل المصدر الحالي: ${error.errorCodeName}"
+          showChrome()
+        }
+        override fun onIsPlayingChanged(isPlaying:Boolean){
+          if(isPlaying)scheduleChromeHide() else showChrome()
+          updatePiPParameters()
         }
         override fun onPlaybackStateChanged(s:Int){
           if(s==Player.STATE_READY)state.text="جاري تشغيل الفيديو · ${formats.getOrNull(active)?.label.orEmpty()}"
+          if(s==Player.STATE_ENDED){forgetPosition();showChrome()}
         }
         override fun onVideoSizeChanged(size:VideoSize){
           if(size.width>0&&size.height>0){
-            videoWidth=size.width;videoHeight=size.height
+            videoWidth=(size.width*size.pixelWidthHeightRatio).toInt().coerceAtLeast(1);videoHeight=size.height
             resize()
+            updatePiPParameters()
           }
         }
       })
       resize()
+      uiHandler.postDelayed(progressSaver,5000L)
+      showChrome()
     }
 
     fun openVideo(id:String,title:String,channel:String){
       if(!Regex("[A-Za-z0-9_-]{11}").matches(id))return
+      if(videoId.isNotEmpty())rememberPosition()
       videoId=id;videoTitle=title
       heading.text=title;creator.text=channel
       ticket++
       val token=ticket
       formats.clear();active=-1
       qualityButton.text="⚙ جودة"
+      showChrome()
       videoWidth=if(title.contains("Shorts",true))9 else 16
       videoHeight=if(videoWidth==9)16 else 9
       resize()
@@ -295,7 +359,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun choose(index:Int){
       if(index !in formats.indices || shutdown)return
-      val position=if(active>=0)player.currentPosition else 0L
+      val position=if(active>=0)player.currentPosition else host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).getLong("resume_$videoId",0L)
       val src=formats[index]
       active=index
       qualityButton.text="⚙ ${src.label.substringBefore(' ')}"
@@ -313,7 +377,96 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       player.prepare()
       if(position>0)player.seekTo(position)
       player.playWhenReady=true
+      showChrome()
     }
+    private fun showSpeedOptions(){
+      val speeds=floatArrayOf(0.5f,0.75f,1f,1.25f,1.5f,2f)
+      val labels=speeds.map{String.format(Locale.US,"%.2g×",it)}.toTypedArray()
+      val chosen=speeds.indexOfFirst{it==playingRate}.coerceAtLeast(0)
+      AlertDialog.Builder(host).setTitle("سرعة التشغيل")
+        .setSingleChoiceItems(labels,chosen){dialog,index->
+          playingRate=speeds[index]
+          player.setPlaybackSpeed(playingRate)
+          speedButton.text=String.format(Locale.US,"%.2g×",playingRate)
+          dialog.dismiss()
+          showChrome()
+        }.setNegativeButton("إلغاء",null).show()
+    }
+    private fun skipBy(delta:Long){
+      if(player.currentMediaItem==null)return
+      val max=if(player.duration>0)player.duration else Long.MAX_VALUE
+      player.seekTo((player.currentPosition+delta).coerceIn(0L,max))
+      showChrome()
+    }
+    private fun setChromeVisibility(visible:Boolean){
+      overlayControls.visibility=if(visible)View.VISIBLE else View.GONE
+      backwardButton.visibility=if(visible)View.VISIBLE else View.GONE
+      forwardButton.visibility=if(visible)View.VISIBLE else View.GONE
+    }
+    private fun showChrome(){
+      if(pipActive)return
+      uiHandler.removeCallbacks(autoHide)
+      setChromeVisibility(true)
+      scheduleChromeHide()
+    }
+    private fun scheduleChromeHide(){
+      uiHandler.removeCallbacks(autoHide)
+      if(!pipActive && player.isPlaying)uiHandler.postDelayed(autoHide,4500L)
+    }
+    private fun rememberPosition(){
+      if(videoId.isEmpty() || player.currentMediaItem==null)return
+      val now=player.currentPosition
+      if(now>2500L && (player.duration<=0L || now<player.duration-5000L)){
+        host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).edit().putLong("resume_$videoId",now).apply()
+      }
+    }
+    private fun forgetPosition(){
+      host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).edit().remove("resume_$videoId").apply()
+    }
+    private fun pipRatio():Rational{
+      val ratio=videoWidth.toFloat()/videoHeight.coerceAtLeast(1).toFloat()
+      return when{
+        ratio>2.39f ->Rational(239,100)
+        ratio<0.42f ->Rational(42,100)
+        else->Rational(videoWidth.coerceAtLeast(1),videoHeight.coerceAtLeast(1))
+      }
+    }
+    private fun updatePiPParameters(){
+      if(Build.VERSION.SDK_INT<Build.VERSION_CODES.O || shutdown || player.currentMediaItem==null)return
+      try{
+        val params=PictureInPictureParams.Builder().setAspectRatio(pipRatio())
+        // Android 12+ can enter PiP when the user goes Home during active playback.
+        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)params.setAutoEnterEnabled(player.isPlaying)
+        host.setPictureInPictureParams(params.build())
+      }catch(_:Exception){}
+    }
+    fun enterPictureInPicture(){
+      if(Build.VERSION.SDK_INT<Build.VERSION_CODES.O){
+        Toast.makeText(host,"يتطلب وضع الصورة داخل الصورة أندرويد 8 أو أحدث",Toast.LENGTH_SHORT).show()
+        return
+      }
+      if(player.currentMediaItem==null){
+        Toast.makeText(host,"يجب تشغيل الفيديو أولاً",Toast.LENGTH_SHORT).show()
+        return
+      }
+      if(fullscreen)setFull(false)
+      try{
+        val builder=PictureInPictureParams.Builder().setAspectRatio(pipRatio())
+        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)builder.setAutoEnterEnabled(true)
+        host.enterPictureInPictureMode(builder.build())
+      }catch(e:Exception){
+        Toast.makeText(host,"لا يتوفر PiP على هذا الجهاز",Toast.LENGTH_SHORT).show()
+      }
+    }
+    fun onPictureInPictureChanged(inPip:Boolean){
+      pipActive=inPip
+      uiHandler.removeCallbacks(autoHide)
+      mediaView.useController=!inPip
+      setChromeVisibility(!inPip)
+      if(!inPip)showChrome()
+      resize()
+    }
+    fun isPlayingVideo()=player.isPlaying && !shutdown
     private fun resize(){
       if(shutdown)return
       val landscape=resources.configuration.orientation==Configuration.ORIENTATION_LANDSCAPE
@@ -323,11 +476,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       val measured=if(videoHeight>videoWidth)natural.coerceIn(dp(230),(screen*0.62).toInt())
                    else natural.coerceIn(dp(170),(screen*0.42).toInt())
       val params=viewport.layoutParams as? LayoutParams ?:LayoutParams(-1,measured)
-      params.height=if(fullscreen)screen else if(landscape)(screen*0.78).toInt() else measured
+      params.height=if(pipActive)ViewGroup.LayoutParams.MATCH_PARENT else if(fullscreen)screen else if(landscape)(screen*0.78).toInt() else measured
       viewport.layoutParams=params
-      below.visibility=if(fullscreen)View.GONE else View.VISIBLE
-      details.visibility=if(fullscreen)View.GONE else View.VISIBLE
-      adContainer.visibility=if(fullscreen)View.GONE else View.VISIBLE
+      below.visibility=if(fullscreen||pipActive)View.GONE else View.VISIBLE
+      details.visibility=if(fullscreen||pipActive)View.GONE else View.VISIBLE
+      adContainer.visibility=if(fullscreen||pipActive)View.GONE else View.VISIBLE
     }
     private fun setFull(enabled:Boolean){
       fullscreen=enabled
@@ -345,7 +498,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     fun onScreenChanged(){resize()}
     fun release(){
       if(shutdown)return
+      rememberPosition()
       shutdown=true;ticket++
+      uiHandler.removeCallbacksAndMessages(null)
+      host.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
       worker.shutdownNow();images.shutdownNow()
       mediaView.player=null
       player.release()

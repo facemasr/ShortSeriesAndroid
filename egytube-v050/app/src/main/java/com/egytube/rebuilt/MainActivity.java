@@ -286,6 +286,10 @@ public class MainActivity extends Activity {
     }
     super.onBackPressed();
   }
+  @Override public void onPictureInPictureModeChanged(boolean inPip,android.content.res.Configuration config){
+    super.onPictureInPictureModeChanged(inPip,config);
+    if(watchView!=null)watchView.onPictureInPictureChanged(inPip);
+  }
   @Override public void onConfigurationChanged(android.content.res.Configuration c){
     super.onConfigurationChanged(c);
     if(watchView!=null)watchView.onScreenChanged();

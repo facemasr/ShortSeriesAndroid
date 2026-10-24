@@ -44,19 +44,19 @@ jobs:
             fi
           done
           test "$found" -eq 1
-          cp "$APK" EGYTUBE-YouTube-Only-v0.6.3.apk
+          cp "$APK" EGYTUBE-YouTube-Only-v0.6.4.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYTUBE-YouTube-Only-v063-APK
-          path: EGYTUBE-YouTube-Only-v0.6.3.apk
+          name: EGYTUBE-YouTube-Only-v064-APK
+          path: EGYTUBE-YouTube-Only-v0.6.4.apk
           if-no-files-found: error
       - name: Publish directly downloadable APK to repository
         continue-on-error: true
         run: |
           mkdir -p public-downloads
-          cp EGYTUBE-YouTube-Only-v0.6.3.apk public-downloads/EGYTUBE-YouTube-Only-v0.6.3.apk
+          cp EGYTUBE-YouTube-Only-v0.6.4.apk public-downloads/EGYTUBE-YouTube-Only-v0.6.4.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public-downloads/EGYTUBE-YouTube-Only-v0.6.3.apk
-          git commit -m "Publish EGYTUBE v0.6.3 APK for direct download" || exit 0
+          git add public-downloads/EGYTUBE-YouTube-Only-v0.6.4.apk
+          git commit -m "Publish EGYTUBE v0.6.4 APK for direct download" || exit 0
           git push origin HEAD:egytube-rebuild-20261024

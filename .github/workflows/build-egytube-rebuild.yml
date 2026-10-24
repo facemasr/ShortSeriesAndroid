@@ -36,9 +36,9 @@ jobs:
           unzip -t "$APK" | tail -1
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
           unzip -p "$APK" classes.dex | strings | grep 'MainActivity' > /dev/null
-          cp "$APK" EGYTUBE-YouTube-Only-v0.6.0.apk
+          cp "$APK" EGYTUBE-YouTube-Only-v0.6.2.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYTUBE-YouTube-Only-v061-APK
-          path: EGYTUBE-YouTube-Only-v0.6.0.apk
+          name: EGYTUBE-YouTube-Only-v062-APK
+          path: EGYTUBE-YouTube-Only-v0.6.2.apk
           if-no-files-found: error

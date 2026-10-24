@@ -1,12 +1,13 @@
-# EGYTUBE 0.6.1 — YouTube Only
-Native Android application with a YouTube-style layout but independent EGYTUBE branding.
-- Native feed for regular YouTube videos, search, Shorts, following, local library/history
-- NewPipeExtractor reads YouTube search results with no user API key and can stop working if YouTube changes its site or blocks requests
-- Fully removes any EGYSHOW URLs and content sections
-- Uses original-style Media3 / ExoPlayer player for compatible sources, not official embedded YouTube iframe; media availability not guaranteed
-- Automatic adaptive HLS/DASH quality when available; other formats manual
-- User-supplied Bonepa ad in player and one feed slot labeled Advertisement, no ad covering playback
-- Does not offer Google account sign-in, posting, uploads, YouTube Premium, or authentic YouTube subscriptions
-- Separate APK identifier `com.egytube.rebuilt`, debug signed, builds independently from 0.4.4
-- Requires real phone testing and review of YouTube terms / ad network policies before distribution
-\nAd placements: #1 300x250 in the video feed, #2 468x60 responsive banner in the feed, #3 320x50 below the ExoPlayer, #4 separate Bonepa placement in long feed and library. All ad-initiated browser links launch an ACTION_VIEW intent, no overlay on playback; JS bridges and auto popups disabled. This does not guarantee third-party ad fill or content suitability; audit advertisers before public release.\n
+# EGYTUBE v0.6.2 — YouTube-only Android app
+- Built from Android/Kotlin native code with Media3 ExoPlayer as the app's own player, not a full YouTube WebView player
+- Home video feed, Shorts, search, local channel follows, favorites and history
+- Four user-supplied ad units, marked "إعلان":
+  1. 300 x 250 in feed (data527.click)
+  2. responsive 468 x 60 in feed (data527.click)
+  3. 320 x 50 beneath native player (data527.click)
+  4. Bonepa unit in feed and library
+- On deliberate ad click, navigate using Android ACTION_VIEW to the default browser. Handle iframe links and popup targets; ignore unsolicited popup requests and non-http(s) schemes. No auto-open in background, no JS-native bridge, no overlay over player controls.
+- The ads are third-party scripts; content, fill and destination websites are controlled by providers, not by this app. Screen ad content/age appropriateness and check their terms before public release.
+- Content search/extraction uses unofficial NewPipeExtractor and may stop working as YouTube changes. Videos may not work in all circumstances.
+- Build verification checks APK ZIP integrity, signing and MainActivity presence; on-device tests are still required.
+- Independent install ID com.egytube.rebuilt. Debug, not production-signed.

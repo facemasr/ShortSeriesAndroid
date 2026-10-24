@@ -14,6 +14,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import java.util.concurrent.atomic.AtomicBoolean;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -61,17 +62,29 @@ public final class AdSlots {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true);
         final long[] lastTouch={0};
+        // Prevent repeated browser windows for the same ad redirect.
+        final String[] lastOpened={""};
+        final long[] lastOpenedAt={0};
+        java.util.function.Consumer<Uri> visit = uri -> {
+            if(uri==null)return;
+            String u=uri.toString();
+            long now=SystemClock.uptimeMillis();
+            if(u.equals(lastOpened[0]) && now-lastOpenedAt[0]<1500)return;
+            lastOpened[0]=u;lastOpenedAt[0]=now;
+            openBrowser(webView.getContext(),uri);
+        };
         webView.setOnTouchListener((v,event)->{
             if(event.getAction()==MotionEvent.ACTION_UP)lastTouch[0]=SystemClock.uptimeMillis();
             return false;
         });
         webView.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){
-                if(!request.isForMainFrame())return false;
                 boolean clicked=request.hasGesture() ||
                     (lastTouch[0]!=0 && SystemClock.uptimeMillis()-lastTouch[0]<1800);
-                if(clicked)openBrowser(view.getContext(),request.getUrl());
-                return true;
+                // Intercept intentional navigation in the main document AND ad iframes.
+                // Do not promote automatic redirects or unsolicited popup destinations.
+                if(clicked)visit.accept(request.getUrl());
+                return clicked || request.isForMainFrame();
             }
         });
         webView.setWebChromeClient(new WebChromeClient(){
@@ -79,14 +92,18 @@ public final class AdSlots {
                 // Refuse popups not initiated by the viewer.
                 if(!isUserGesture)return false;
                 WebView popup=new WebView(source.getContext());
+                final AtomicBoolean handled=new AtomicBoolean(false);
+                java.util.function.Consumer<Uri> openOnce=uri->{
+                    if(handled.compareAndSet(false,true))visit.accept(uri);
+                };
                 popup.getSettings().setJavaScriptEnabled(false);
                 popup.setWebViewClient(new WebViewClient(){
                     @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){
-                        if(request.isForMainFrame())openBrowser(source.getContext(),request.getUrl());
+                        if(request.isForMainFrame())openOnce.accept(request.getUrl());
                         return true;
                     }
                     @Override public void onPageStarted(WebView view,String url,android.graphics.Bitmap favicon){
-                        if(url!=null&&!url.startsWith("about:"))openBrowser(source.getContext(),Uri.parse(url));
+                        if(url!=null&&!url.startsWith("about:"))openOnce.accept(Uri.parse(url));
                         view.stopLoading();
                         view.post(view::destroy);
                     }

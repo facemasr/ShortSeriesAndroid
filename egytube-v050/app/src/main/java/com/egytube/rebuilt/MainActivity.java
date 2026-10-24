@@ -179,7 +179,7 @@ public class MainActivity extends Activity {
           long duration=stream.getDuration();
           if(onlyShorts){if(!(stream.isShortFormContent() || (duration>0&&duration<=180)))continue;}
           else if(stream.isShortFormContent() || (duration>0&&duration<=180))continue;
-          Video video=new Video(stream.getName(),stream.getUrl(),stream.getThumbnailUrl(),
+          Video video=new Video(stream.getName(),stream.getUrl(),(stream.getThumbnails().isEmpty()?"":stream.getThumbnails().get(0).getUrl()),
             stream.getUploaderName(),stream.getUploaderUrl(),duration);
           if(video.id==null)continue;
           rows.add(video);

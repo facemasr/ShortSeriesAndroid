@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+ android:layout_width="match_parent" android:layout_height="match_parent"
+ android:orientation="vertical" android:background="#080C14">
+ <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal" android:padding="10dp">
+ <Button android:id="@+id/back" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="رجوع"/>
+ <TextView android:id="@+id/videoTitle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+ android:textColor="#FFFFFF" android:textSize="16sp" android:textStyle="bold" android:maxLines="2" android:padding="10dp"/>
+ </LinearLayout>
+ <androidx.media3.ui.PlayerView android:id="@+id/playerView" android:layout_width="match_parent" android:layout_height="240dp" android:background="#000000"/>
+ <WebView android:id="@+id/playerAdSlot" android:layout_width="match_parent" android:layout_height="70dp"/>
+ <TextView android:id="@+id/playerStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#C3CBD8" android:textSize="13sp" android:padding="12dp"/>
+ <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="الجودة" android:textColor="#FFFFFF" android:textSize="16sp" android:padding="10dp"/>
+ <Spinner android:id="@+id/qualities" android:layout_width="match_parent" android:layout_height="52dp" android:backgroundTint="#FFFFFF"/>
+</LinearLayout>

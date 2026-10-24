@@ -1,10 +1,7 @@
-# EGYTUBE v0.6.6 — Reference-inspired professional player
-Native Android Media3/ExoPlayer; app is YouTube-only without EGYSHOW.
-- Rounded red central play/pause, video-focused layout and near-black bottom transport strip
-- Thin red progress line with scrubbing, buffer tracking and time readout
-- Play/pause, first recommended next video, Android music volume control and slider, captions (only where present), settings, PiP and fullscreen in one black footer
-- Small back/title bar; in-video compact settings with quality, speed, fit/zoom and captions
-- Mobile toolbar supports horizontal swipe on narrow screens rather than clipped icons
-- Existing double-tap ±10-second seek, video orientation fit, adaptive HLS/DASH quality when source supports it, in-page watch, PiP and local resume remain
-- Existing external ad placements remain separate from controls; ad clicks open default browser
-- Debug APK signed via CI. No physical Android device test. Unofficial source extractor can fail for YouTube videos.
+# EGYTUBE 0.6.7 — MediaSession background playback + PiP fixes
+- Bottom navigation simplified to **Home / Search / You**, removing Shorts and Subscriptions from the bottom tabs.
+- A foreground MediaSessionService owns the ExoPlayer. Media-style Android system notification provides audio playback controls in background / lock screen; resumes while switching to other apps. Android may still stop the service if force-stopped or when battery policies intervene.
+- Home and search retain standard video cards; no EGYSHOW integration. Shorts no longer a menu tab; Shorts can still be discovered via search.
+- PiP: source rect, automatic Android 12+ while playing, explicit onUserLeaveHint for Android 8-11, UI controls hidden in floating video mode.
+- Native professional player and all four user ad placements retained.
+- This is a debug-signed build that is not tested on a physical phone; media extraction and ad providers may not work for every item.

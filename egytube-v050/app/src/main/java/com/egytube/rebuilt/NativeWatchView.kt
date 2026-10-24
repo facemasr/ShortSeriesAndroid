@@ -27,6 +27,8 @@ import android.webkit.WebView
 import android.widget.*
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import android.graphics.Rect
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -58,7 +60,7 @@ import java.util.Locale
 class NativeWatchView(private val host: MainActivity, private val exit: Runnable) : LinearLayout(host) {
     private val worker = Executors.newSingleThreadExecutor()
     private val images = Executors.newFixedThreadPool(2)
-    private val player = ExoPlayer.Builder(host).build()
+    private val player = PlaybackCore.get(host)
     private val mediaView = PlayerView(host)
     private val viewport = FrameLayout(host)
     private val below = LinearLayout(host)
@@ -127,6 +129,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private var videoHeight = 9
     private var shutdown = false
     private lateinit var adContainer:LinearLayout
+    private lateinit var playerListener:Player.Listener
     private val colorText = Color.rgb(25,25,25)
     private fun dp(x:Int)=(x*resources.displayMetrics.density+.5f).toInt()
     private fun text(value:String, size:Float, fg:Int=Color.BLACK):TextView {
@@ -356,7 +359,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       padding(suggested,15,12,15,13);below.addView(suggested)
       suggestions.orientation=VERTICAL
       below.addView(suggestions)
-      player.addListener(object:Player.Listener {
+      playerListener=object:Player.Listener {
         override fun onPlayerError(error:PlaybackException){
           state.text="تعذر تشغيل المصدر الحالي: ${error.errorCodeName}"
           showChrome();updatePlayIcon()
@@ -379,7 +382,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
             updatePiPParameters()
           }
         }
-      })
+      }
+      player.addListener(playerListener)
       resize()
       uiHandler.postDelayed(progressSaver,5000L)
       uiHandler.post(progressTicker)
@@ -502,15 +506,21 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(index !in formats.indices || shutdown)return
       val position=if(active>=0)player.currentPosition else host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).getLong("resume_$videoId",0L)
       val src=formats[index]
+      // MediaSessionService continues playback with a media notification when the UI closes.
+      try{host.startService(Intent(host,PlaybackService::class.java))}
+      catch(e:Exception){state.text="تعذر بدء تشغيل الخلفية: ${e.message.orEmpty()}"}
       active=index
       qualityButton.text="⚙ ${src.label.substringBefore(' ')}"
       val ds=DefaultDataSource.Factory(host,DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true))
-      fun direct(u:String):MediaSource=ProgressiveMediaSource.Factory(ds).createMediaSource(MediaItem.fromUri(u))
+      val metadata=MediaMetadata.Builder().setTitle(videoTitle).setArtist(creator.text.toString()).build()
+      fun item(u:String,mime:String?=null):MediaItem=
+        MediaItem.Builder().setMediaId(videoId).setUri(u).setMimeType(mime).setMediaMetadata(metadata).build()
+      fun direct(u:String):MediaSource=ProgressiveMediaSource.Factory(ds).createMediaSource(item(u))
       val media:MediaSource=when(src.mime){
         MimeTypes.APPLICATION_M3U8->HlsMediaSource.Factory(ds).createMediaSource(
-           MediaItem.Builder().setUri(src.url).setMimeType(MimeTypes.APPLICATION_M3U8).build())
+           item(src.url,MimeTypes.APPLICATION_M3U8))
         MimeTypes.APPLICATION_MPD->DashMediaSource.Factory(ds).createMediaSource(
-           MediaItem.Builder().setUri(src.url).setMimeType(MimeTypes.APPLICATION_MPD).build())
+           item(src.url,MimeTypes.APPLICATION_MPD))
         else->if(src.audio!=null)MergingMediaSource(direct(src.url),direct(src.audio))else direct(src.url)
       }
       state.text="جارٍ تشغيل ${src.label}"
@@ -666,6 +676,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(Build.VERSION.SDK_INT<Build.VERSION_CODES.O || shutdown || player.currentMediaItem==null)return
       try{
         val params=PictureInPictureParams.Builder().setAspectRatio(pipRatio())
+        val visible=Rect()
+        if(viewport.getGlobalVisibleRect(visible)&&!visible.isEmpty)params.setSourceRectHint(visible)
         // Android 12+ can enter PiP when the user goes Home during active playback.
         if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)params.setAutoEnterEnabled(player.isPlaying)
         host.setPictureInPictureParams(params.build())
@@ -683,6 +695,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(fullscreen)setFull(false)
       try{
         val builder=PictureInPictureParams.Builder().setAspectRatio(pipRatio())
+        val visible=Rect()
+        if(viewport.getGlobalVisibleRect(visible)&&!visible.isEmpty)builder.setSourceRectHint(visible)
         if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)builder.setAutoEnterEnabled(true)
         host.enterPictureInPictureMode(builder.build())
       }catch(e:Exception){
@@ -693,7 +707,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       pipActive=inPip
       closeSettings()
       uiHandler.removeCallbacks(autoHide)
-      mediaView.useController=!inPip
+      mediaView.useController=false
       setChromeVisibility(!inPip)
       if(!inPip)showChrome()
       resize()
@@ -728,7 +742,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     fun isFullScreen()=fullscreen
     fun exitFullScreen(){setFull(false)}
     fun onScreenChanged(){resize()}
-    fun release(){
+    fun release(stopPlayback:Boolean=true){
       if(shutdown)return
       rememberPosition()
       closeSettings()
@@ -736,8 +750,13 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       uiHandler.removeCallbacksAndMessages(null)
       host.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
       worker.shutdownNow();images.shutdownNow()
+      player.removeListener(playerListener)
       mediaView.player=null
-      player.release()
+      if(stopPlayback){
+        player.stop()
+        player.clearMediaItems()
+        host.stopService(Intent(host,PlaybackService::class.java))
+      }
       advertisement.stopLoading();advertisement.destroy()
     }
     private data class Source(val label:String,val url:String,val audio:String?=null,val mime:String?=null)

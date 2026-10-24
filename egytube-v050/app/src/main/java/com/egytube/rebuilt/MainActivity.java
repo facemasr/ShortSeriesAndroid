@@ -33,8 +33,8 @@ import java.util.concurrent.*;
 import java.util.regex.*;
 
 public class MainActivity extends Activity {
-  private static final String[] TABS={"الرئيسية","Shorts","بحث","الاشتراكات","أنت"};
-  private static final String[] ICONS={"⌂","▶","⌕","▣","◉"};
+  private static final String[] TABS={"الرئيسية","بحث","أنت"};
+  private static final String[] ICONS={"⌂","⌕","◉"};
   private final int WHITE=0xffffffff, DARK=0xff171717, RED=0xffed1c24, GREY=0xff696969, LIGHT=0xfff4f4f4;
   private final ExecutorService pool=Executors.newFixedThreadPool(5);
   private final Map<String,Bitmap> images=Collections.synchronizedMap(new LinkedHashMap<>());
@@ -137,9 +137,7 @@ public class MainActivity extends Activity {
   private void show(int tab){
     selected=tab;requestId++;loading=false;buildNav();feed.removeAllViews();list.clear();currentQuery="";
     if(tab==0){currentShorts=false;addHeading("الفيديوهات");load("مقاطع فيديو جديدة 2026",false,requestId);}
-    else if(tab==1){currentShorts=true;addHeading("Shorts");load("youtube shorts عربي جديد",true,requestId);}
-    else if(tab==2)searchScreen();
-    else if(tab==3)subscriptionsScreen();
+    else if(tab==1)searchScreen();
     else libraryScreen();
   }
   private void addHeading(String label){
@@ -254,7 +252,7 @@ public class MainActivity extends Activity {
     }).show();
   }
   private void searchUploader(Video v){
-    selected=2;buildNav();requestId++;feed.removeAllViews();
+    selected=1;buildNav();requestId++;feed.removeAllViews();
     addHeading("القناة: "+v.uploader);load(v.uploader,false,requestId);
   }
   private void play(Video v){
@@ -271,7 +269,7 @@ public class MainActivity extends Activity {
   }
   private void closeWatch(){
     if(watchView==null)return;
-    watchView.release();
+    watchView.release(true);
     shell.removeView(watchView);
     watchView=null;
     getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
@@ -285,6 +283,13 @@ public class MainActivity extends Activity {
       return;
     }
     super.onBackPressed();
+  }
+  @Override public void onUserLeaveHint(){
+    super.onUserLeaveHint();
+    // Android 8-11 need explicit PiP when the user presses Home.
+    if(android.os.Build.VERSION.SDK_INT>=26 && android.os.Build.VERSION.SDK_INT<31 && watchView!=null && watchView.isPlayingVideo()){
+      watchView.enterPictureInPicture();
+    }
   }
   @Override public void onPictureInPictureModeChanged(boolean inPip,android.content.res.Configuration config){
     super.onPictureInPictureModeChanged(inPip,config);
@@ -363,5 +368,15 @@ public class MainActivity extends Activity {
     placeholder("EGYTUBE — خاص بيوتيوب فقط. المفضلة والسجل محفوظان على الهاتف. لن تتم إزالة إعلانات يوتيوب أو تجاوز قيود المحتوى.");
     addAd(AdSlots.BONEPA_4);
   }
-  @Override protected void onDestroy(){if(watchView!=null)closeWatch();pool.shutdownNow();super.onDestroy();}
+  @Override protected void onDestroy(){
+    if(watchView!=null){
+      // When Android removes the UI, the MediaSessionService owns audio playback.
+      boolean continueAudio=watchView.isPlayingVideo();
+      watchView.release(!continueAudio);
+      shell.removeView(watchView);
+      watchView=null;
+    }
+    pool.shutdownNow();
+    super.onDestroy();
+  }
 }

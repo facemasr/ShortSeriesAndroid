@@ -35,7 +35,7 @@ jobs:
           test -s "$APK"
           unzip -t "$APK" | tail -1
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
-          unzip -p "$APK" classes.dex | strings | grep -q 'MainActivity'
+          unzip -p "$APK" classes.dex | strings | grep 'MainActivity' > /dev/null
           cp "$APK" EGYTUBE-Native-v0.5.0-FIXED.apk
       - uses: actions/upload-artifact@v4
         with:

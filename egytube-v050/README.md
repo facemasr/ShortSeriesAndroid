@@ -1,7 +1,9 @@
-# EGYTUBE 0.6.7 — MediaSession background playback + PiP fixes
-- Bottom navigation simplified to **Home / Search / You**, removing Shorts and Subscriptions from the bottom tabs.
-- A foreground MediaSessionService owns the ExoPlayer. Media-style Android system notification provides audio playback controls in background / lock screen; resumes while switching to other apps. Android may still stop the service if force-stopped or when battery policies intervene.
-- Home and search retain standard video cards; no EGYSHOW integration. Shorts no longer a menu tab; Shorts can still be discovered via search.
-- PiP: source rect, automatic Android 12+ while playing, explicit onUserLeaveHint for Android 8-11, UI controls hidden in floating video mode.
-- Native professional player and all four user ad placements retained.
-- This is a debug-signed build that is not tested on a physical phone; media extraction and ad providers may not work for every item.
+# EGYTUBE 0.6.8 — Professional Android UI, background audio, PiP
+- Bottom navigation: Home, Search, You. No Shorts or Subscriptions tabs. Shorts still accessible by search.
+- Updated navigation and header, correcting search shortcut to the Search tab.
+- Foreground MediaSessionService with notification and standard OS playback controls supports audio after Home, screen lock and ordinary removal from recent apps while service remains allowed to play.
+- Picture-in-picture: auto-entry on Android 12+, onUserLeaveHint for Android 8–11, with correct PiP source geometry.
+- Original Media3 ExoPlayer, custom professional watch controls, quality / speed menus, fullscreen, scrubbing, captions, playback resume, four advertising slots kept.
+- Closing watch explicitly stops playback. Exiting Android Activity while playback is in progress leaves it to the media service.
+- Some phone manufacturers restrict background apps; force-stop always stops playback. User should allow PiP in system settings if disabled.
+- Debug-signed build; real-device tests still necessary. YouTube source extraction is unofficial and media may fail to load.

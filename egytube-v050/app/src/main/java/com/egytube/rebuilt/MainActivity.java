@@ -100,18 +100,18 @@ public class MainActivity extends Activity {
   }
   private void setupHeader(){
     LinearLayout h=linear(LinearLayout.HORIZONTAL);h.setGravity(Gravity.CENTER_VERTICAL);pad(h,15,7,12,6);
-    TextView title=text("▶ EGYTUBE",21,DARK,true);title.setSingleLine(true);
+    TextView title=text("▶ EGYTUBE",22,DARK,true);title.setSingleLine(true);title.setLetterSpacing(0.025f);
     h.addView(title,new LinearLayout.LayoutParams(0,dp(46),1));
     TextView cast=text("⟳",24,GREY,false);cast.setGravity(Gravity.CENTER);
     h.addView(cast,new LinearLayout.LayoutParams(dp(45),dp(46)));
     cast.setOnClickListener(v->show(selected));
     TextView find=text("⌕",28,DARK,true);find.setGravity(Gravity.CENTER);
     h.addView(find,new LinearLayout.LayoutParams(dp(48),dp(46)));
-    find.setOnClickListener(v->show(2));
+    find.setOnClickListener(v->show(1));
     TextView more=text("⋮",26,DARK,true);more.setGravity(Gravity.CENTER);
     h.addView(more,new LinearLayout.LayoutParams(dp(35),dp(46)));
     more.setOnClickListener(v->new AlertDialog.Builder(this).setItems(new String[]{"تحديث الرئيسية","حول EGYTUBE","فتح رابط فيديو"},(d,i)->{
-      if(i==0)show(0);else if(i==1)notice("EGYTUBE 0.6.0 — فيديوهات يوتيوب فقط، مشغل Media3 خاص، بدون API، مكتبة محلية.");
+      if(i==0)show(0);else if(i==1)notice("EGYTUBE 0.6.8 — مشغّل أصلي، PiP، تشغيل صوت في الخلفية، ومكتبة محلية.");
       else askLink();
     }).show());
     app.addView(h);
@@ -124,12 +124,23 @@ public class MainActivity extends Activity {
   }
   private void buildNav(){
     bottom.removeAllViews();
+    bottom.setBackgroundColor(WHITE);
+    bottom.setElevation(dp(4));
     for(int i=0;i<TABS.length;i++){
       final int tab=i;
-      LinearLayout wrap=linear(LinearLayout.VERTICAL);wrap.setGravity(Gravity.CENTER);
-      TextView sym=text(ICONS[i],25,i==selected?DARK:GREY,false);sym.setGravity(Gravity.CENTER);
-      TextView label=text(TABS[i],11,i==selected?DARK:GREY,i==selected);label.setGravity(Gravity.CENTER);
-      wrap.addView(sym);wrap.addView(label);
+      final boolean active=tab==selected;
+      LinearLayout wrap=linear(LinearLayout.VERTICAL);
+      wrap.setGravity(Gravity.CENTER);
+      wrap.setContentDescription(TABS[i]);
+      TextView glyph=text(ICONS[i],25,active?RED:GREY,active);
+      glyph.setGravity(Gravity.CENTER);
+      if(active)glyph.setBackground(background(0xffffeef0,22));
+      wrap.addView(glyph,new LinearLayout.LayoutParams(dp(59),dp(32)));
+      TextView label=text(TABS[i],12,active?DARK:GREY,active);
+      label.setGravity(Gravity.CENTER);
+      LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(22));
+      lp.topMargin=dp(2);
+      wrap.addView(label,lp);
       bottom.addView(wrap,new LinearLayout.LayoutParams(0,-1,1));
       wrap.setOnClickListener(v->show(tab));
     }

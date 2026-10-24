@@ -1,11 +1,11 @@
-name: EGYTUBE v0.6.9 UI Preview
+name: EGYTUBE v0.7.0 Reference UI Preview
 on:
   push:
     branches:
-      - egytube-v069-ui-preview
+      - egytube-v070-reference-ui
     paths:
       - 'egytube-v050/**'
-      - '.github/workflows/build-egytube-ui-v069.yml'
+      - '.github/workflows/build-egytube-ui-v070.yml'
   workflow_dispatch:
   pull_request:
     branches:
@@ -47,20 +47,20 @@ jobs:
             fi
           done
           test "$found" -eq 1
-          cp "$APK" EGYTUBE-UI-Preview-v0.6.9.apk
+          cp "$APK" EGYTUBE-Reference-UI-Preview-v0.7.0.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYTUBE-UI-Preview-v069
-          path: EGYTUBE-UI-Preview-v0.6.9.apk
+          name: EGYTUBE-UI-Preview-v070
+          path: EGYTUBE-UI-Preview-v0.7.0.apk
           if-no-files-found: error
       - name: Publish preview APK for direct download (preview branch only)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/egytube-v069-ui-preview'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/egytube-v070-reference-ui'
         run: |
           set -e
           mkdir -p public-downloads
-          cp EGYTUBE-UI-Preview-v0.6.9.apk public-downloads/EGYTUBE-UI-Preview-v0.6.9.apk
+          cp EGYTUBE-UI-Preview-v0.7.0.apk public-downloads/EGYTUBE-UI-Preview-v0.7.0.apk
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add public-downloads/EGYTUBE-UI-Preview-v0.6.9.apk
+          git add public-downloads/EGYTUBE-UI-Preview-v0.7.0.apk
           git commit -m 'Publish EGYTUBE 0.6.9 UI preview APK for direct download' || exit 0
-          git push origin HEAD:egytube-v069-ui-preview
+          git push origin HEAD:egytube-v070-reference-ui

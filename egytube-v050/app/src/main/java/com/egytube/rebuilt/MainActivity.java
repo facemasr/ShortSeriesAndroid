@@ -33,9 +33,9 @@ import java.util.concurrent.*;
 import java.util.regex.*;
 
 public class MainActivity extends Activity {
-  private static final String[] TABS={"الرئيسية","بحث","أنت"};
-  private static final String[] ICONS={"⌂","⌕","◉"};
-  private final int WHITE=0xffffffff, DARK=0xff171717, RED=0xffed1c24, GREY=0xff696969, LIGHT=0xfff4f4f4;
+  private static final String[] TABS={"الرئيسية","Shorts","الاشتراكات","المكتبة","حسابي"};
+  private static final String[] ICONS={"⌂","▶","▣","▤","◉"};
+  private final int WHITE=0xffffffff, DARK=0xff171717, RED=0xffe62135, GREY=0xff696969, LIGHT=0xfff4f4f4;
   private final ExecutorService pool=Executors.newFixedThreadPool(5);
   private final Map<String,Bitmap> images=Collections.synchronizedMap(new LinkedHashMap<>());
   private final ArrayList<Video> list=new ArrayList<>();
@@ -100,14 +100,14 @@ public class MainActivity extends Activity {
   }
   private void setupHeader(){
     LinearLayout h=linear(LinearLayout.HORIZONTAL);h.setGravity(Gravity.CENTER_VERTICAL);pad(h,15,7,12,6);
-    TextView title=text("▶ EGYTUBE",22,DARK,true);title.setSingleLine(true);title.setLetterSpacing(0.025f);
+    TextView title=text("▶ EGYTUBE",22,RED,true);title.setSingleLine(true);title.setLetterSpacing(0.025f);
     h.addView(title,new LinearLayout.LayoutParams(0,dp(46),1));
     TextView cast=text("⟳",24,GREY,false);cast.setGravity(Gravity.CENTER);
     h.addView(cast,new LinearLayout.LayoutParams(dp(45),dp(46)));
     cast.setOnClickListener(v->show(selected));
     TextView find=text("⌕",28,DARK,true);find.setGravity(Gravity.CENTER);
     h.addView(find,new LinearLayout.LayoutParams(dp(48),dp(46)));
-    find.setOnClickListener(v->show(1));
+    find.setOnClickListener(v->show(5));
     TextView more=text("⋮",26,DARK,true);more.setGravity(Gravity.CENTER);
     h.addView(more,new LinearLayout.LayoutParams(dp(35),dp(46)));
     more.setOnClickListener(v->new AlertDialog.Builder(this).setItems(new String[]{"تحديث الرئيسية","حول EGYTUBE","فتح رابط فيديو"},(d,i)->{
@@ -132,7 +132,7 @@ public class MainActivity extends Activity {
       LinearLayout wrap=linear(LinearLayout.VERTICAL);
       wrap.setGravity(Gravity.CENTER);
       wrap.setContentDescription(TABS[i]);
-      TextView glyph=text(ICONS[i],25,active?RED:GREY,active);
+      TextView glyph=text(ICONS[i],24,active?RED:GREY,active);
       glyph.setGravity(Gravity.CENTER);
       if(active)glyph.setBackground(background(0xffffeef0,22));
       wrap.addView(glyph,new LinearLayout.LayoutParams(dp(59),dp(32)));
@@ -147,36 +147,127 @@ public class MainActivity extends Activity {
   }
   private void show(int tab){
     selected=tab;requestId++;loading=false;buildNav();feed.removeAllViews();list.clear();currentQuery="";
-    if(tab==0){currentShorts=false;addHeading("الفيديوهات");load("مقاطع فيديو جديدة 2026",false,requestId);}
-    else if(tab==1)searchScreen();
-    else libraryScreen();
+    scroll.smoothScrollTo(0,0);
+    if(tab==0){
+      currentShorts=false;
+      addHeading("اكتشف فيديوهات تناسبك");
+      load("مقاطع فيديو جديدة 2026",false,requestId);
+    }else if(tab==1){
+      currentShorts=true;
+      addHeading("المقاطع القصيرة");
+      load("shorts",true,requestId);
+    }else if(tab==2)subscriptionsScreen();
+    else if(tab==3)libraryScreen();
+    else if(tab==4)profileScreen();
+    else searchScreen();
   }
   private void addHeading(String label){
-    TextView h=text(label,21,DARK,true);pad(h,16,10,16,8);feed.addView(h);
+    TextView h=text(label,21,DARK,true);
+    h.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+    pad(h,16,14,16,8);feed.addView(h);
+  }
+  private void addSubheading(String label){
+    TextView h=text(label,18,DARK,true);
+    h.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+    pad(h,16,18,16,9);feed.addView(h);
+  }
+  private TextView actionChip(String value,Runnable action){
+    TextView t=text(value,14,DARK,true);t.setGravity(Gravity.CENTER);
+    t.setBackground(background(LIGHT,19));pad(t,15,9,15,9);
+    t.setOnClickListener(v->action.run());return t;
+  }
+  private void categoryChips(){
+    HorizontalScrollView lane=new HorizontalScrollView(this);lane.setHorizontalScrollBarEnabled(false);
+    LinearLayout row=linear(LinearLayout.HORIZONTAL);pad(row,14,1,14,2);
+    String[][] categories={{"الكل","مقاطع فيديو جديدة 2026"},{"موسيقى","موسيقى عربية جديدة"},
+      {"أفلام","مقاطع أفلام"},{"تقنية","أحدث التقنية"},{"رياضة","ملخص مباريات"},
+      {"ألعاب","ألعاب فيديو"},{"تعليم","تعلم مهارات جديدة"}};
+    for(String[] category:categories){
+      TextView chip=actionChip(category[0],()->queryVideos(category[1],false));
+      LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,dp(42));lp.leftMargin=dp(8);
+      row.addView(chip,lp);
+    }
+    lane.addView(row);feed.addView(lane);
+  }
+  private void queryVideos(String q,boolean shorts){
+    selected=shorts?1:5;buildNav();requestId++;feed.removeAllViews();list.clear();
+    currentShorts=shorts;currentQuery=q;
+    addHeading(shorts?"Shorts":"نتائج البحث: "+q);
+    load(q,shorts,requestId);
+  }
+  private void hero(Video video){
+    if(video.image==null||video.image.isEmpty())return;
+    FrameLayout banner=new FrameLayout(this);
+    banner.setBackground(background(0xff1e1e1e,20));
+    banner.setClipToOutline(true);
+    ImageView cover=new ImageView(this);
+    cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+    banner.addView(cover,new FrameLayout.LayoutParams(-1,-1));
+    showImage(video.image,cover);
+    android.graphics.drawable.GradientDrawable shade=new android.graphics.drawable.GradientDrawable(
+      android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,
+      new int[]{0xe6000000,0x10000000}
+    );
+    View overlay=new View(this);overlay.setBackground(shade);
+    banner.addView(overlay,new FrameLayout.LayoutParams(-1,-1));
+    LinearLayout copy=linear(LinearLayout.VERTICAL);pad(copy,18,8,18,15);
+    TextView featured=text("▶  فيديو مميز",13,WHITE,true);
+    TextView headline=text(video.title,21,WHITE,true);
+    headline.setMaxLines(2);
+    TextView name=text(video.uploader+"  ·  شاهد الآن",13,0xffeeeeee,false);
+    copy.addView(featured);copy.addView(headline);copy.addView(name);
+    FrameLayout.LayoutParams textLp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);
+    banner.addView(copy,textLp);
+    FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,dp(196));
+    LinearLayout.LayoutParams rowLp=new LinearLayout.LayoutParams(-1,dp(196));
+    rowLp.setMargins(dp(13),dp(7),dp(13),dp(9));
+    feed.addView(banner,rowLp);
+    banner.setOnClickListener(v->play(video));
   }
   private void notice(String s){new AlertDialog.Builder(this).setMessage(s).setPositiveButton("موافق",null).show();}
   private void placeholder(String s){
     TextView t=text(s,14,GREY,false);pad(t,18,14,18,14);feed.addView(t);
   }
   private void searchScreen(){
-    addHeading("البحث في يوتيوب");
-    LinearLayout shell=linear(LinearLayout.HORIZONTAL);pad(shell,14,8,14,8);
+    addHeading("ابحث في EGYTUBE");
+    LinearLayout line=linear(LinearLayout.HORIZONTAL);pad(line,14,8,14,8);
     searchInput=new EditText(this);searchInput.setSingleLine(true);searchInput.setTextSize(16);
-    searchInput.setHint("ابحث عن فيديو أو قناة");searchInput.setBackground(background(LIGHT,13));
-    searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);pad(searchInput,13,4,13,4);
-    shell.addView(searchInput,new LinearLayout.LayoutParams(0,dp(50),1));
-    TextView go=text("بحث",15,WHITE,true);go.setGravity(Gravity.CENTER);go.setBackground(background(RED,13));
-    LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(dp(65),dp(50));gp.leftMargin=dp(8);shell.addView(go,gp);
-    feed.addView(shell);
+    searchInput.setHint("ابحث عن فيديو، قناة أو رابط");
+    searchInput.setBackground(background(LIGHT,17));
+    searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);pad(searchInput,15,4,15,4);
+    line.addView(searchInput,new LinearLayout.LayoutParams(0,dp(52),1));
+    TextView go=text("⌕",27,WHITE,true);go.setGravity(Gravity.CENTER);go.setBackground(background(RED,16));
+    LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(dp(53),dp(52));gp.leftMargin=dp(9);
+    line.addView(go,gp);feed.addView(line);
     go.setOnClickListener(v->startSearch());
-    searchInput.setOnEditorActionListener((v,a,e)->{if(a==EditorInfo.IME_ACTION_SEARCH){startSearch();return true;}return false;});
-    placeholder("البحث مباشرة في نتائج يوتيوب بدون مفتاح API.");
+    searchInput.setOnEditorActionListener((v,a,e)->{
+      if(a==EditorInfo.IME_ACTION_SEARCH){startSearch();return true;}return false;
+    });
+    addSubheading("بحث سريع");
+    categoryChips();
+    String recent=prefs.getString("search_terms","");
+    if(!recent.trim().isEmpty()){
+      addSubheading("عمليات البحث الأخيرة");
+      for(String term:recent.split("\\n")){
+        if(term.isEmpty())continue;
+        TextView item=actionChip("◷  "+term,()->queryVideos(term,false));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(47));
+        lp.setMargins(dp(14),0,dp(14),dp(8));feed.addView(item,lp);
+      }
+    }
+    placeholder("نتائج حقيقية من يوتيوب، بدون تسجيل دخول.");
   }
   private void startSearch(){
     String q=searchInput==null?"":searchInput.getText().toString().trim();
     if(q.isEmpty()){if(searchInput!=null)searchInput.setError("أدخل كلمات البحث");return;}
     String id=idFrom(q);if(id!=null){play(new Video("يوتيوب",q,"","","",0));return;}
-    currentShorts=false;requestId++;feed.removeAllViews();addHeading("نتائج: "+q);load(q,false,requestId);
+    String existing=prefs.getString("search_terms","");
+    LinkedHashSet<String> terms=new LinkedHashSet<>();terms.add(q);
+    terms.addAll(Arrays.asList(existing.split("\\n")));
+    ArrayList<String> clean=new ArrayList<>();for(String term:terms)
+      if(term!=null&&!term.trim().isEmpty()&&clean.size()<10)clean.add(term);
+    prefs.edit().putString("search_terms",TextUtils.join("\n",clean)).apply();
+    queryVideos(q,false);
   }
   private void load(String query,boolean onlyShorts,int token){
     currentQuery=query;loading=true;placeholder("جارٍ تحميل فيديوهات يوتيوب...");
@@ -201,33 +292,60 @@ public class MainActivity extends Activity {
       runOnUiThread(()->{
         if(isFinishing()||isDestroyed()||requestId!=token)return;
         loading=false;
-        feed.removeAllViews();addHeading(selected==0?"الفيديوهات":selected==1?"Shorts":"نتائج البحث");
+        feed.removeAllViews();
+        if(selected==0){
+          addHeading("الرئيسية");
+          categoryChips();
+          if(!rows.isEmpty())hero(rows.get(0));
+          addSubheading("مقترح لك");
+        }else if(selected==1){
+          addHeading("Shorts · المقاطع القصيرة");
+          placeholder("اضغط على المقطع لتشغيله في مشغّل EGYTUBE.");
+        }else addHeading("نتائج البحث: "+query);
         if(issue!=null)placeholder("تعذر الاتصال بنتائج يوتيوب: "+issue+"\nقد يتغير عمل مصدر البحث، ويمكنك تشغيل رابط فيديو مباشر.");
         if(rows.isEmpty()){
           if(issue==null)placeholder("لا توجد نتائج لهذا البحث، جرّب كلمات أخرى.");
           TextView retry=text("↻ إعادة المحاولة",15,RED,true);pad(retry,18,14,18,14);
           feed.addView(retry);retry.setOnClickListener(v->{requestId++;load(query,onlyShorts,requestId);});
         }else{
-          for(int i=0;i<rows.size();i++){Video v=rows.get(i);list.add(v);addCard(v,onlyShorts);if(i==3)addAd(AdSlots.RECT_300x250);if(i==9)addAd(AdSlots.BANNER_468x60);if(i==16)addAd(AdSlots.BONEPA_4);}
+          for(int i=0;i<rows.size();i++){
+            Video v=rows.get(i);list.add(v);
+            if(onlyShorts)addShortCard(v);else addCard(v,false);
+            if(i==3)addAd(AdSlots.RECT_300x250);
+            if(i==9)addAd(AdSlots.BANNER_468x60);
+            if(i==16)addAd(AdSlots.BONEPA_4);
+          }
+          if(selected==0){
+            TextView shorts=actionChip("▶  استكشف Shorts",()->show(1));
+            LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(47));
+            sp.setMargins(dp(14),dp(11),dp(14),dp(15));feed.addView(shorts,sp);
+          }
         }
       });
     });
   }
   private void addCard(Video video,boolean isShort){
-    LinearLayout box=linear(LinearLayout.VERTICAL);pad(box,0,0,0,15);
+    LinearLayout box=linear(LinearLayout.VERTICAL);pad(box,0,0,0,12);
+    box.setBackground(background(WHITE,17));
     ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);
     image.setBackgroundColor(0xffe7e7e7);
     int h=(getResources().getDisplayMetrics().widthPixels*9)/16;
     if(isShort)h=Math.min(dp(310),getResources().getDisplayMetrics().heightPixels/2);
     FrameLayout thumb=new FrameLayout(this);
+    thumb.setBackground(background(LIGHT,16));thumb.setClipToOutline(true);
     thumb.addView(image,new FrameLayout.LayoutParams(-1,h));
+    TextView playButton=text("▶",23,WHITE,true);playButton.setGravity(Gravity.CENTER);
+    playButton.setBackground(background(0x96000000,28));
+    thumb.addView(playButton,new FrameLayout.LayoutParams(dp(55),dp(55),Gravity.CENTER));
     if(video.duration>0){
       TextView clock=text(formatted(video.duration),12,WHITE,true);
       clock.setBackground(background(0xcc000000,5));pad(clock,5,1,5,1);
       FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(-2,dp(22),Gravity.RIGHT|Gravity.BOTTOM);
       badge.setMargins(0,0,dp(10),dp(9));thumb.addView(clock,badge);
     }
-    box.addView(thumb,new LinearLayout.LayoutParams(-1,h));
+    LinearLayout.LayoutParams coverParams=new LinearLayout.LayoutParams(-1,h);
+    coverParams.setMargins(dp(12),0,dp(12),0);
+    box.addView(thumb,coverParams);
     showImage(video.image,image);
     thumb.setOnClickListener(v->play(video));
     LinearLayout detail=linear(LinearLayout.HORIZONTAL);detail.setGravity(Gravity.CENTER_VERTICAL);pad(detail,16,7,16,6);
@@ -247,6 +365,31 @@ public class MainActivity extends Activity {
     labels.setOnClickListener(v->play(video));
     box.addView(detail);
     feed.addView(box);
+  }
+  private void addShortCard(Video video){
+    FrameLayout tile=new FrameLayout(this);
+    tile.setBackground(background(0xff171717,19));tile.setClipToOutline(true);
+    int height=Math.min(dp(490),(int)(getResources().getDisplayMetrics().heightPixels*.65f));
+    ImageView preview=new ImageView(this);
+    preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
+    tile.addView(preview,new FrameLayout.LayoutParams(-1,-1));
+    showImage(video.image,preview);
+    android.graphics.drawable.GradientDrawable shade=new android.graphics.drawable.GradientDrawable(
+      android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,new int[]{0xe0000000,0x00000000});
+    View scrim=new View(this);scrim.setBackground(shade);
+    tile.addView(scrim,new FrameLayout.LayoutParams(-1,-1));
+    TextView center=text("▶",32,WHITE,true);center.setGravity(Gravity.CENTER);
+    center.setBackground(background(0x88000000,36));
+    tile.addView(center,new FrameLayout.LayoutParams(dp(68),dp(68),Gravity.CENTER));
+    LinearLayout info=linear(LinearLayout.VERTICAL);pad(info,14,8,14,17);
+    TextView title=text(video.title,19,WHITE,true);title.setMaxLines(2);
+    TextView channel=text("◉  "+video.uploader+"   ·   "+formatted(video.duration),13,WHITE,true);
+    info.addView(title);info.addView(channel);
+    FrameLayout.LayoutParams ilp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);tile.addView(info,ilp);
+    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,height);
+    lp.setMargins(dp(14),dp(4),dp(14),dp(15));feed.addView(tile,lp);
+    tile.setOnClickListener(v->play(video));
+    tile.setOnLongClickListener(v->{menu(video);return true;});
   }
   private String formatted(long dur){
     if(dur>=3600)return String.format(Locale.US,"%d:%02d:%02d",dur/3600,(dur/60)%60,dur%60);

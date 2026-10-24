@@ -13,6 +13,9 @@ import android.os.Looper
 import android.app.PictureInPictureParams
 import android.util.Rational
 import android.view.MotionEvent
+import android.view.GestureDetector
+import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.view.Gravity
 import android.view.View
@@ -68,10 +71,27 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private val speedButton = text("1.0×",13f,Color.WHITE)
     private val pipButton = text("▣",19f,Color.WHITE)
     private val overlayControls = LinearLayout(host)
+    private val centerPlay = text("▶",30f,Color.WHITE)
+    private val bottomLayer = LinearLayout(host)
+    private val timeline = SeekBar(host)
+    private val elapsed = text("0:00",12f,Color.WHITE)
+    private val total = text("0:00",12f,Color.WHITE)
+    private val spinner = ProgressBar(host)
+    private val settingsPanel = LinearLayout(host)
+    private var settingsOpen=false
+    private var scrubbing=false
+    private var controlsVisible=true
+    private val progressTicker = object:Runnable {
+      override fun run(){
+        if(shutdown)return
+        updateTime()
+        uiHandler.postDelayed(this,650L)
+      }
+    }
     private val backwardButton = text("↶10",16f,Color.WHITE)
     private val forwardButton = text("10↷",16f,Color.WHITE)
     private val uiHandler = Handler(Looper.getMainLooper())
-    private val autoHide = Runnable { if(!shutdown && !pipActive && player.isPlaying) setChromeVisibility(false) }
+    private val autoHide = Runnable { if(!shutdown && !pipActive && player.isPlaying && !scrubbing && !settingsOpen) setChromeVisibility(false) }
     private var pipActive = false
     private var playingRate = 1.0f
     private val progressSaver = object: Runnable {
@@ -107,19 +127,36 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
 
       viewport.setBackgroundColor(Color.BLACK)
       mediaView.player=player
-      mediaView.useController=true
+      mediaView.useController=false
       mediaView.resizeMode=AspectRatioFrameLayout.RESIZE_MODE_FIT
-      mediaView.controllerShowTimeoutMs=4000
       mediaView.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
       host.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
       player.setHandleAudioBecomingNoisy(true)
       viewport.addView(mediaView,FrameLayout.LayoutParams(-1,-1))
+      val detector=GestureDetector(host,object:GestureDetector.SimpleOnGestureListener(){
+        override fun onDown(e:MotionEvent)=true
+        override fun onSingleTapConfirmed(e:MotionEvent):Boolean {
+          if(settingsOpen)closeSettings()
+          else if(controlsVisible)setChromeVisibility(false)
+          else showChrome()
+          return true
+        }
+        override fun onDoubleTap(e:MotionEvent):Boolean {
+          skipBy(if(e.x<viewport.width/2f)-10000L else 10000L)
+          Toast.makeText(host,if(e.x<viewport.width/2f)"↶ 10 ثوانٍ" else "10 ثوانٍ ↷",Toast.LENGTH_SHORT).show()
+          return true
+        }
+      })
+      val gestureSurface=View(host)
+      gestureSurface.isClickable=true
+      gestureSurface.setOnTouchListener{_,e->detector.onTouchEvent(e);true}
+      viewport.addView(gestureSurface,FrameLayout.LayoutParams(-1,-1))
 
       // Overlay controls live inside the player, independently of the page below.
       val chrome=overlayControls
       chrome.orientation=HORIZONTAL
       chrome.gravity=Gravity.CENTER_VERTICAL
-      chrome.setBackgroundColor(0x880a0b10.toInt())
+      chrome.background=GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,intArrayOf(0xe20c0d13.toInt(),0x000c0d13))
       padding(chrome,3,3,3,3)
       val back=text("‹",30f,Color.WHITE)
       back.gravity=Gravity.CENTER
@@ -162,10 +199,54 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       forwardPosition.rightMargin=dp(12)
       viewport.addView(forwardButton,forwardPosition)
       forwardButton.setOnClickListener{skipBy(10000L)}
-      mediaView.setOnTouchListener{_,event->
-        if(event.actionMasked==MotionEvent.ACTION_DOWN)showChrome()
-        false
+
+      // Central play/pause overlays the actual native ExoPlayer video.
+      centerPlay.gravity=Gravity.CENTER
+      centerPlay.setBackgroundColor(0xbb161820.toInt())
+      centerPlay.contentDescription="تشغيل أو إيقاف الفيديو مؤقتًا"
+      viewport.addView(centerPlay,FrameLayout.LayoutParams(dp(68),dp(68),Gravity.CENTER))
+      centerPlay.setOnClickListener{
+        if(player.currentMediaItem!=null){
+          if(player.isPlaying)player.pause() else player.play()
+          updatePlayIcon();showChrome()
+        }
       }
+      // Scrubbable YouTube-style red timeline with elapsed and total time.
+      bottomLayer.orientation=VERTICAL
+      bottomLayer.layoutDirection=View.LAYOUT_DIRECTION_LTR
+      bottomLayer.background=GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,intArrayOf(0xe80c0d13.toInt(),0x000c0d13))
+      timeline.max=1000
+      timeline.progressTintList=ColorStateList.valueOf(0xffed1c24.toInt())
+      timeline.progressBackgroundTintList=ColorStateList.valueOf(0x77ffffff)
+      timeline.thumbTintList=ColorStateList.valueOf(0xffed1c24.toInt())
+      bottomLayer.addView(timeline,LinearLayout.LayoutParams(-1,dp(32)))
+      timeline.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
+        override fun onStartTrackingTouch(v:SeekBar){scrubbing=true;uiHandler.removeCallbacks(autoHide)}
+        override fun onProgressChanged(v:SeekBar,value:Int,fromUser:Boolean){
+          if(fromUser && player.duration>0)elapsed.text=renderTime(player.duration*value/1000L)
+        }
+        override fun onStopTrackingTouch(v:SeekBar){
+          if(player.duration>0)player.seekTo(player.duration*v.progress/1000L)
+          scrubbing=false;showChrome()
+        }
+      })
+      val timeRow=LinearLayout(host)
+      timeRow.orientation=HORIZONTAL;timeRow.gravity=Gravity.CENTER_VERTICAL
+      padding(timeRow,14,0,14,3)
+      timeRow.addView(elapsed)
+      timeRow.addView(text(" / ",12f,Color.WHITE))
+      timeRow.addView(total)
+      timeRow.addView(Space(host),LinearLayout.LayoutParams(0,1,1f))
+      bottomLayer.addView(timeRow,LinearLayout.LayoutParams(-1,dp(25)))
+      viewport.addView(bottomLayer,FrameLayout.LayoutParams(-1,dp(59),Gravity.BOTTOM))
+      spinner.indeterminateTintList=ColorStateList.valueOf(Color.WHITE)
+      spinner.visibility=View.GONE
+      viewport.addView(spinner,FrameLayout.LayoutParams(dp(36),dp(36),Gravity.CENTER))
+      settingsPanel.orientation=VERTICAL;settingsPanel.visibility=View.GONE
+      settingsPanel.layoutDirection=View.LAYOUT_DIRECTION_RTL
+      settingsPanel.background=GradientDrawable().apply{setColor(0xf414161e.toInt());cornerRadius=dp(12).toFloat()}
+      viewport.addView(settingsPanel,FrameLayout.LayoutParams(dp(240),dp(175),Gravity.RIGHT or Gravity.TOP).apply{topMargin=dp(48);rightMargin=dp(10)})
+      updatePlayIcon()
       addView(viewport,LinearLayout.LayoutParams(-1,dp(220)))
 
       val adBox=LinearLayout(host)
@@ -222,13 +303,16 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       player.addListener(object:Player.Listener {
         override fun onPlayerError(error:PlaybackException){
           state.text="تعذر تشغيل المصدر الحالي: ${error.errorCodeName}"
-          showChrome()
+          showChrome();updatePlayIcon()
         }
         override fun onIsPlayingChanged(isPlaying:Boolean){
+          updatePlayIcon()
           if(isPlaying)scheduleChromeHide() else showChrome()
           updatePiPParameters()
         }
         override fun onPlaybackStateChanged(s:Int){
+          spinner.visibility=if(s==Player.STATE_BUFFERING)View.VISIBLE else View.GONE
+          updatePlayIcon()
           if(s==Player.STATE_READY)state.text="جاري تشغيل الفيديو · ${formats.getOrNull(active)?.label.orEmpty()}"
           if(s==Player.STATE_ENDED){forgetPosition();showChrome()}
         }
@@ -242,6 +326,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       })
       resize()
       uiHandler.postDelayed(progressSaver,5000L)
+      uiHandler.post(progressTicker)
       showChrome()
     }
 
@@ -253,6 +338,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       ticket++
       val token=ticket
       formats.clear();active=-1
+      closeSettings()
+      timeline.progress=0;elapsed.text="0:00";total.text="0:00"
       qualityButton.text="⚙ جودة"
       showChrome()
       videoWidth=if(title.contains("Shorts",true))9 else 16
@@ -351,11 +438,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(formats.isEmpty()){
         Toast.makeText(host,"الجودات غير متاحة بعد",Toast.LENGTH_SHORT).show();return
       }
-      AlertDialog.Builder(host)
-        .setTitle("جودة الفيديو")
-        .setSingleChoiceItems(formats.map{it.label}.toTypedArray(),active){d,index->
-          choose(index);d.dismiss()
-        }.setNegativeButton("إلغاء",null).show()
+      openSettings("جودة الفيديو",formats.map{it.label},active){index->choose(index)}
     }
     private fun choose(index:Int){
       if(index !in formats.indices || shutdown)return
@@ -383,14 +466,58 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       val speeds=floatArrayOf(0.5f,0.75f,1f,1.25f,1.5f,2f)
       val labels=speeds.map{String.format(Locale.US,"%.2g×",it)}.toTypedArray()
       val chosen=speeds.indexOfFirst{it==playingRate}.coerceAtLeast(0)
-      AlertDialog.Builder(host).setTitle("سرعة التشغيل")
-        .setSingleChoiceItems(labels,chosen){dialog,index->
-          playingRate=speeds[index]
-          player.setPlaybackSpeed(playingRate)
-          speedButton.text=String.format(Locale.US,"%.2g×",playingRate)
-          dialog.dismiss()
-          showChrome()
-        }.setNegativeButton("إلغاء",null).show()
+      openSettings("سرعة التشغيل",labels.toList(),chosen){index->
+        playingRate=speeds[index]
+        player.setPlaybackSpeed(playingRate)
+        speedButton.text=labels[index]
+      }
+    }
+    private fun openSettings(title:String,items:List<String>,selected:Int,chooseItem:(Int)->Unit){
+      settingsOpen=true;uiHandler.removeCallbacks(autoHide)
+      settingsPanel.removeAllViews()
+      val heading=text("‹  $title",15f,Color.WHITE)
+      padding(heading,12,9,12,8)
+      settingsPanel.addView(heading,LinearLayout.LayoutParams(-1,dp(42)))
+      heading.setOnClickListener{closeSettings()}
+      val list=ScrollView(host)
+      val values=LinearLayout(host);values.orientation=VERTICAL
+      items.forEachIndexed{index,label->
+        val cell=text((if(index==selected)"✓  " else "    ")+label,14f,if(index==selected)0xffff727c.toInt() else Color.WHITE)
+        padding(cell,12,7,12,7)
+        values.addView(cell,LinearLayout.LayoutParams(-1,dp(40)))
+        cell.setOnClickListener{chooseItem(index);closeSettings();showChrome()}
+      }
+      list.addView(values)
+      settingsPanel.addView(list,LinearLayout.LayoutParams(-1,0,1f))
+      val maxH=viewport.height.coerceAtLeast(dp(160))
+      settingsPanel.layoutParams=FrameLayout.LayoutParams(dp(240),minOf(dp(260),maxH-dp(45)).coerceAtLeast(dp(105)),Gravity.RIGHT or Gravity.TOP).apply{topMargin=dp(46);rightMargin=dp(10)}
+      settingsPanel.visibility=View.VISIBLE
+      settingsPanel.bringToFront()
+    }
+    private fun closeSettings(){
+      settingsOpen=false
+      settingsPanel.visibility=View.GONE
+      scheduleChromeHide()
+    }
+    private fun renderTime(ms:Long):String{
+      val t=ms.coerceAtLeast(0L)/1000L
+      return if(t>=3600)String.format(Locale.US,"%d:%02d:%02d",t/3600,(t/60)%60,t%60)
+         else String.format(Locale.US,"%d:%02d",t/60,t%60)
+    }
+    private fun updateTime(){
+      if(shutdown||scrubbing)return
+      val duration=player.duration
+      elapsed.text=renderTime(player.currentPosition)
+      total.text=if(duration>0)renderTime(duration) else "--:--"
+      if(duration>0){
+        timeline.progress=(player.currentPosition.coerceAtLeast(0)*1000L/duration).coerceIn(0L,1000L).toInt()
+        timeline.secondaryProgress=(player.bufferedPosition.coerceAtLeast(0)*1000L/duration).coerceIn(0L,1000L).toInt()
+      }else{timeline.progress=0;timeline.secondaryProgress=0}
+    }
+    private fun updatePlayIcon(){
+      centerPlay.text=if(player.isPlaying)"Ⅱ" else "▶"
+      centerPlay.contentDescription=if(player.isPlaying)"إيقاف مؤقت" else "تشغيل"
+      centerPlay.visibility=if(controlsVisible && !pipActive && spinner.visibility!=View.VISIBLE)View.VISIBLE else View.GONE
     }
     private fun skipBy(delta:Long){
       if(player.currentMediaItem==null)return
@@ -399,9 +526,12 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       showChrome()
     }
     private fun setChromeVisibility(visible:Boolean){
+      controlsVisible=visible
       overlayControls.visibility=if(visible)View.VISIBLE else View.GONE
       backwardButton.visibility=if(visible)View.VISIBLE else View.GONE
       forwardButton.visibility=if(visible)View.VISIBLE else View.GONE
+      bottomLayer.visibility=if(visible)View.VISIBLE else View.GONE
+      updatePlayIcon()
     }
     private fun showChrome(){
       if(pipActive)return
@@ -411,7 +541,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun scheduleChromeHide(){
       uiHandler.removeCallbacks(autoHide)
-      if(!pipActive && player.isPlaying)uiHandler.postDelayed(autoHide,4500L)
+      if(!pipActive && player.isPlaying && !scrubbing && !settingsOpen)uiHandler.postDelayed(autoHide,4500L)
     }
     private fun rememberPosition(){
       if(videoId.isEmpty() || player.currentMediaItem==null)return
@@ -460,6 +590,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     fun onPictureInPictureChanged(inPip:Boolean){
       pipActive=inPip
+      closeSettings()
       uiHandler.removeCallbacks(autoHide)
       mediaView.useController=!inPip
       setChromeVisibility(!inPip)
@@ -499,6 +630,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     fun release(){
       if(shutdown)return
       rememberPosition()
+      closeSettings()
       shutdown=true;ticket++
       uiHandler.removeCallbacksAndMessages(null)
       host.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

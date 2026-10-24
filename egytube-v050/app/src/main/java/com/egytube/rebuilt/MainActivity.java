@@ -726,13 +726,22 @@ public class MainActivity extends Activity {
   private void screenRow(String title,String description,Runnable onClick){
     LinearLayout row=linear(LinearLayout.HORIZONTAL);
     row.setGravity(Gravity.CENTER_VERTICAL);
-    row.setBackground(background(LIGHT,16));
-    pad(row,16,12,15,12);
-    LinearLayout detail=linear(LinearLayout.VERTICAL);
-    TextView heading=text(title,16,DARK,true);heading.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+    GradientDrawable surface=background(WHITE,17);
+    surface.setStroke(dp(1),0xffe8e9ed);
+    row.setBackground(surface);
+    pad(row,13,13,13,13);
+    String mark="◉";
+    if(title.length()>0 && "◷♡▶▣↗⚙◫ⓘ☾⬇⊕▤✂".contains(title.substring(0,1)))mark=title.substring(0,1);
+    TextView icon=text(mark,24,RED,true);icon.setGravity(Gravity.CENTER);
+    icon.setBackground(background(0xffffeef0,11));
+    row.addView(icon,new LinearLayout.LayoutParams(dp(43),dp(43)));
+    LinearLayout detail=linear(LinearLayout.VERTICAL);pad(detail,10,0,10,0);
+    TextView heading=text(title,16,DARK,true);
+    heading.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
     detail.addView(heading);
     if(description!=null&&!description.isEmpty()){
-      TextView caption=text(description,12,GREY,false);caption.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
+      TextView caption=text(description,12,GREY,false);
+      caption.setGravity(Gravity.RIGHT|Gravity.CENTER_VERTICAL);
       pad(caption,0,4,0,0);detail.addView(caption);
     }
     row.addView(detail,new LinearLayout.LayoutParams(0,-2,1));
@@ -746,76 +755,168 @@ public class MainActivity extends Activity {
   private int countSaved(String kind){
     try{return new JSONArray(prefs.getString(kind,"[]")).length();}catch(Exception error){return 0;}
   }
+  private void systemDownloads(){
+    try{startActivity(new Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS));}
+    catch(Exception error){notice("لا يتوفر مدير تنزيلات على هذا الجهاز.");}
+  }
   private void subscriptionsScreen(){
-    addHeading("الاشتراكات");
+    sectionHead("الاشتراكات",null);
     String raw=prefs.getString("following","");
-    LinkedHashSet<String> channels=new LinkedHashSet<>(Arrays.asList(raw.split("\\n")));
-    channels.remove("");
+    LinkedHashSet<String> channels=new LinkedHashSet<>();
+    for(String ch:raw.split("\\n"))if(ch!=null&&!ch.trim().isEmpty())channels.add(ch.trim());
     if(channels.isEmpty()){
-      placeholder("لم تتابع قنوات بعد. اضغط على ⋮ بجوار الفيديو لاختيار متابعة القناة.");
-      screenRow("استكشف الفيديوهات","ابحث عن قنوات وفيديوهات جديدة",()->show(5));
-    }else{
-      addSubheading("قنواتك المفضلة · "+channels.size());
-      for(String channel:channels){
-        if(channel.trim().isEmpty())continue;
-        screenRow("◉  "+channel,"عرض أحدث الفيديوهات من القناة",()->queryVideos(channel,false));
-      }
+      placeholder("تابع القنوات من قائمة أي فيديو لتظهر هنا.");
+      screenRow("⊕  اكتشف قنوات جديدة","استخدم البحث للوصول إلى القنوات",()->show(5));
+      return;
     }
-    placeholder("المتابعات محلية داخل EGYTUBE ولا تحتاج حساب يوتيوب.");
+    sectionHead("القنوات التي تتابعها",null);
+    HorizontalScrollView scrollX=new HorizontalScrollView(this);
+    scrollX.setHorizontalScrollBarEnabled(false);
+    LinearLayout strip=linear(LinearLayout.HORIZONTAL);pad(strip,12,6,12,6);
+    for(String ch:channels){
+      LinearLayout cell=linear(LinearLayout.VERTICAL);cell.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+      TextView avatar=circleAvatar(ch,65);cell.addView(avatar,new LinearLayout.LayoutParams(dp(65),dp(65)));
+      TextView name=text(ch,12,DARK,true);name.setGravity(Gravity.CENTER);
+      name.setMaxLines(2);pad(name,0,6,0,0);
+      cell.addView(name,new LinearLayout.LayoutParams(-1,dp(42)));
+      LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(95),dp(121));
+      lp.leftMargin=dp(8);strip.addView(cell,lp);
+      cell.setOnClickListener(v->queryVideos(ch,false));
+    }
+    scrollX.addView(strip);feed.addView(scrollX);
+    sectionHead("فيديوهات القنوات",null);
+    int knownCount=0;
+    for(Video v:knownVideos.values()){
+      if(channels.contains(v.uploader)){compactRow(v);knownCount++;if(knownCount>=12)break;}
+    }
+    if(knownCount==0){
+      TextView none=text("يمكنك عرض الفيديوهات الحديثة للقنوات المتابعة.",13,GREY,false);
+      pad(none,18,8,18,10);feed.addView(none);
+    }
+    for(String ch:channels){
+      screenRow("◉  "+ch,"استعراض نتائج جديدة من هذه القناة",()->queryVideos(ch,false));
+    }
+    placeholder("اشتراكاتك محفوظة على هذا الهاتف فقط.");
   }
   private void libraryScreen(){
-    addHeading("مكتبتك");
-    addSubheading("شاهدتها مؤخرًا");
-    JSONArray recent=new JSONArray();
-    try{recent=new JSONArray(prefs.getString("history","[]"));}catch(Exception ignored){}
-    if(recent.length()==0)placeholder("شغّل فيديو لتظهر هنا فيديوهات المشاهدة الأخيرة.");
-    else {
-      int count=Math.min(recent.length(),3);
-      for(int i=0;i<count;i++){JSONObject o=recent.optJSONObject(i);if(o!=null)addCard(Video.parse(o),false);}
+    sectionHead("المكتبة",null);
+    LinearLayout profile=linear(LinearLayout.HORIZONTAL);
+    profile.setGravity(Gravity.CENTER_VERTICAL);
+    profile.setBackground(background(0xfff7f7f9,17));
+    pad(profile,15,12,15,12);
+    String display=prefs.getString("local_profile_name","EGYTUBE");
+    TextView avatar=circleAvatar(display,67);
+    profile.addView(avatar,new LinearLayout.LayoutParams(dp(67),dp(67)));
+    LinearLayout info=linear(LinearLayout.VERTICAL);pad(info,13,0,13,0);
+    info.addView(text(display,19,DARK,true));
+    info.addView(text("مكتبتك الخاصة على هذا الجهاز",13,GREY,false));
+    profile.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+    TextView arrow=text("‹",26,GREY,false);
+    profile.addView(arrow,new LinearLayout.LayoutParams(dp(24),dp(44)));
+    LinearLayout.LayoutParams cardLp=new LinearLayout.LayoutParams(-1,-2);
+    cardLp.setMargins(dp(13),dp(8),dp(13),dp(8));
+    feed.addView(profile,cardLp);profile.setOnClickListener(v->show(4));
+    ArrayList<Video> history=collection("history",15);
+    if(!history.isEmpty()){
+      sectionHead("السجل الأخير",()->{
+        requestId++;feed.removeAllViews();sectionHead("سجل المشاهدة",null);saved("history");
+      });
+      horizontalRail(history.subList(0,Math.min(8,history.size())),160);
+    } else {
+      sectionHead("السجل الأخير",null);
+      placeholder("الفيديوهات التي تشاهدها ستظهر هنا تلقائيًا.");
     }
-    addSubheading("مجموعات الفيديوهات");
-    screenRow("◷  سجل المشاهدة","إجمالي الفيديوهات: "+countSaved("history"),()->{
-      requestId++;feed.removeAllViews();addHeading("سجل المشاهدة");saved("history");
+    sectionHead("مجموعاتك",null);
+    screenRow("◷  سجل المشاهدة","الفيديوهات التي شاهدتها • "+countSaved("history"),()->{
+      requestId++;feed.removeAllViews();sectionHead("سجل المشاهدة",null);saved("history");
     });
-    screenRow("♡  المفضلة","إجمالي العناصر المحفوظة: "+countSaved("favorites"),()->{
-      requestId++;feed.removeAllViews();addHeading("المفضلة");saved("favorites");
+    screenRow("▤  قوائم التشغيل","الفيديوهات المحفوظة في المفضلة",()->{
+      requestId++;feed.removeAllViews();sectionHead("قائمة المفضلة",null);saved("favorites");
     });
-    screenRow("▶  تشغيل رابط","أدخل رابط فيديو يوتيوب",this::askLink);
-    placeholder("المكتبة محفوظة على هذا الجهاز، وليست حساب يوتيوب متزامنًا.");
+    screenRow("⬇  التنزيلات","عرض تنزيلات هذا الجهاز",this::systemDownloads);
+    screenRow("◷  المشاهدة لاحقًا","المحفوظة للمشاهدة • "+countSaved("watch_later"),()->{
+      requestId++;feed.removeAllViews();sectionHead("المشاهدة لاحقًا",null);saved("watch_later");
+    });
+    screenRow("♡  الفيديوهات المعجبة","فيديوهات المفضلة • "+countSaved("favorites"),()->{
+      requestId++;feed.removeAllViews();sectionHead("المفضلة",null);saved("favorites");
+    });
+    screenRow("▶  تشغيل رابط","افتح فيديو يوتيوب عبر الرابط",this::askLink);
+    placeholder("لا يتم إظهار مقاطع منشأة أو تنزيلات غير موجودة.");
     addAd(AdSlots.BONEPA_4);
   }
+  private void editLocalName(){
+    EditText entry=new EditText(this);
+    entry.setSingleLine(true);
+    entry.setText(prefs.getString("local_profile_name","EGYTUBE"));
+    pad(entry,14,8,14,8);
+    new AlertDialog.Builder(this).setTitle("الاسم الظاهر على هذا الجهاز")
+      .setView(entry).setPositiveButton("حفظ",(d,i)->{
+        String name=entry.getText().toString().trim();
+        if(name.isEmpty())name="EGYTUBE";
+        prefs.edit().putString("local_profile_name",name).apply();
+        show(4);
+      }).setNegativeButton("إلغاء",null).show();
+  }
+  private void settingsScreen(String title){
+    try{
+      Intent intent=new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.parse("package:"+getPackageName()));
+      startActivity(intent);
+    }catch(Exception error){notice("تعذر فتح إعدادات التطبيق في النظام.");}
+  }
+  private void clearHistory(){
+    new AlertDialog.Builder(this).setTitle("حذف سجل المشاهدة")
+      .setMessage("حذف السجل المحفوظ على هذا الجهاز فقط؟")
+      .setPositiveButton("حذف",(d,w)->{
+        prefs.edit().remove("history").apply();show(4);
+      }).setNegativeButton("إلغاء",null).show();
+  }
   private void profileScreen(){
-    addHeading("حسابي");
-    LinearLayout panel=linear(LinearLayout.VERTICAL);
-    panel.setBackground(background(0xfffff0f1,18));pad(panel,17,16,17,16);
-    TextView monogram=text("◉",32,RED,true);monogram.setGravity(Gravity.CENTER);
-    panel.addView(monogram,new LinearLayout.LayoutParams(-1,dp(55)));
-    TextView title=text("EGYTUBE",22,DARK,true);title.setGravity(Gravity.CENTER);
-    panel.addView(title);
-    TextView caption=text("ملف شخصي محلي · لا يتطلب تسجيل الدخول",13,GREY,false);
-    caption.setGravity(Gravity.CENTER);pad(caption,0,5,0,0);
-    panel.addView(caption);
-    LinearLayout.LayoutParams area=new LinearLayout.LayoutParams(-1,-2);
-    area.setMargins(dp(14),dp(7),dp(14),dp(9));feed.addView(panel,area);
-    addSubheading("إعدادات وتجربة التطبيق");
-    screenRow("◉  البلد واللغة","الواجهة باللغة العربية",()->notice(
-      "الواجهة عربية. نتائج الفيديو تعتمد على البحث المتاح في يوتيوب."));
-    screenRow("◷  البحث السابق","استعرض ما بحثت عنه",()->show(5));
-    screenRow("◫  PiP والتشغيل في الخلفية",
-      "التشغيل في نافذة عائمة والصوت عبر MediaSession",()->notice(
-       "يدعم الإصدار 0.6.8 نافذة PiP وإشعار تشغيل الصوت عبر MediaSession. "
-       +"قد يختلف الأداء حسب الجهاز وإعدادات توفير الطاقة."));
-    screenRow("♡  المفضلة والمحفوظات","إدارة الفيديوهات المحفوظة محليًا",()->show(3));
-    screenRow("↗  مشاركة التطبيق","مشاركة رابط مشروع EGYTUBE",()->{
+    sectionHead("الملف الشخصي",null);
+    LinearLayout card=linear(LinearLayout.VERTICAL);
+    card.setBackground(background(0xffffeff1,22));
+    pad(card,17,22,17,22);
+    LinearLayout top=linear(LinearLayout.HORIZONTAL);
+    top.setGravity(Gravity.CENTER_VERTICAL);
+    String name=prefs.getString("local_profile_name","EGYTUBE");
+    TextView avatar=circleAvatar(name,75);
+    top.addView(avatar,new LinearLayout.LayoutParams(dp(75),dp(75)));
+    LinearLayout detail=linear(LinearLayout.VERTICAL);pad(detail,13,0,13,0);
+    detail.addView(text(name,22,DARK,true));
+    detail.addView(text("ملف شخصي محلي",14,GREY,false));
+    detail.addView(text("التفضيلات محفوظة على هذا الهاتف",12,GREY,false));
+    top.addView(detail,new LinearLayout.LayoutParams(0,-2,1));
+    card.addView(top);
+    TextView edit=text("✎  تعديل الاسم الظاهر",16,WHITE,true);
+    edit.setGravity(Gravity.CENTER);edit.setBackground(background(RED,14));
+    LinearLayout.LayoutParams editLp=new LinearLayout.LayoutParams(-1,dp(48));
+    editLp.topMargin=dp(17);card.addView(edit,editLp);
+    edit.setOnClickListener(v->editLocalName());
+    LinearLayout.LayoutParams cardLp=new LinearLayout.LayoutParams(-1,-2);
+    cardLp.setMargins(dp(14),dp(8),dp(14),dp(10));
+    feed.addView(card,cardLp);
+    sectionHead("الإعدادات",null);
+    screenRow("⚙  إعدادات التطبيق","الإشعارات والأذونات من نظام أندرويد",
+      ()->settingsScreen("settings"));
+    screenRow("▶  تفضيلات التشغيل","إعدادات الجودة والسرعة داخل المشغّل",
+      ()->notice("يمكنك تغيير الجودة والسرعة والترجمة من أدوات مشغّل الفيديو نفسه."));
+    screenRow("⬇  التحميلات والتخزين","مدير تنزيلات الهاتف",this::systemDownloads);
+    screenRow("◫  الوضع العائم PiP","أذونات التطبيق والتشغيل بالخلفية",
+      ()->settingsScreen("pip"));
+    screenRow("◷  الخصوصية","التحكم في سجل المشاهدة المحلي",this::clearHistory);
+    screenRow("◉  اللغة","العربية — الواجهة الحالية",
+      ()->notice("الواجهة الحالية باللغة العربية."));
+    sectionHead("الدعم والمعلومات",null);
+    screenRow("ⓘ  حول التطبيق","EGYTUBE 0.7.0 — معاينة التصميم",
+      ()->notice("نسخة تصميم تجريبية من EGYTUBE، مبنية على مصدر 0.6.8. "
+      +"المشغّل وPiP وخدمة التشغيل في الخلفية دون تغيير."));
+    screenRow("↗  مشاركة التطبيق","رابط المصدر على GitHub",()->{
       Intent intent=new Intent(Intent.ACTION_SEND);
       intent.setType("text/plain");
       intent.putExtra(Intent.EXTRA_TEXT,"https://github.com/facemasr/ShortSeriesAndroid");
       startActivity(Intent.createChooser(intent,"مشاركة EGYTUBE"));
     });
-    screenRow("ⓘ  عن EGYTUBE","الإصدار التجريبي 0.6.9 — تطوير واجهة 0.6.8",
-      ()->notice("EGYTUBE — تطبيق Android أصلي باستخدام Media3. "
-      +"هذا الإصدار يعرض تصميم واجهات جديدًا، ويحتفظ بخدمة PiP والصوت والإعلانات."));
-    placeholder("لا توجد مزامنة حساب مع YouTube أو انتحال للاشتراكات على المنصة.");
+    placeholder("لا توجد مزامنة حساب Google في هذه النسخة، ولا تُعرض بيانات مستخدمين وهمية.");
   }
   @Override protected void onDestroy(){
     if(watchView!=null){

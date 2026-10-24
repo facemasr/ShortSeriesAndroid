@@ -45,6 +45,12 @@ public class MainActivity extends Activity {
   private NativeWatchView watchView;
   private EditText searchInput;
   private ScrollView scroll;
+  private LinearLayout miniBar;
+  private FrameLayout miniVideoHost;
+  private View miniVideoTap;
+  private TextView miniTitle,miniPlay;
+  private boolean miniVisible=false;
+  private boolean restoreMiniAfterPip=false;
   private SharedPreferences prefs;
   private int selected=0,requestId=0;
   private String currentQuery="";
@@ -92,12 +98,89 @@ public class MainActivity extends Activity {
     setupHeader();
     scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setVerticalScrollBarEnabled(false);
     feed=linear(LinearLayout.VERTICAL);scroll.addView(feed);app.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+    setupMiniPlayer();
     bottom=linear(LinearLayout.HORIZONTAL);bottom.setBackgroundColor(WHITE);pad(bottom,4,4,4,5);
     app.addView(bottom,new LinearLayout.LayoutParams(-1,dp(61)));
     View line=new View(this);line.setBackgroundColor(0xffeeeeee);app.addView(line,new LinearLayout.LayoutParams(-1,dp(1)));
     String shared=getIntent()==null?null:getIntent().getStringExtra(Intent.EXTRA_TEXT);
     if(shared!=null&&idFrom(shared)!=null)play(new Video("فيديو يوتيوب",shared,"","","",0));
     show(0);
+  }
+  private void setupMiniPlayer(){
+    miniBar=linear(LinearLayout.HORIZONTAL);
+    miniBar.setGravity(Gravity.CENTER_VERTICAL);
+    miniBar.setBackgroundColor(0xff171a20);
+    miniBar.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+    miniBar.setElevation(dp(5));
+    miniBar.setVisibility(View.GONE);
+    miniBar.setContentDescription("مشغّل مصغّر للفيديو الحالي");
+    miniVideoHost=new FrameLayout(this);
+    miniVideoHost.setBackgroundColor(Color.BLACK);
+    miniVideoTap=new View(this);
+    miniVideoTap.setContentDescription("فتح مشغّل الفيديو الكامل");
+    miniVideoTap.setClickable(true);
+    miniVideoTap.setOnClickListener(v->expandMiniPlayer());
+    miniBar.addView(miniVideoHost,new LinearLayout.LayoutParams(dp(130),dp(73)));
+    LinearLayout info=linear(LinearLayout.VERTICAL);
+    info.setGravity(Gravity.CENTER_VERTICAL);
+    pad(info,10,3,11,3);
+    miniTitle=text("",14,WHITE,true);
+    miniTitle.setMaxLines(2);
+    miniTitle.setEllipsize(TextUtils.TruncateAt.END);
+    info.addView(miniTitle);
+    TextView helper=text("انقر للعودة إلى المشغّل",11,0xffaab0bc,false);
+    info.addView(helper);
+    miniBar.addView(info,new LinearLayout.LayoutParams(0,dp(73),1));
+    info.setOnClickListener(v->expandMiniPlayer());
+    miniPlay=text("Ⅱ",23,WHITE,true);
+    miniPlay.setGravity(Gravity.CENTER);
+    miniPlay.setContentDescription("تشغيل أو إيقاف الفيديو مؤقتًا");
+    miniBar.addView(miniPlay,new LinearLayout.LayoutParams(dp(43),dp(73)));
+    miniPlay.setOnClickListener(v->{
+      if(watchView!=null)watchView.toggleMiniPlayback();
+    });
+    TextView close=text("×",29,WHITE,false);
+    close.setGravity(Gravity.CENTER);
+    close.setContentDescription("إغلاق الفيديو المصغّر");
+    miniBar.addView(close,new LinearLayout.LayoutParams(dp(43),dp(73)));
+    close.setOnClickListener(v->closeWatch());
+    miniBar.setOnClickListener(v->expandMiniPlayer());
+    app.addView(miniBar,new LinearLayout.LayoutParams(-1,dp(73)));
+  }
+  void onMiniPlaybackChanged(boolean playing){
+    if(miniPlay!=null)miniPlay.setText(playing?"Ⅱ":"▶");
+  }
+  private void dockMiniPlayer(){
+    if(watchView==null || miniVisible || !watchView.hasVideo())return;
+    if(watchView.isFullScreen())watchView.exitFullScreen();
+    miniTitle.setText(watchView.currentVideoTitle());
+    watchView.dockIntoMini(miniVideoHost);
+    miniVideoHost.bringChildToFront(miniVideoTap);
+    if(miniVideoTap.getParent()!=miniVideoHost){
+      miniVideoHost.addView(miniVideoTap,new FrameLayout.LayoutParams(-1,-1));
+    }
+    miniVideoTap.bringToFront();
+    miniVisible=true;
+    miniBar.setVisibility(View.VISIBLE);
+    watchView.setVisibility(View.GONE);
+    onMiniPlaybackChanged(watchView.isPlayingVideo());
+    getWindow().getDecorView().setSystemUiVisibility(
+      View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+    getWindow().setStatusBarColor(WHITE);
+    getWindow().setNavigationBarColor(WHITE);
+  }
+  private void expandMiniPlayer(){
+    if(watchView==null || !miniVisible)return;
+    miniVisible=false;
+    watchView.setVisibility(View.VISIBLE);
+    watchView.restoreFromMini();
+    miniBar.setVisibility(View.GONE);
+  }
+  void prepareWatchForPip(){
+    if(miniVisible){
+      restoreMiniAfterPip=true;
+      expandMiniPlayer();
+    }
   }
   private void setupHeader(){
     LinearLayout h=linear(LinearLayout.HORIZONTAL);h.setGravity(Gravity.CENTER_VERTICAL);pad(h,15,7,12,6);
@@ -636,9 +719,12 @@ public class MainActivity extends Activity {
     if(v.id==null){notice("رابط فيديو غير مدعوم");return;}
     archive("history",v);
     if(watchView==null){
-      watchView=new NativeWatchView(this, ()->closeWatch());
+      watchView=new NativeWatchView(this, ()->dockMiniPlayer());
       shell.addView(watchView,new FrameLayout.LayoutParams(-1,-1));
+    } else if(miniVisible){
+      expandMiniPlayer();
     }
+    miniTitle.setText(v.title);
     watchView.openVideo(v.id,v.title,v.uploader);
   }
   void playFromWatch(String url,String title,String uploader){
@@ -646,6 +732,9 @@ public class MainActivity extends Activity {
   }
   private void closeWatch(){
     if(watchView==null)return;
+    restoreMiniAfterPip=false;
+    miniVisible=false;
+    miniBar.setVisibility(View.GONE);
     watchView.release(true);
     shell.removeView(watchView);
     watchView=null;
@@ -654,23 +743,33 @@ public class MainActivity extends Activity {
     getWindow().setNavigationBarColor(WHITE);
   }
   @Override public void onBackPressed(){
-    if(watchView!=null){
-      if(watchView.isFullScreen()){watchView.exitFullScreen();}
-      else closeWatch();
+    if(watchView!=null && !miniVisible){
+      if(watchView.isFullScreen())watchView.exitFullScreen();
+      else dockMiniPlayer();
+      return;
+    }
+    if(miniVisible && selected!=0){
+      show(0);
       return;
     }
     super.onBackPressed();
   }
   @Override public void onUserLeaveHint(){
+    // A mini PlayerView must be restored before the OS renders the Activity in PiP.
+    if(watchView!=null && miniVisible && watchView.isPlayingVideo())prepareWatchForPip();
     super.onUserLeaveHint();
-    // Android 8-11 need explicit PiP when the user presses Home.
-    if(android.os.Build.VERSION.SDK_INT>=26 && android.os.Build.VERSION.SDK_INT<31 && watchView!=null && watchView.isPlayingVideo()){
+    if(android.os.Build.VERSION.SDK_INT>=26 && android.os.Build.VERSION.SDK_INT<31
+      && watchView!=null && watchView.isPlayingVideo()){
       watchView.enterPictureInPicture();
     }
   }
   @Override public void onPictureInPictureModeChanged(boolean inPip,android.content.res.Configuration config){
     super.onPictureInPictureModeChanged(inPip,config);
     if(watchView!=null)watchView.onPictureInPictureChanged(inPip);
+    if(!inPip && restoreMiniAfterPip){
+      restoreMiniAfterPip=false;
+      if(watchView!=null && watchView.hasVideo())dockMiniPlayer();
+    }
   }
   @Override public void onConfigurationChanged(android.content.res.Configuration c){
     super.onConfigurationChanged(c);

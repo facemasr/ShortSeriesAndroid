@@ -8,7 +8,7 @@
  android:textColor="#FFFFFF" android:textSize="16sp" android:textStyle="bold" android:maxLines="2" android:padding="10dp"/>
  </LinearLayout>
  <androidx.media3.ui.PlayerView android:id="@+id/playerView" android:layout_width="match_parent" android:layout_height="240dp" android:background="#000000"/>
- <WebView android:id="@+id/playerAdSlot" android:layout_width="match_parent" android:layout_height="70dp"/>
+ <WebView android:id="@+id/playerAdSlot" android:layout_width="match_parent" android:layout_height="66dp"/>
  <TextView android:id="@+id/playerStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#C3CBD8" android:textSize="13sp" android:padding="12dp"/>
  <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="الجودة" android:textColor="#FFFFFF" android:textSize="16sp" android:padding="10dp"/>
  <Spinner android:id="@+id/qualities" android:layout_width="match_parent" android:layout_height="52dp" android:backgroundTint="#FFFFFF"/>

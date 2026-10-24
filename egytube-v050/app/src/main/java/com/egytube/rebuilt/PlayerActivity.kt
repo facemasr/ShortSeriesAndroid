@@ -86,22 +86,8 @@ class PlayerActivity : Activity() {
         resize()
     }
     private fun setupAdvert(){
-        advert.settings.javaScriptEnabled=true
-        advert.settings.domStorageEnabled=false
-        advert.settings.mediaPlaybackRequiresUserGesture=true
-        advert.webViewClient=object:WebViewClient(){
-          override fun shouldOverrideUrlLoading(w:WebView?,req:WebResourceRequest?):Boolean{
-            val u=req?.url?:return true
-            if(!req.isForMainFrame)return false
-            return if(u.host=="bonepa.com")false
-                else {try{startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,u))}catch(_:Exception){};true}
-          }
-        }
-        val html="""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
-<body style="margin:0;background:#080C14;overflow:hidden">
-<script src="https://bonepa.com/bafdf04fb5f56432509c/231238cdb2/?placementName=default"></script>
-</body></html>"""
-        advert.loadDataWithBaseURL("https://bonepa.com/",html,"text/html","UTF-8",null)
+        // Third provided creative: small 320x50 player banner, without covering player controls.
+        AdSlots.loadInto(advert,AdSlots.PLAYER_320x50)
     }
     private fun load(page:String){
         worker.execute {

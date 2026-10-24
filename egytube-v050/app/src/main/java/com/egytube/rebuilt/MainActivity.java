@@ -99,9 +99,9 @@ public class MainActivity extends Activity {
     LinearLayout h=linear(LinearLayout.HORIZONTAL);h.setGravity(Gravity.CENTER_VERTICAL);pad(h,15,7,12,6);
     TextView title=text("▶ EGYTUBE",21,DARK,true);title.setSingleLine(true);
     h.addView(title,new LinearLayout.LayoutParams(0,dp(46),1));
-    TextView cast=text("▣",24,GREY,false);cast.setGravity(Gravity.CENTER);
+    TextView cast=text("⟳",24,GREY,false);cast.setGravity(Gravity.CENTER);
     h.addView(cast,new LinearLayout.LayoutParams(dp(45),dp(46)));
-    cast.setOnClickListener(v->new AlertDialog.Builder(this).setMessage("البث إلى التلفزيون ليس متاحًا في هذه النسخة التجريبية.").setPositiveButton("موافق",null).show());
+    cast.setOnClickListener(v->show(selected));
     TextView find=text("⌕",28,DARK,true);find.setGravity(Gravity.CENTER);
     h.addView(find,new LinearLayout.LayoutParams(dp(48),dp(46)));
     find.setOnClickListener(v->show(2));
@@ -196,7 +196,7 @@ public class MainActivity extends Activity {
           TextView retry=text("↻ إعادة المحاولة",15,RED,true);pad(retry,18,14,18,14);
           feed.addView(retry);retry.setOnClickListener(v->{requestId++;load(query,onlyShorts,requestId);});
         }else{
-          for(int i=0;i<rows.size();i++){Video v=rows.get(i);list.add(v);addCard(v,onlyShorts);if(i==4)addAd();}
+          for(int i=0;i<rows.size();i++){Video v=rows.get(i);list.add(v);addCard(v,onlyShorts);if(i==3)addAd(AdSlots.RECT_300x250);if(i==9)addAd(AdSlots.BANNER_468x60);if(i==16)addAd(AdSlots.BONEPA_4);}
         }
       });
     });
@@ -207,9 +207,17 @@ public class MainActivity extends Activity {
     image.setBackgroundColor(0xffe7e7e7);
     int h=(getResources().getDisplayMetrics().widthPixels*9)/16;
     if(isShort)h=Math.min(dp(310),getResources().getDisplayMetrics().heightPixels/2);
-    box.addView(image,new LinearLayout.LayoutParams(-1,h));
+    FrameLayout thumb=new FrameLayout(this);
+    thumb.addView(image,new FrameLayout.LayoutParams(-1,h));
+    if(video.duration>0){
+      TextView clock=text(formatted(video.duration),12,WHITE,true);
+      clock.setBackground(background(0xcc000000,5));pad(clock,5,1,5,1);
+      FrameLayout.LayoutParams badge=new FrameLayout.LayoutParams(-2,dp(22),Gravity.RIGHT|Gravity.BOTTOM);
+      badge.setMargins(0,0,dp(10),dp(9));thumb.addView(clock,badge);
+    }
+    box.addView(thumb,new LinearLayout.LayoutParams(-1,h));
     showImage(video.image,image);
-    image.setOnClickListener(v->play(video));
+    thumb.setOnClickListener(v->play(video));
     LinearLayout detail=linear(LinearLayout.HORIZONTAL);detail.setGravity(Gravity.CENTER_VERTICAL);pad(detail,16,7,16,6);
     TextView avatar=text(video.uploader.isEmpty()?"▶":video.uploader.substring(0,1),17,WHITE,true);
     avatar.setGravity(Gravity.CENTER);avatar.setBackground(background(RED,35));
@@ -265,15 +273,10 @@ public class MainActivity extends Activity {
       }catch(Exception ignored){}
     });
   }
-  private void addAd(){
-    LinearLayout holder=linear(LinearLayout.VERTICAL);pad(holder,13,4,13,12);
-    TextView caption=text("إعلان",11,GREY,false);holder.addView(caption);
-    WebView ad=new WebView(this);ad.setBackgroundColor(LIGHT);ad.getSettings().setJavaScriptEnabled(true);
-    ad.getSettings().setDomStorageEnabled(false);ad.setWebViewClient(new WebViewClient());
-    ad.loadDataWithBaseURL("https://bonepa.com/",
-       "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head><body style='margin:0'><script src='https://bonepa.com/bafdf04fb5f56432509c/231238cdb2/?placementName=default'></script></body></html>",
-       "text/html","UTF-8",null);
-    holder.addView(ad,new LinearLayout.LayoutParams(-1,dp(88)));feed.addView(holder);
+  private void addAd(int slot){
+    LinearLayout.LayoutParams space=new LinearLayout.LayoutParams(-1,-2);
+    space.topMargin=dp(6);space.bottomMargin=dp(13);
+    feed.addView(AdSlots.create(this,slot),space);
   }
   private void archive(String kind,Video video){
     JSONArray result=new JSONArray();result.put(video.json());
@@ -323,7 +326,8 @@ public class MainActivity extends Activity {
     TextView recent=text("◷  سجل المشاهدة",17,DARK,true);pad(recent,18,18,18,18);
     feed.addView(recent);recent.setOnClickListener(v->{requestId++;feed.removeAllViews();addHeading("سجل المشاهدة");saved("history");});
     TextView link=text("▶  تشغيل رابط فيديو",17,DARK,true);pad(link,18,18,18,18);feed.addView(link);link.setOnClickListener(v->askLink());
-    placeholder("EGYTUBE — خاص بيوتيوب فقط. البحث والمشاهدة والمفضلة دون حساب API. الفيديوهات المقيدة أو غير المتاحة قد لا تعمل في مشغّل الطرف الثالث.");
+    placeholder("EGYTUBE — خاص بيوتيوب فقط. المفضلة والسجل محفوظان على الهاتف. لن تتم إزالة إعلانات يوتيوب أو تجاوز قيود المحتوى.");
+    addAd(AdSlots.BONEPA_4);
   }
   @Override protected void onDestroy(){pool.shutdownNow();super.onDestroy();}
 }

@@ -40,5 +40,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: EGYTUBE-YouTube-Only-v060-APK
-          path: EGYTUBE-Native-v0.5.0-FIXED.apk
+          path: EGYTUBE-YouTube-Only-v0.6.0.apk
           if-no-files-found: error

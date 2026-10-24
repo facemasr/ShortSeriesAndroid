@@ -716,13 +716,23 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private fun resize(){
       if(shutdown)return
       val landscape=resources.configuration.orientation==Configuration.ORIENTATION_LANDSCAPE
-      val width=resources.displayMetrics.widthPixels
-      val screen=resources.displayMetrics.heightPixels
-      val natural=(width.toFloat()*videoHeight.toFloat()/videoWidth.coerceAtLeast(1)).toInt()
-      val measured=if(videoHeight>videoWidth)natural.coerceIn(dp(230),(screen*0.62).toInt())
-                   else natural.coerceIn(dp(170),(screen*0.42).toInt())
+      // Display metrics can be tiny during PiP transitions, split screen and rotation.
+      // A fixed dp minimum can then exceed the available maximum and crash coerceIn().
+      val width=resources.displayMetrics.widthPixels.coerceAtLeast(1)
+      val screen=resources.displayMetrics.heightPixels.coerceAtLeast(1)
+      val portraitVideo=videoHeight>videoWidth
+      val natural=((width.toLong()*videoHeight.coerceAtLeast(1).toLong())/
+          videoWidth.coerceAtLeast(1).toLong()).coerceIn(1L,Int.MAX_VALUE.toLong()).toInt()
+      val maxHeight=(screen*(if(portraitVideo)0.62f else 0.42f)).toInt().coerceAtLeast(1)
+      val minHeight=minOf(dp(if(portraitVideo)230 else 170),maxHeight)
+      val measured=natural.coerceIn(minHeight,maxHeight)
       val params=viewport.layoutParams as? LayoutParams ?:LayoutParams(-1,measured)
-      params.height=if(pipActive)ViewGroup.LayoutParams.MATCH_PARENT else if(fullscreen)screen else if(landscape)(screen*0.78).toInt() else measured
+      params.height=when {
+        pipActive -> ViewGroup.LayoutParams.MATCH_PARENT
+        fullscreen -> ViewGroup.LayoutParams.MATCH_PARENT
+        landscape -> (screen*0.78f).toInt().coerceAtLeast(1)
+        else -> measured
+      }
       viewport.layoutParams=params
       below.visibility=if(fullscreen||pipActive)View.GONE else View.VISIBLE
       details.visibility=if(fullscreen||pipActive)View.GONE else View.VISIBLE

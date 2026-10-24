@@ -1,4 +1,4 @@
-name: EGYTUBE v0.6.9 UI Preview
+name: Build EGYTUBE v0.7.0 Design Preview
 on:
   push:
     branches:
@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: egytube-v070-reference-ui
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -47,20 +49,20 @@ jobs:
             fi
           done
           test "$found" -eq 1
-          cp "$APK" EGYTUBE-UI-Preview-v0.6.9.apk
+          cp "$APK" EGYTUBE-Reference-UI-Preview-v0.7.0.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYTUBE-UI-Preview-v069
-          path: EGYTUBE-UI-Preview-v0.6.9.apk
+          name: EGYTUBE-Reference-UI-Preview-v070
+          path: EGYTUBE-Reference-UI-Preview-v0.7.0.apk
           if-no-files-found: error
       - name: Publish preview APK for direct download (preview branch only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/egytube-v069-ui-preview'
         run: |
           set -e
           mkdir -p public-downloads
-          cp EGYTUBE-UI-Preview-v0.6.9.apk public-downloads/EGYTUBE-UI-Preview-v0.6.9.apk
+          cp EGYTUBE-Reference-UI-Preview-v0.7.0.apk public-downloads/EGYTUBE-Reference-UI-Preview-v0.7.0.apk
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add public-downloads/EGYTUBE-UI-Preview-v0.6.9.apk
-          git commit -m 'Publish EGYTUBE 0.6.9 UI preview APK for direct download' || exit 0
-          git push origin HEAD:egytube-v069-ui-preview
+          git add public-downloads/EGYTUBE-Reference-UI-Preview-v0.7.0.apk
+          git commit -m 'Publish EGYTUBE 0.7.0 Design UI preview APK for direct download' || exit 0
+          git push origin HEAD:egytube-v070-reference-ui

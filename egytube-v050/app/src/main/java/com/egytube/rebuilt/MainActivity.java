@@ -462,15 +462,23 @@ public class MainActivity extends Activity {
         if(isFinishing()||isDestroyed()||requestId!=token)return;
         loading=false;
         feed.removeAllViews();
+        for(Video video:rows)remember(video);
         if(selected==0){
-          addHeading("الرئيسية");
           categoryChips();
           if(!rows.isEmpty())hero(rows.get(0));
-          addSubheading("مقترح لك");
+          sectionHead("مقترحة لك",()->queryVideos("فيديوهات متنوعة",false));
+          horizontalRail(rows.subList(0,Math.min(6,rows.size())),176);
+          shortRail(token);
+          ArrayList<Video> watched=collection("history",12);
+          if(!watched.isEmpty()){
+            sectionHead("متابعة المشاهدة",()->show(3));
+            horizontalRail(watched,175);
+          }
+          sectionHead("أحدث الفيديوهات",null);
         }else if(selected==1){
-          addHeading("Shorts · المقاطع القصيرة");
-          placeholder("اضغط على المقطع لتشغيله في مشغّل EGYTUBE.");
-        }else addHeading("نتائج البحث: "+query);
+          sectionHead("المقاطع القصيرة",null);
+          placeholder("اسحب لأعلى لاستكشاف المقاطع. اضغط على الصورة للتشغيل.");
+        }else sectionHead("نتائج البحث: "+query,null);
         if(issue!=null)placeholder("تعذر الاتصال بنتائج يوتيوب: "+issue+"\nقد يتغير عمل مصدر البحث، ويمكنك تشغيل رابط فيديو مباشر.");
         if(rows.isEmpty()){
           if(issue==null)placeholder("لا توجد نتائج لهذا البحث، جرّب كلمات أخرى.");
@@ -479,15 +487,12 @@ public class MainActivity extends Activity {
         }else{
           for(int i=0;i<rows.size();i++){
             Video v=rows.get(i);list.add(v);
-            if(onlyShorts)addShortCard(v);else addCard(v,false);
+            if(onlyShorts)addShortCard(v);
+            else if(selected==0 && i<4)addCard(v,false);
+            else if(selected!=0)compactRow(v);
             if(i==3)addAd(AdSlots.RECT_300x250);
             if(i==9)addAd(AdSlots.BANNER_468x60);
             if(i==16)addAd(AdSlots.BONEPA_4);
-          }
-          if(selected==0){
-            TextView shorts=actionChip("▶  استكشف Shorts",()->show(1));
-            LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(47));
-            sp.setMargins(dp(14),dp(11),dp(14),dp(15));feed.addView(shorts,sp);
           }
         }
       });
@@ -557,6 +562,21 @@ public class MainActivity extends Activity {
     FrameLayout.LayoutParams ilp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);tile.addView(info,ilp);
     LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,height);
     lp.setMargins(dp(14),dp(4),dp(14),dp(15));feed.addView(tile,lp);
+    LinearLayout actions=linear(LinearLayout.VERTICAL);
+    actions.setGravity(Gravity.CENTER);pad(actions,0,2,0,3);
+    TextView like=text("♡",31,WHITE,true);like.setGravity(Gravity.CENTER);
+    TextView share=text("↗",32,WHITE,true);share.setGravity(Gravity.CENTER);
+    TextView save=text("▤",30,WHITE,true);save.setGravity(Gravity.CENTER);
+    TextView follow=text("⊕",30,WHITE,true);follow.setGravity(Gravity.CENTER);
+    for(TextView icon:new TextView[]{like,share,save,follow})
+      actions.addView(icon,new LinearLayout.LayoutParams(dp(55),dp(65)));
+    FrameLayout.LayoutParams actionsLp=new FrameLayout.LayoutParams(dp(55),-2,Gravity.LEFT|Gravity.CENTER_VERTICAL);
+    tile.addView(actions,actionsLp);
+    like.setOnClickListener(v->{archive("favorites",video);Toast.makeText(this,"أضيف للمفضلة",Toast.LENGTH_SHORT).show();});
+    save.setOnClickListener(v->{archive("watch_later",video);Toast.makeText(this,"تم الحفظ للمشاهدة لاحقًا",Toast.LENGTH_SHORT).show();});
+    share.setOnClickListener(v->{Intent send=new Intent(Intent.ACTION_SEND);send.setType("text/plain");
+      send.putExtra(Intent.EXTRA_TEXT,video.url);startActivity(Intent.createChooser(send,"مشاركة"));});
+    follow.setOnClickListener(v->{toggleFollow(video.uploader,video.uploaderUrl);});
     tile.setOnClickListener(v->play(video));
     tile.setOnLongClickListener(v->{menu(video);return true;});
   }
@@ -566,17 +586,51 @@ public class MainActivity extends Activity {
   }
   private void menu(Video video){
     String sub=video.uploader==null?"":video.uploader;
-    String title="حفظ في المفضلة",share="مشاركة الفيديو", follow=isFollowing(sub)?"إلغاء متابعة القناة":"متابعة القناة";
-    new AlertDialog.Builder(this).setTitle(video.title).setItems(new String[]{title,follow,share,"تشغيل"},(d,which)->{
-      if(which==0){archive("favorites",video);Toast.makeText(this,"أضيف إلى المفضلة",Toast.LENGTH_SHORT).show();}
-      if(which==1){toggleFollow(sub,video.uploaderUrl);}
-      if(which==2){Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,video.url);startActivity(Intent.createChooser(i,"مشاركة"));}
-      if(which==3)play(video);
+    String follow=isFollowing(sub)?"إلغاء متابعة القناة":"متابعة القناة";
+    new AlertDialog.Builder(this).setTitle(video.title).setItems(new String[]{
+      "تشغيل الفيديو","عرض القناة",follow,"المفضلة","المشاهدة لاحقًا","مشاركة الفيديو"
+    },(d,which)->{
+      if(which==0)play(video);
+      if(which==1)channelScreen(video);
+      if(which==2)toggleFollow(sub,video.uploaderUrl);
+      if(which==3){archive("favorites",video);Toast.makeText(this,"أضيف إلى المفضلة",Toast.LENGTH_SHORT).show();}
+      if(which==4){archive("watch_later",video);Toast.makeText(this,"أضيف للمشاهدة لاحقًا",Toast.LENGTH_SHORT).show();}
+      if(which==5){Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");
+        i.putExtra(Intent.EXTRA_TEXT,video.url);startActivity(Intent.createChooser(i,"مشاركة"));}
     }).show();
   }
-  private void searchUploader(Video v){
-    selected=5;buildNav();requestId++;feed.removeAllViews();
-    addHeading("القناة: "+v.uploader);load(v.uploader,false,requestId);
+  private void searchUploader(Video v){channelScreen(v);}
+  private void channelScreen(Video video){
+    requestId++;feed.removeAllViews();scroll.smoothScrollTo(0,0);
+    LinearLayout header=linear(LinearLayout.VERTICAL);
+    header.setBackground(background(0xfffff1f2,17));pad(header,17,16,17,19);
+    LinearLayout avatarLine=linear(LinearLayout.HORIZONTAL);
+    avatarLine.setGravity(Gravity.CENTER_VERTICAL);
+    TextView avatar=circleAvatar(video.uploader,78);
+    avatarLine.addView(avatar,new LinearLayout.LayoutParams(dp(78),dp(78)));
+    LinearLayout labels=linear(LinearLayout.VERTICAL);pad(labels,15,0,7,0);
+    TextView title=text(video.uploader,25,DARK,true);labels.addView(title);
+    labels.addView(text("قناة يوتيوب · معلومات من الفيديو المتاح",13,GREY,false));
+    avatarLine.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+    header.addView(avatarLine);
+    TextView follow=actionChip(isFollowing(video.uploader)?"✓  تتابع هذه القناة":"⊕  متابعة القناة",()->{
+      toggleFollow(video.uploader,video.uploaderUrl);
+      channelScreen(video);
+    });
+    follow.setBackground(background(RED,20));follow.setTextColor(WHITE);
+    LinearLayout.LayoutParams flp=new LinearLayout.LayoutParams(-1,dp(46));
+    flp.topMargin=dp(16);header.addView(follow,flp);
+    LinearLayout.LayoutParams hlp=new LinearLayout.LayoutParams(-1,-2);
+    hlp.setMargins(dp(14),dp(12),dp(14),dp(12));feed.addView(header,hlp);
+    sectionHead("الفيديوهات",()->queryVideos(video.uploader,false));
+    int count=0;
+    for(Video item:knownVideos.values()){
+      if(!video.uploader.isEmpty() && video.uploader.equalsIgnoreCase(item.uploader)){
+        compactRow(item);count++;if(count>=8)break;
+      }
+    }
+    if(count==0)compactRow(video);
+    screenRow("عرض المزيد من فيديوهات القناة","البحث عن نتائج حديثة",()->queryVideos(video.uploader,false));
   }
   private void play(Video v){
     if(v.id==null){notice("رابط فيديو غير مدعوم");return;}

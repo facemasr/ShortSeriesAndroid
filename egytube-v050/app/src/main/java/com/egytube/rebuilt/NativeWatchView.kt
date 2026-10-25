@@ -60,6 +60,40 @@ import android.net.ConnectivityManager
  */
 @OptIn(UnstableApi::class)
 class NativeWatchView(private val host: MainActivity, private val exit: Runnable) : LinearLayout(host) {
+    private data class StreamCacheEntry(val info:StreamInfo,val expiresAt:Long)
+    companion object {
+      private val streamCache=LinkedHashMap<String,StreamCacheEntry>()
+      @Synchronized private fun cached(id:String):StreamInfo?{
+        val entry=streamCache[id] ?:return null
+        if(System.currentTimeMillis()>entry.expiresAt){
+          streamCache.remove(id)
+          return null
+        }
+        return entry.info
+      }
+      @Synchronized private fun rememberInfo(id:String,info:StreamInfo){
+        streamCache[id]=StreamCacheEntry(info,System.currentTimeMillis()+90_000L)
+        while(streamCache.size>3)streamCache.remove(streamCache.keys.first())
+      }
+    }
+    private fun loadInfo(id:String):StreamInfo{
+      cached(id)?.let{return it}
+      val info=StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
+      rememberInfo(id,info)
+      return info
+    }
+    private fun prefetchSingleNext(items:List<StreamInfoItem>){
+      val manager=host.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+      if(manager?.isActiveNetworkMetered!=false)return // Respect mobile data budgets.
+      val next=items.firstOrNull{nextVideoId(it.url)!=null && nextVideoId(it.url)!=videoId}
+        ?:return
+      val id=nextVideoId(next.url)?:return
+      if(cached(id)!=null)return
+      prefetchWorker.execute{
+        if(shutdown || cached(id)!=null)return@execute
+        try{loadInfo(id)}catch(_:Exception){}
+      }
+    }
     private val worker = Executors.newSingleThreadExecutor()
     private val prefetchWorker=Executors.newSingleThreadExecutor()
     private val playbackPrefs=host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
@@ -479,7 +513,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       details.scrollTo(0,0)
       worker.execute{
         try{
-          val info=StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
+          val info=loadInfo(id)
           val sources=options(info)
           val related=info.relatedItems.filterIsInstance<StreamInfoItem>().take(15)
           host.runOnUiThread {
@@ -498,6 +532,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
               choose(0)
             }
             showSuggestions(related)
+            prefetchSingleNext(related)
           }
         }catch(e:Exception){
           host.runOnUiThread{
@@ -617,7 +652,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         fallbackIsPending=false
       }
       val previousPosition=if(active>=0)player.currentPosition.coerceAtLeast(0L)
-          else host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).getLong("resume_$videoId",0L)
+          else maxOf(
+            playbackPrefs.getLong("resume_$videoId",0L),
+            if(playbackPrefs.getString("active_video_id","")==videoId)
+              playbackPrefs.getLong("active_video_position",0L) else 0L
+          )
       val position=(positionOverride ?: previousPosition).coerceAtLeast(0L)
       if(automaticFallback){
         fallbackResumeMs=position
@@ -908,8 +947,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     fun reconnectExistingPlayback(){
       val current=player.currentMediaItem?:return
-      val restoredId=playbackPrefs.getString("active_video_id",null)
-        ?:current.mediaId.takeIf{it.length==11} ?: return
+      val restoredId=current.mediaId.takeIf{it.length==11}
+        ?:playbackPrefs.getString("active_video_id",null) ?:return
       if(!Regex("[A-Za-z0-9_-]{11}").matches(restoredId))return
       videoId=restoredId
       videoTitle=current.mediaMetadata.title?.toString()?.takeIf{it.isNotBlank()}
@@ -994,6 +1033,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     fun release(stopPlayback:Boolean=true){
       if(shutdown)return
       rememberPosition()
+      persistSessionSnapshot()
       closeSettings()
       shutdown=true;ticket++
       uiHandler.removeCallbacksAndMessages(null)

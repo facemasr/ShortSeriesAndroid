@@ -903,6 +903,13 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun togglePlayback(){
       if(shutdown || videoId.isBlank())return
+      if(!player.playWhenReady || player.playerError!=null){
+        // A paused MediaSessionService may have been destroyed by Android
+        // without disposing the still-visible player's instance. Restart the
+        // mediaPlayback service when the user explicitly resumes.
+        try{host.startService(Intent(host,PlaybackService::class.java))}
+        catch(e:Exception){Log.w("EGYTUBE.Player","Media service restart deferred",e)}
+      }
       if(player.playerError!=null || player.playbackState==Player.STATE_IDLE){
         // A failed source can remain in a stopped state with playWhenReady=true.
         // Treat an explicit user tap as a fresh request, not an instruction to pause.

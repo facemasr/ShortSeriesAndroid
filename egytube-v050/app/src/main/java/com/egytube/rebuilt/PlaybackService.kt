@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.common.Player
 
 /**
  * Foreground media service + standard Android MediaSession playback notification.
@@ -23,6 +24,17 @@ class PlaybackService:MediaSessionService(){
     session=MediaSession.Builder(this,player).setSessionActivity(reopen).build()
   }
   override fun onGetSession(controllerInfo:MediaSession.ControllerInfo):MediaSession?=session
+
+  override fun onTaskRemoved(rootIntent:Intent?){
+    // Swiping the task away must not interrupt an already playing/buffering
+    // MediaSession. Media3 manages the mediaPlayback foreground notification.
+    val player=PlaybackCore.peek()
+    if(player!=null && player.currentMediaItem!=null && player.playWhenReady &&
+       player.playbackState!=Player.STATE_ENDED){
+      return
+    }
+    super.onTaskRemoved(rootIntent)
+  }
   override fun onDestroy(){
     session?.release()
     session=null

@@ -33,8 +33,10 @@ import java.util.concurrent.*;
 import java.util.regex.*;
 
 public class MainActivity extends Activity {
-  private static final String[] TABS={"الرئيسية","Shorts","الاشتراكات","المكتبة","حسابي"};
-  private static final String[] ICONS={"⌂","▶","▣","▤","◉"};
+  private static final String[] TABS={"الرئيسية","الاشتراكات","المكتبة","حسابي"};
+  private static final String[] ICONS={"⌂","▣","▤","◉"};
+  // Existing page identifiers remain stable, only Shorts is removed from navigation.
+  private static final int[] TAB_PAGE_IDS={0,2,3,4};
   private final int WHITE=0xffffffff, DARK=0xff171717, RED=0xffe62135, GREY=0xff696969, LIGHT=0xfff4f4f4;
   private final ExecutorService pool=Executors.newFixedThreadPool(5);
   private final Map<String,Bitmap> images=Collections.synchronizedMap(new LinkedHashMap<>());
@@ -54,7 +56,11 @@ public class MainActivity extends Activity {
   private SharedPreferences prefs;
   private int selected=0,requestId=0;
   private String currentQuery="";
-  private boolean currentShorts=false,loading=false;
+  private boolean loading=false,loadingNextPage=false,manualRetryNeeded=false;
+  private int displayedVideoCount=0,emptyPageCount=0;
+  private org.schabi.newpipe.extractor.Page nextSearchPage;
+  private final LinkedHashSet<String> currentVideoIds=new LinkedHashSet<>();
+  private TextView pageStatus;
 
   static class Video {
     String title,url,id,image,uploader,uploaderUrl;
@@ -98,6 +104,10 @@ public class MainActivity extends Activity {
     setupHeader();
     scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setVerticalScrollBarEnabled(false);
     feed=linear(LinearLayout.VERTICAL);scroll.addView(feed);app.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+    scroll.setOnScrollChangeListener((View view,int sx,int sy,int oldX,int oldY)->{
+      // Prefetch while the user is near the bottom; no polling or concurrent loads.
+      if(sy>oldY && feed.getHeight()-sy-scroll.getHeight()<dp(780))loadNextPage();
+    });
     setupMiniPlayer();
     bottom=linear(LinearLayout.HORIZONTAL);bottom.setBackgroundColor(WHITE);pad(bottom,4,4,4,5);
     app.addView(bottom,new LinearLayout.LayoutParams(-1,dp(61)));
@@ -220,7 +230,7 @@ public class MainActivity extends Activity {
     bottom.setBackgroundColor(WHITE);
     bottom.setElevation(dp(4));
     for(int i=0;i<TABS.length;i++){
-      final int tab=i;
+      final int tab=TAB_PAGE_IDS[i];
       final boolean active=tab==selected;
       LinearLayout wrap=linear(LinearLayout.VERTICAL);
       wrap.setGravity(Gravity.CENTER);
@@ -239,20 +249,20 @@ public class MainActivity extends Activity {
     }
   }
   private void show(int tab){
-    selected=tab;requestId++;loading=false;buildNav();feed.removeAllViews();list.clear();currentQuery="";
+    selected=tab;requestId++;resetSearchState();buildNav();feed.removeAllViews();list.clear();currentQuery="";
     scroll.smoothScrollTo(0,0);
     if(tab==0){
-      currentShorts=false;
       addHeading("اكتشف فيديوهات تناسبك");
       load("مقاطع فيديو جديدة 2026",false,requestId);
-    }else if(tab==1){
-      currentShorts=true;
-      addHeading("المقاطع القصيرة");
-      load("shorts",true,requestId);
     }else if(tab==2)subscriptionsScreen();
     else if(tab==3)libraryScreen();
     else if(tab==4)profileScreen();
     else searchScreen();
+  }
+  private void resetSearchState(){
+    loading=false;loadingNextPage=false;manualRetryNeeded=false;
+    displayedVideoCount=0;emptyPageCount=0;
+    nextSearchPage=null;pageStatus=null;currentVideoIds.clear();
   }
   private void addHeading(String label){
     TextView h=text(label,21,DARK,true);
@@ -283,10 +293,10 @@ public class MainActivity extends Activity {
     lane.addView(row);feed.addView(lane);
   }
   private void queryVideos(String q,boolean shorts){
-    selected=shorts?1:5;buildNav();requestId++;feed.removeAllViews();list.clear();
-    currentShorts=shorts;currentQuery=q;
-    addHeading(shorts?"Shorts":"نتائج البحث: "+q);
-    load(q,shorts,requestId);
+    selected=5;buildNav();requestId++;resetSearchState();feed.removeAllViews();list.clear();
+    currentQuery=q;
+    addHeading("نتائج البحث: "+q);
+    load(q,false,requestId);
   }
   private void hero(Video video){
     if(video.image==null||video.image.isEmpty())return;
@@ -392,60 +402,6 @@ public class MainActivity extends Activity {
     }
     scrollX.addView(row);feed.addView(scrollX);
   }
-  private void shortRail(int token){
-    sectionHead("المقاطع القصيرة",()->show(1));
-    LinearLayout holder=linear(LinearLayout.HORIZONTAL);
-    holder.setGravity(Gravity.CENTER_VERTICAL);pad(holder,15,10,15,10);
-    TextView pending=text("جارٍ جلب المقاطع القصيرة...",13,GREY,false);
-    holder.addView(pending);feed.addView(holder);
-    pool.execute(()->{
-      ArrayList<Video> clips=new ArrayList<>();
-      try{
-        SearchInfo results=SearchInfo.getInfo(NewPipe.getService(0),
-          NewPipe.getService(0).getSearchQHFactory().fromQuery("shorts"));
-        for(InfoItem item:results.getRelatedItems()){
-          if(!(item instanceof StreamInfoItem))continue;
-          StreamInfoItem v=(StreamInfoItem)item;
-          if(v.getStreamType()!=null && v.getStreamType().name().toUpperCase(Locale.ROOT).contains("LIVE"))continue;
-          long dur=v.getDuration();
-          if(!(v.isShortFormContent() || (dur>0&&dur<=180)))continue;
-          Video itemVideo=new Video(v.getName(),v.getUrl(),
-            v.getThumbnails().isEmpty()?"":v.getThumbnails().get(0).getUrl(),
-            v.getUploaderName(),v.getUploaderUrl(),dur);
-          if(itemVideo.id!=null)clips.add(itemVideo);
-          if(clips.size()>=8)break;
-        }
-      }catch(Exception ignored){}
-      runOnUiThread(()->{
-        if(isDestroyed()||isFinishing()||token!=requestId||selected!=0)return;
-        holder.removeAllViews();
-        if(clips.isEmpty()){
-          TextView open=actionChip("استكشف المقاطع القصيرة",()->show(1));holder.addView(open);
-          return;
-        }
-        HorizontalScrollView x=new HorizontalScrollView(this);x.setHorizontalScrollBarEnabled(false);
-        LinearLayout track=linear(LinearLayout.HORIZONTAL);
-        for(Video clip:clips){
-          remember(clip);
-          FrameLayout poster=new FrameLayout(this);
-          poster.setBackground(background(0xff101014,15));poster.setClipToOutline(true);
-          ImageView img=new ImageView(this);img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-          poster.addView(img,new FrameLayout.LayoutParams(-1,-1));showImage(clip.image,img);
-          GradientDrawable tint=new GradientDrawable(
-            GradientDrawable.Orientation.BOTTOM_TOP,new int[]{0xce000000,0x00000000});
-          View dark=new View(this);dark.setBackground(tint);
-          poster.addView(dark,new FrameLayout.LayoutParams(-1,-1));
-          TextView name=text(clip.title,13,WHITE,true);name.setMaxLines(3);
-          pad(name,7,3,7,10);
-          poster.addView(name,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
-          LinearLayout.LayoutParams t=new LinearLayout.LayoutParams(dp(132),dp(220));
-          t.leftMargin=dp(9);track.addView(poster,t);
-          poster.setOnClickListener(v->play(clip));
-        }
-        x.addView(track);holder.addView(x,new LinearLayout.LayoutParams(-1,-2));
-      });
-    });
-  }
   private void compactRow(Video video){
     LinearLayout row=linear(LinearLayout.HORIZONTAL);pad(row,13,7,13,8);
     row.setGravity(Gravity.CENTER_VERTICAL);
@@ -521,63 +477,161 @@ public class MainActivity extends Activity {
     prefs.edit().putString("search_terms",TextUtils.join("\n",clean)).apply();
     queryVideos(q,false);
   }
-  private void load(String query,boolean onlyShorts,int token){
-    currentQuery=query;loading=true;placeholder("جارٍ تحميل فيديوهات يوتيوب...");
+
+  // NewPipeExtractor v0.26.5 uses SearchInfo.getNextPage() and
+  // SearchInfo.getMoreItems(service, queryHandler, page) for real continuation.
+  private ArrayList<Video> playableResults(java.util.List<InfoItem> items){
+    ArrayList<Video> result=new ArrayList<>();
+    if(items==null)return result;
+    for(InfoItem item:items){
+      if(!(item instanceof StreamInfoItem))continue;
+      StreamInfoItem video=(StreamInfoItem)item;
+      if(video.getStreamType()!=null &&
+         video.getStreamType().name().toUpperCase(Locale.ROOT).contains("LIVE"))continue;
+      Video candidate=new Video(video.getName(),video.getUrl(),
+        video.getThumbnails().isEmpty()?"":video.getThumbnails().get(0).getUrl(),
+        video.getUploaderName(),video.getUploaderUrl(),video.getDuration());
+      if(candidate.id!=null)result.add(candidate);
+    }
+    return result;
+  }
+  private void addUniqueVideos(ArrayList<Video> rows,boolean firstPage){
+    ArrayList<Video> unique=new ArrayList<>();
+    for(Video video:rows){
+      if(video.id==null || !currentVideoIds.add(video.id))continue;
+      unique.add(video);list.add(video);remember(video);
+    }
+    if(firstPage && selected==0){
+      if(!unique.isEmpty())hero(unique.get(0));
+      if(unique.size()>1){
+        sectionHead("مقترحة لك",()->queryVideos("فيديوهات متنوعة",false));
+        horizontalRail(unique.subList(1,Math.min(unique.size(),6)),176);
+      }
+      ArrayList<Video> watched=collection("history",12);
+      if(!watched.isEmpty()){
+        sectionHead("متابعة المشاهدة",()->show(3));
+        horizontalRail(watched,175);
+      }
+      sectionHead("أحدث الفيديوهات",null);
+    }
+    for(int i=0;i<unique.size();i++){
+      Video video=unique.get(i);
+      // The first video is featured and the next five appear in the horizontal
+      // row, so don't repeat their cards below on the home screen.
+      if(!(firstPage && selected==0 && i<6)){
+        if(selected==0 && displayedVideoCount<4)addCard(video,false);
+        else compactRow(video);
+      }
+      displayedVideoCount++;
+      if(displayedVideoCount==10)addAd(AdSlots.RECT_300x250);
+      else if(displayedVideoCount==20)addAd(AdSlots.BANNER_468x60);
+      else if(displayedVideoCount>20 && displayedVideoCount%25==0)
+        addAd(AdSlots.BONEPA_4);
+    }
+    if(unique.isEmpty())emptyPageCount++;
+    else emptyPageCount=0;
+  }
+  private void setPageStatus(String text,boolean tappable){
+    if(pageStatus!=null){
+      feed.removeView(pageStatus);
+      pageStatus=null;
+    }
+    if(text==null || text.isEmpty())return;
+    pageStatus=text(text,14,tappable?RED:GREY,tappable);
+    pageStatus.setGravity(Gravity.CENTER);
+    pad(pageStatus,14,18,14,23);
+    feed.addView(pageStatus,new LinearLayout.LayoutParams(-1,dp(66)));
+    if(tappable)pageStatus.setOnClickListener(v->{
+      manualRetryNeeded=false;
+      loadNextPage();
+    });
+  }
+  private void load(String query,boolean unusedShorts,int token){
+    currentQuery=query;
+    loading=true;
+    placeholder("جارٍ تحميل فيديوهات يوتيوب...");
     pool.execute(()->{
-      ArrayList<Video> rows=new ArrayList<>();String failure=null;
+      ArrayList<Video> rows=new ArrayList<>();
+      org.schabi.newpipe.extractor.Page next=null;
+      String failure=null;
       try{
-        SearchInfo results=SearchInfo.getInfo(NewPipe.getService(0),NewPipe.getService(0).getSearchQHFactory().fromQuery(query));
-        for(InfoItem item:results.getRelatedItems()){
-          if(!(item instanceof StreamInfoItem))continue;
-          StreamInfoItem stream=(StreamInfoItem)item;
-          if(stream.getStreamType()!=null&&stream.getStreamType().name().toUpperCase(Locale.ROOT).contains("LIVE"))continue;
-          long duration=stream.getDuration();
-          if(onlyShorts){if(!(stream.isShortFormContent() || (duration>0&&duration<=180)))continue;}
-          else if(stream.isShortFormContent() || (duration>0&&duration<=180))continue;
-          Video video=new Video(stream.getName(),stream.getUrl(),(stream.getThumbnails().isEmpty()?"":stream.getThumbnails().get(0).getUrl()),
-            stream.getUploaderName(),stream.getUploaderUrl(),duration);
-          if(video.id==null)continue;
-          rows.add(video);
-        }
+        SearchInfo results=SearchInfo.getInfo(NewPipe.getService(0),
+          NewPipe.getService(0).getSearchQHFactory().fromQuery(query));
+        rows=playableResults(results.getRelatedItems());
+        next=results.getNextPage();
       }catch(Exception error){failure=error.getMessage();}
+      final ArrayList<Video> resultRows=rows;
+      final org.schabi.newpipe.extractor.Page nextCursor=next;
       final String issue=failure;
       runOnUiThread(()->{
-        if(isFinishing()||isDestroyed()||requestId!=token)return;
+        if(isFinishing() || isDestroyed() || requestId!=token)return;
         loading=false;
+        nextSearchPage=nextCursor;
         feed.removeAllViews();
-        for(Video video:rows)remember(video);
-        if(selected==0){
-          categoryChips();
-          if(!rows.isEmpty())hero(rows.get(0));
-          sectionHead("مقترحة لك",()->queryVideos("فيديوهات متنوعة",false));
-          horizontalRail(rows.subList(0,Math.min(6,rows.size())),176);
-          shortRail(token);
-          ArrayList<Video> watched=collection("history",12);
-          if(!watched.isEmpty()){
-            sectionHead("متابعة المشاهدة",()->show(3));
-            horizontalRail(watched,175);
-          }
-          sectionHead("أحدث الفيديوهات",null);
-        }else if(selected==1){
-          sectionHead("المقاطع القصيرة",null);
-          placeholder("اسحب لأعلى لاستكشاف المقاطع. اضغط على الصورة للتشغيل.");
-        }else sectionHead("نتائج البحث: "+query,null);
-        if(issue!=null)placeholder("تعذر الاتصال بنتائج يوتيوب: "+issue+"\nقد يتغير عمل مصدر البحث، ويمكنك تشغيل رابط فيديو مباشر.");
-        if(rows.isEmpty()){
-          if(issue==null)placeholder("لا توجد نتائج لهذا البحث، جرّب كلمات أخرى.");
-          TextView retry=text("↻ إعادة المحاولة",15,RED,true);pad(retry,18,14,18,14);
-          feed.addView(retry);retry.setOnClickListener(v->{requestId++;load(query,onlyShorts,requestId);});
+        if(selected==0)categoryChips();
+        else sectionHead("نتائج البحث: "+query,null);
+        if(issue!=null)placeholder("تعذر تحميل النتائج. تحقق من الاتصال ثم أعد المحاولة.");
+        addUniqueVideos(resultRows,true);
+        if(list.isEmpty() && issue==null && nextSearchPage==null)
+          placeholder("لا توجد نتائج لهذا البحث.");
+        if(issue!=null){
+          TextView retry=actionChip("↻  إعادة المحاولة",()->{
+            requestId++;resetSearchState();feed.removeAllViews();
+            load(query,false,requestId);
+          });
+          feed.addView(retry,new LinearLayout.LayoutParams(-1,dp(51)));
         }else{
-          for(int i=0;i<rows.size();i++){
-            Video v=rows.get(i);list.add(v);
-            if(onlyShorts)addShortCard(v);
-            else if(selected==0 && i<4)addCard(v,false);
-            else compactRow(v);
-            if(i==3)addAd(AdSlots.RECT_300x250);
-            if(i==9)addAd(AdSlots.BANNER_468x60);
-            if(i==16)addAd(AdSlots.BONEPA_4);
-          }
+          if(nextSearchPage!=null)setPageStatus("مرّر للأسفل لعرض المزيد من الفيديوهات",false);
+          else if(!list.isEmpty())setPageStatus("تم عرض جميع النتائج المتاحة",false);
+          // Fetch the next page if the first page doesn't fill the screen.
+          scroll.post(()->{
+            if(requestId==token && nextSearchPage!=null &&
+              feed.getHeight()<=scroll.getHeight()+dp(300))loadNextPage();
+          });
         }
+      });
+    });
+  }
+  private void loadNextPage(){
+    if(loading || loadingNextPage || manualRetryNeeded || nextSearchPage==null)return;
+    if(selected!=0 && selected!=5)return;
+    final int token=requestId;
+    final String query=currentQuery;
+    final org.schabi.newpipe.extractor.Page page=nextSearchPage;
+    nextSearchPage=null;
+    loadingNextPage=true;
+    setPageStatus("جارٍ تحميل المزيد...",false);
+    pool.execute(()->{
+      ArrayList<Video> rows=new ArrayList<>();
+      org.schabi.newpipe.extractor.Page subsequent=null;
+      String error=null;
+      try{
+        org.schabi.newpipe.extractor.ListExtractor.InfoItemsPage<InfoItem> result=
+          SearchInfo.getMoreItems(NewPipe.getService(0),
+            NewPipe.getService(0).getSearchQHFactory().fromQuery(query),page);
+        rows=playableResults(result.getItems());
+        subsequent=result.getNextPage();
+      }catch(Exception e){error=e.getMessage();}
+      final ArrayList<Video> resultRows=rows;
+      final org.schabi.newpipe.extractor.Page cursor=subsequent;
+      final String failure=error;
+      runOnUiThread(()->{
+        if(isFinishing()||isDestroyed()||requestId!=token)return;
+        loadingNextPage=false;
+        if(failure!=null){
+          nextSearchPage=page;
+          manualRetryNeeded=true;
+          setPageStatus("تعذر جلب المزيد — اضغط لإعادة المحاولة",true);
+          return;
+        }
+        // Remove status before appending, then keep it at the bottom.
+        if(pageStatus!=null){feed.removeView(pageStatus);pageStatus=null;}
+        addUniqueVideos(resultRows,false);
+        nextSearchPage=emptyPageCount>=3?null:cursor;
+        if(nextSearchPage!=null)setPageStatus("مرّر للأسفل لعرض المزيد من الفيديوهات",false);
+        else setPageStatus("تم عرض جميع الفيديوهات المتاحة",false);
+        if(nextSearchPage!=null && feed.getHeight()<=scroll.getHeight()+dp(250))
+          scroll.post(()->{if(requestId==token)loadNextPage();});
       });
     });
   }
@@ -623,46 +677,6 @@ public class MainActivity extends Activity {
     box.addView(detail);
     feed.addView(box);
   }
-  private void addShortCard(Video video){
-    FrameLayout tile=new FrameLayout(this);
-    tile.setBackground(background(0xff171717,19));tile.setClipToOutline(true);
-    int height=Math.min(dp(490),(int)(getResources().getDisplayMetrics().heightPixels*.65f));
-    ImageView preview=new ImageView(this);
-    preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
-    tile.addView(preview,new FrameLayout.LayoutParams(-1,-1));
-    showImage(video.image,preview);
-    android.graphics.drawable.GradientDrawable shade=new android.graphics.drawable.GradientDrawable(
-      android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,new int[]{0xe0000000,0x00000000});
-    View scrim=new View(this);scrim.setBackground(shade);
-    tile.addView(scrim,new FrameLayout.LayoutParams(-1,-1));
-    TextView center=text("▶",32,WHITE,true);center.setGravity(Gravity.CENTER);
-    center.setBackground(background(0x88000000,36));
-    tile.addView(center,new FrameLayout.LayoutParams(dp(68),dp(68),Gravity.CENTER));
-    LinearLayout info=linear(LinearLayout.VERTICAL);pad(info,14,8,14,17);
-    TextView title=text(video.title,19,WHITE,true);title.setMaxLines(2);
-    TextView channel=text("◉  "+video.uploader+"   ·   "+formatted(video.duration),13,WHITE,true);
-    info.addView(title);info.addView(channel);
-    FrameLayout.LayoutParams ilp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);tile.addView(info,ilp);
-    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,height);
-    lp.setMargins(dp(14),dp(4),dp(14),dp(15));feed.addView(tile,lp);
-    LinearLayout actions=linear(LinearLayout.VERTICAL);
-    actions.setGravity(Gravity.CENTER);pad(actions,0,2,0,3);
-    TextView like=text("♡",31,WHITE,true);like.setGravity(Gravity.CENTER);
-    TextView share=text("↗",32,WHITE,true);share.setGravity(Gravity.CENTER);
-    TextView save=text("▤",30,WHITE,true);save.setGravity(Gravity.CENTER);
-    TextView follow=text("⊕",30,WHITE,true);follow.setGravity(Gravity.CENTER);
-    for(TextView icon:new TextView[]{like,share,save,follow})
-      actions.addView(icon,new LinearLayout.LayoutParams(dp(55),dp(65)));
-    FrameLayout.LayoutParams actionsLp=new FrameLayout.LayoutParams(dp(55),-2,Gravity.LEFT|Gravity.CENTER_VERTICAL);
-    tile.addView(actions,actionsLp);
-    like.setOnClickListener(v->{archive("favorites",video);Toast.makeText(this,"أضيف للمفضلة",Toast.LENGTH_SHORT).show();});
-    save.setOnClickListener(v->{archive("watch_later",video);Toast.makeText(this,"تم الحفظ للمشاهدة لاحقًا",Toast.LENGTH_SHORT).show();});
-    share.setOnClickListener(v->{Intent send=new Intent(Intent.ACTION_SEND);send.setType("text/plain");
-      send.putExtra(Intent.EXTRA_TEXT,video.url);startActivity(Intent.createChooser(send,"مشاركة"));});
-    follow.setOnClickListener(v->{toggleFollow(video.uploader,video.uploaderUrl);});
-    tile.setOnClickListener(v->play(video));
-    tile.setOnLongClickListener(v->{menu(video);return true;});
-  }
   private String formatted(long dur){
     if(dur>=3600)return String.format(Locale.US,"%d:%02d:%02d",dur/3600,(dur/60)%60,dur%60);
     return String.format(Locale.US,"%d:%02d",dur/60,dur%60);
@@ -684,7 +698,7 @@ public class MainActivity extends Activity {
   }
   private void searchUploader(Video v){channelScreen(v);}
   private void channelScreen(Video video){
-    requestId++;feed.removeAllViews();scroll.smoothScrollTo(0,0);
+    requestId++;resetSearchState();feed.removeAllViews();scroll.smoothScrollTo(0,0);
     LinearLayout header=linear(LinearLayout.VERTICAL);
     header.setBackground(background(0xfffff1f2,17));pad(header,17,16,17,19);
     LinearLayout avatarLine=linear(LinearLayout.HORIZONTAL);
@@ -729,6 +743,28 @@ public class MainActivity extends Activity {
   }
   void playFromWatch(String url,String title,String uploader){
     play(new Video(title,url,"",uploader,"",0));
+  }
+  // Called by the watch surface when the related list is exhausted.
+  // Search results remain in their original order even after pagination.
+  boolean playNextFromFeed(String currentId,java.util.Set<String> visited){
+    int currentIndex=-1;
+    for(int i=0;i<list.size();i++){
+      if(currentId.equals(list.get(i).id)){currentIndex=i;break;}
+    }
+    for(int i=currentIndex+1;i<list.size();i++){
+      Video candidate=list.get(i);
+      if(candidate.id!=null && !candidate.id.equals(currentId) &&
+          !visited.contains(candidate.id)){
+        play(candidate);return true;
+      }
+    }
+    for(Video candidate:knownVideos.values()){
+      if(candidate.id!=null && !candidate.id.equals(currentId) &&
+          !visited.contains(candidate.id)){
+        play(candidate);return true;
+      }
+    }
+    return false;
   }
   private void closeWatch(){
     if(watchView==null)return;

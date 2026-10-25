@@ -7,7 +7,7 @@
  <uses-permission android:name="android.permission.WAKE_LOCK"/>
  <application android:label="EGYTUBE" android:theme="@android:style/Theme.Material.Light.NoActionBar"
   android:usesCleartextTraffic="false" android:icon="@drawable/ic_app" android:supportsRtl="true">
-  <service android:name=".PlaybackService" android:exported="true" android:foregroundServiceType="mediaPlayback">
+  <service android:name=".PlaybackService" android:exported="true" android:stopWithTask="false" android:foregroundServiceType="mediaPlayback">
     <intent-filter><action android:name="androidx.media3.session.MediaSessionService"/></intent-filter>
   </service>
   <activity android:name=".PlayerActivity" android:exported="false" android:configChanges="orientation|screenSize"/>

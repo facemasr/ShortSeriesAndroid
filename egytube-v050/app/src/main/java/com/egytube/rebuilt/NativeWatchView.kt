@@ -51,6 +51,7 @@ import java.net.URL
 import java.util.concurrent.Executors
 import java.util.Locale
 import android.util.Log
+import android.net.ConnectivityManager
 
 /**
  * A native in-page YouTube-style watch surface.
@@ -59,7 +60,43 @@ import android.util.Log
  */
 @OptIn(UnstableApi::class)
 class NativeWatchView(private val host: MainActivity, private val exit: Runnable) : LinearLayout(host) {
+    private data class StreamCacheEntry(val info:StreamInfo,val expiresAt:Long)
+    companion object {
+      private val streamCache=LinkedHashMap<String,StreamCacheEntry>()
+      @Synchronized private fun cached(id:String):StreamInfo?{
+        val entry=streamCache[id] ?:return null
+        if(System.currentTimeMillis()>entry.expiresAt){
+          streamCache.remove(id)
+          return null
+        }
+        return entry.info
+      }
+      @Synchronized private fun rememberInfo(id:String,info:StreamInfo){
+        streamCache[id]=StreamCacheEntry(info,System.currentTimeMillis()+90_000L)
+        while(streamCache.size>3)streamCache.remove(streamCache.keys.first())
+      }
+    }
+    private fun loadInfo(id:String):StreamInfo{
+      cached(id)?.let{return it}
+      val info=StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
+      rememberInfo(id,info)
+      return info
+    }
+    private fun prefetchSingleNext(items:List<StreamInfoItem>){
+      val manager=host.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+      if(manager?.isActiveNetworkMetered!=false)return // Respect mobile data budgets.
+      val next=items.firstOrNull{nextVideoId(it.url)!=null && nextVideoId(it.url)!=videoId}
+        ?:return
+      val id=nextVideoId(next.url)?:return
+      if(cached(id)!=null)return
+      prefetchWorker.execute{
+        if(shutdown || cached(id)!=null)return@execute
+        try{loadInfo(id)}catch(_:Exception){}
+      }
+    }
     private val worker = Executors.newSingleThreadExecutor()
+    private val prefetchWorker=Executors.newSingleThreadExecutor()
+    private val playbackPrefs=host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
     private val images = Executors.newFixedThreadPool(2)
     private val player = PlaybackCore.get(host)
     private val mediaView = PlayerView(host)
@@ -122,6 +159,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       override fun run() {
         if(shutdown)return
         rememberPosition()
+        persistSessionSnapshot()
         uiHandler.postDelayed(this,5000L)
       }
     }
@@ -139,6 +177,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private var videoWidth = 16
     private var videoHeight = 9
     private var shutdown = false
+    private var sessionWasRestored=false
     private lateinit var adContainer:LinearLayout
     private lateinit var playerListener:Player.Listener
     private val colorText = Color.rgb(25,25,25)
@@ -398,6 +437,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           recoverWithAnotherSource()
         }
         override fun onIsPlayingChanged(isPlaying:Boolean){
+          persistSessionSnapshot()
           host.onMiniPlaybackChanged(isPlaying)
           updatePlayIcon()
           if(isPlaying)scheduleChromeHide() else showChrome()
@@ -408,6 +448,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           updatePlayIcon()
           if(s==Player.STATE_READY){
             fallbackIsPending=false
+            persistSessionSnapshot()
             state.text="جاري تشغيل الفيديو · ${formats.getOrNull(active)?.label.orEmpty()}"
           }
           if(s==Player.STATE_ENDED){
@@ -444,6 +485,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(!Regex("[A-Za-z0-9_-]{11}").matches(id))return
       if(videoId.isNotEmpty())rememberPosition()
       videoId=id;videoTitle=title
+      sessionWasRestored=false
+      playbackPrefs.edit().putString("active_video_id",id)
+        .putString("active_video_title",title).putString("active_video_channel",channel)
+        .putLong("active_video_at",System.currentTimeMillis()).apply()
       recentlyPlayedIds.add(id)
       while(recentlyPlayedIds.size>90)recentlyPlayedIds.remove(recentlyPlayedIds.first())
       heading.text=title;creator.text=channel
@@ -468,7 +513,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       details.scrollTo(0,0)
       worker.execute{
         try{
-          val info=StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
+          val info=loadInfo(id)
           val sources=options(info)
           val related=info.relatedItems.filterIsInstance<StreamInfoItem>().take(15)
           host.runOnUiThread {
@@ -476,6 +521,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
             heading.text=info.name
             creator.text=info.uploaderName
             videoTitle=info.name
+            playbackPrefs.edit().putString("active_video_title",videoTitle)
+              .putString("active_video_channel",info.uploaderName).apply()
             formats.clear();formats.addAll(sources)
             if(info.ageLimit>0){
               state.text="هذا الفيديو مقيد بالعمر ولا يمكن تشغيله هنا"
@@ -485,6 +532,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
               choose(0)
             }
             showSuggestions(related)
+            prefetchSingleNext(related)
           }
         }catch(e:Exception){
           host.runOnUiThread{
@@ -604,7 +652,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         fallbackIsPending=false
       }
       val previousPosition=if(active>=0)player.currentPosition.coerceAtLeast(0L)
-          else host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).getLong("resume_$videoId",0L)
+          else maxOf(
+            playbackPrefs.getLong("resume_$videoId",0L),
+            if(playbackPrefs.getString("active_video_id","")==videoId)
+              playbackPrefs.getLong("active_video_position",0L) else 0L
+          )
       val position=(positionOverride ?: previousPosition).coerceAtLeast(0L)
       if(automaticFallback){
         fallbackResumeMs=position
@@ -871,7 +923,55 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(!inPip)showChrome()
       resize()
     }
+    /** Keep the playback details for reconnection after Activity recreation. */
+    private fun persistSessionSnapshot(){
+      if(shutdown || videoId.isBlank() || player.currentMediaItem==null)return
+      val pos=player.currentPosition.coerceAtLeast(0L)
+      playbackPrefs.edit()
+        .putString("active_video_id",videoId)
+        .putString("active_video_title",videoTitle)
+        .putString("active_video_channel",creator.text.toString())
+        .putBoolean("active_video_was_playing",player.playWhenReady &&
+          player.playbackState!=Player.STATE_ENDED)
+        .putLong("active_video_position",pos)
+        .putLong("active_video_at",System.currentTimeMillis())
+        .apply()
+    }
+    fun onLeavingApp(){rememberPosition();persistSessionSnapshot()}
+    fun onReturningToApp(){
+      if(shutdown || !hasVideo())return
+      // Keep the current Media3 session alive; do not re-extract media if it is ready.
+      if(player.currentMediaItem==null && playbackPrefs.getBoolean("active_video_was_playing",false)){
+        val id=playbackPrefs.getString("active_video_id",null)
+        if(id!=null && id==videoId)openVideo(id,videoTitle,creator.text.toString())
+      } else if(player.currentMediaItem!=null &&
+        !player.isPlaying && player.playbackState!=Player.STATE_ENDED &&
+        playbackPrefs.getBoolean("active_video_was_playing",false)){
+        player.play()
+      }
+      updatePlayIcon()
+      updatePiPParameters()
+      if(!pipActive)resize()
+    }
+    fun reconnectExistingPlayback(){
+      val current=player.currentMediaItem?:return
+      val restoredId=current.mediaId.takeIf{it.length==11}
+        ?:playbackPrefs.getString("active_video_id",null) ?:return
+      if(!Regex("[A-Za-z0-9_-]{11}").matches(restoredId))return
+      videoId=restoredId
+      videoTitle=current.mediaMetadata.title?.toString()?.takeIf{it.isNotBlank()}
+        ?:playbackPrefs.getString("active_video_title","فيديو يوتيوب").orEmpty()
+      heading.text=videoTitle
+      creator.text=current.mediaMetadata.artist?.toString()?.takeIf{it.isNotBlank()}
+        ?:playbackPrefs.getString("active_video_channel","").orEmpty()
+      sessionWasRestored=true
+      updatePlayIcon()
+      updatePiPParameters()
+      resize()
+      showChrome()
+    }
     fun hasVideo()=!shutdown && videoId.isNotBlank()
+    fun hasActiveMediaSession()=!shutdown && player.currentMediaItem!=null
     fun currentVideoTitle()=videoTitle
     fun isPlayingVideo()=player.isPlaying && !shutdown
     fun toggleMiniPlayback(){
@@ -942,6 +1042,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     fun release(stopPlayback:Boolean=true){
       if(shutdown)return
       rememberPosition()
+      persistSessionSnapshot()
       closeSettings()
       shutdown=true;ticket++
       uiHandler.removeCallbacksAndMessages(null)
@@ -951,10 +1052,14 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         miniTarget=null
       }
       host.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-      worker.shutdownNow();images.shutdownNow()
+      worker.shutdownNow();prefetchWorker.shutdownNow();images.shutdownNow()
       player.removeListener(playerListener)
       mediaView.player=null
       if(stopPlayback){
+        playbackPrefs.edit().remove("active_video_id")
+          .remove("active_video_title").remove("active_video_channel")
+          .remove("active_video_was_playing").remove("active_video_position")
+          .remove("active_video_at").apply()
         player.stop()
         player.clearMediaItems()
         host.stopService(Intent(host,PlaybackService::class.java))

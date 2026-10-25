@@ -113,8 +113,34 @@ public class MainActivity extends Activity {
     app.addView(bottom,new LinearLayout.LayoutParams(-1,dp(61)));
     View line=new View(this);line.setBackgroundColor(0xffeeeeee);app.addView(line,new LinearLayout.LayoutParams(-1,dp(1)));
     String shared=getIntent()==null?null:getIntent().getStringExtra(Intent.EXTRA_TEXT);
-    if(shared!=null&&idFrom(shared)!=null)play(new Video("فيديو يوتيوب",shared,"","","",0));
     show(0);
+    if(shared!=null&&idFrom(shared)!=null)play(new Video("فيديو يوتيوب",shared,"","","",0));
+    else restorePlaybackSession();
+  }
+  /**
+   * Restore the live Media3 playback without refetching video URLs or resetting
+   * playback time. After process recreation, recreate the last actively playing
+   * video using its saved position; never auto-play if the user paused it.
+   */
+  private void restorePlaybackSession(){
+    if(watchView!=null)return;
+    androidx.media3.exoplayer.ExoPlayer running=PlaybackCore.INSTANCE.peek();
+    if(running!=null && running.getCurrentMediaItem()!=null){
+      watchView=new NativeWatchView(this,()->dockMiniPlayer());
+      shell.addView(watchView,new FrameLayout.LayoutParams(-1,-1));
+      watchView.reconnectExistingPlayback();
+      miniTitle.setText(watchView.currentVideoTitle());
+      onMiniPlaybackChanged(watchView.isPlayingVideo());
+      return;
+    }
+    boolean previouslyPlaying=prefs.getBoolean("active_video_was_playing",false);
+    long lastSeen=prefs.getLong("active_video_at",0L);
+    String id=prefs.getString("active_video_id","");
+    if(!previouslyPlaying||id==null||!id.matches("[A-Za-z0-9_-]{11}")||
+       lastSeen<=0||System.currentTimeMillis()-lastSeen>24L*60L*60L*1000L)return;
+    String title=prefs.getString("active_video_title","الفيديو السابق");
+    String channel=prefs.getString("active_video_channel","");
+    play(new Video(title,"https://www.youtube.com/watch?v="+id,"",channel,"",0));
   }
   private void setupMiniPlayer(){
     miniBar=linear(LinearLayout.HORIZONTAL);
@@ -790,6 +816,14 @@ public class MainActivity extends Activity {
     }
     super.onBackPressed();
   }
+  @Override protected void onPause(){
+    if(watchView!=null)watchView.onLeavingApp();
+    super.onPause();
+  }
+  @Override protected void onResume(){
+    super.onResume();
+    if(watchView!=null)watchView.onReturningToApp();
+  }
   @Override public void onUserLeaveHint(){
     // A mini PlayerView must be restored before the OS renders the Activity in PiP.
     if(watchView!=null && miniVisible && watchView.isPlayingVideo())prepareWatchForPip();
@@ -1038,13 +1072,20 @@ public class MainActivity extends Activity {
     screenRow("⬇  التحميلات والتخزين","مدير تنزيلات الهاتف",this::systemDownloads);
     screenRow("◫  الوضع العائم PiP","أذونات التطبيق والتشغيل بالخلفية",
       ()->settingsScreen("pip"));
+    screenRow("▶  التشغيل المستمر بالخلفية","تشغيل MediaSession وإعدادات بطارية التطبيق",()->{
+      new AlertDialog.Builder(this).setTitle("استمرار تشغيل الفيديو")
+        .setMessage("يستمر EGYTUBE في تشغيل الوسائط عبر خدمة نظام Android مع إشعار التشغيل. "
+          +"إذا أوقف نظام توفير الطاقة التطبيق بعد فترة، يمكنك مراجعة إعدادات بطارية التطبيق "
+          +"واختيار السماح له بالعمل بالخلفية إن أردت. قد يؤدي ذلك إلى استهلاك بطارية وبيانات أكثر.")
+        .setPositiveButton("فتح إعدادات التطبيق",(d,w)->settingsScreen("battery"))
+        .setNegativeButton("إلغاء",null).show();
+    });
     screenRow("◷  الخصوصية","التحكم في سجل المشاهدة المحلي",this::clearHistory);
     screenRow("◉  اللغة","العربية — الواجهة الحالية",
       ()->notice("الواجهة الحالية باللغة العربية."));
     sectionHead("الدعم والمعلومات",null);
     screenRow("ⓘ  حول التطبيق","EGYTUBE 0.7.0 — معاينة التصميم",
-      ()->notice("نسخة تصميم تجريبية من EGYTUBE، مبنية على مصدر 0.6.8. "
-      +"المشغّل وPiP وخدمة التشغيل في الخلفية دون تغيير."));
+      ()->notice("EGYTUBE: المشغّل وPiP وخدمة التشغيل في الخلفية وإعادة الاتصال بجلسة التشغيل."));
     screenRow("↗  مشاركة التطبيق","رابط المصدر على GitHub",()->{
       Intent intent=new Intent(Intent.ACTION_SEND);
       intent.setType("text/plain");
@@ -1056,8 +1097,8 @@ public class MainActivity extends Activity {
   @Override protected void onDestroy(){
     if(watchView!=null){
       // When Android removes the UI, the MediaSessionService owns audio playback.
-      boolean continueAudio=watchView.isPlayingVideo();
-      watchView.release(!continueAudio);
+      boolean keepSession=watchView.hasActiveMediaSession();
+      watchView.release(!keepSession);
       shell.removeView(watchView);
       watchView=null;
     }

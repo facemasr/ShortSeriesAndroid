@@ -34,6 +34,10 @@ import java.util.regex.*;
 
 public class MainActivity extends Activity {
   private static final String[] TABS={"الرئيسية","الاشتراكات","المكتبة","حسابي"};
+  private static final String APP_PAGE="https://egyshow.com/egytube/";
+  private static final String OFFICIAL_UPDATE_JSON=APP_PAGE+"latest.json";
+  private static final String FALLBACK_UPDATE_JSON=
+    "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v077-site-download-updates/public-downloads/latest.json";
   private static final String[] ICONS={"⌂","▣","▤","◉"};
   // Existing page identifiers remain stable, only Shorts is removed from navigation.
   private static final int[] TAB_PAGE_IDS={0,2,3,4};
@@ -116,6 +120,7 @@ public class MainActivity extends Activity {
     show(0);
     if(shared!=null&&idFrom(shared)!=null)play(new Video("فيديو يوتيوب",shared,"","","",0));
     else restoreWatchAfterBackground();
+    checkAppUpdate(false);
   }
   private void setupMiniPlayer(){
     miniBar=linear(LinearLayout.HORIZONTAL);
@@ -1052,6 +1057,98 @@ public class MainActivity extends Activity {
         show(4);
       }).setNegativeButton("إلغاء",null).show();
   }
+  private void shareApp(){
+    Intent send=new Intent(Intent.ACTION_SEND);
+    send.setType("text/plain");
+    send.putExtra(Intent.EXTRA_SUBJECT,"تطبيق EGYTUBE");
+    send.putExtra(Intent.EXTRA_TEXT,
+      "حمّل تطبيق EGYTUBE للأندرويد من موقع EGYSHOW. أحدث إصدار والتحديثات هنا:\\n"+APP_PAGE);
+    startActivity(Intent.createChooser(send,"مشاركة رابط تحميل EGYTUBE"));
+  }
+  private JSONObject getUpdateManifest(String path)throws Exception{
+    URL url=new URL(path);
+    if(!"https".equalsIgnoreCase(url.getProtocol()))throw new SecurityException("Requires HTTPS");
+    HttpURLConnection conn=(HttpURLConnection)url.openConnection();
+    conn.setConnectTimeout(7000);conn.setReadTimeout(7000);
+    conn.setRequestProperty("Accept","application/json");
+    conn.setRequestProperty("Cache-Control","no-cache");
+    try{
+      if(conn.getResponseCode()!=200)throw new java.io.IOException("Update metadata unavailable");
+      try(java.io.InputStream stream=conn.getInputStream()){
+        byte[] data=new byte[0];
+        java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();
+        byte[] buffer=new byte[2048];int count;
+        while((count=stream.read(buffer))!=-1){
+          if(out.size()+count>16_384)throw new java.io.IOException("Update metadata too large");
+          out.write(buffer,0,count);
+        }
+        data=out.toByteArray();
+        return new JSONObject(new String(data,java.nio.charset.StandardCharsets.UTF_8));
+      }
+    }finally{conn.disconnect();}
+  }
+  private void checkAppUpdate(boolean manual){
+    long now=System.currentTimeMillis();
+    if(!manual && now-prefs.getLong("last_update_check",0L)<12*60*60*1000L)return;
+    prefs.edit().putLong("last_update_check",now).apply();
+    pool.execute(()->{
+      JSONObject manifest=null;
+      try{manifest=getUpdateManifest(OFFICIAL_UPDATE_JSON);}
+      catch(Exception first){
+        try{manifest=getUpdateManifest(FALLBACK_UPDATE_JSON);}
+        catch(Exception second){android.util.Log.w("EGYTUBE.Updates","Could not check update manifest");}
+      }
+      final JSONObject info=manifest;
+      runOnUiThread(()->{
+        if(isFinishing() || isDestroyed())return;
+        if(info==null){
+          if(manual)notice("لا يمكن التحقق من التحديثات الآن. يمكنك زيارة صفحة التطبيق على EGYSHOW.");
+          return;
+        }
+        int latestCode=info.optInt("versionCode",0);
+        int installed=0;
+        String installedName="";
+        try{
+          android.content.pm.PackageInfo pkg=getPackageManager().getPackageInfo(getPackageName(),0);
+          installed=pkg.versionCode;
+          installedName=pkg.versionName;
+        }catch(Exception ignored){}
+        if(latestCode<=installed){
+          if(manual)notice("التطبيق محدث إلى آخر إصدار متاح ("+installedName+").");
+          return;
+        }
+        String latestName=info.optString("versionName","الجديد");
+        String detail=info.optString("notes","تحسينات وإصلاحات جديدة");
+        String remoteUrl=info.optString("download_url",APP_PAGE);
+        String target=APP_PAGE;
+        // Update downloads must remain on the first-party site or GitHub.
+        try{
+          Uri validated=Uri.parse(remoteUrl);
+          String hostName=validated.getHost();
+          if("https".equalsIgnoreCase(validated.getScheme()) &&
+            (("egyshow.com".equalsIgnoreCase(hostName)) ||
+             ("www.egyshow.com".equalsIgnoreCase(hostName)) ||
+             ("raw.githubusercontent.com".equalsIgnoreCase(hostName)) ||
+             ("github.com".equalsIgnoreCase(hostName))))
+              target=remoteUrl;
+        }catch(Exception ignored){}
+        final String safeUrl=target;
+        new AlertDialog.Builder(this)
+          .setTitle("يتوفر تحديث EGYTUBE "+latestName)
+          .setMessage(detail+"\\n\\nالإصدار المثبت: "+installedName+
+            "\\nالإصدار الجديد: "+latestName)
+          .setPositiveButton("تحميل التحديث",(dialog,which)->{
+             try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(safeUrl)));}
+             catch(Exception error){notice("تعذر فتح رابط التحديث. افتح "+APP_PAGE);}
+          })
+          .setNegativeButton("لاحقًا",null).show();
+      });
+    });
+  }
+  private void openAppPage(){
+    try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(APP_PAGE)));}
+    catch(Exception error){notice("صفحة تطبيق EGYTUBE: "+APP_PAGE);}
+  }
   private void settingsScreen(String title){
     try{
       Intent intent=new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
@@ -1113,14 +1210,15 @@ public class MainActivity extends Activity {
     screenRow("◉  اللغة","العربية — الواجهة الحالية",
       ()->notice("الواجهة الحالية باللغة العربية."));
     sectionHead("الدعم والمعلومات",null);
-    screenRow("ⓘ  حول التطبيق","EGYTUBE 0.7.0 — معاينة التصميم",
-      ()->notice("نسخة تصميم تجريبية من EGYTUBE، مبنية على مصدر 0.6.8. "
-      +"المشغّل وPiP وخدمة التشغيل في الخلفية دون تغيير."));
-    screenRow("↗  مشاركة التطبيق","رابط المصدر على GitHub",()->{
-      Intent intent=new Intent(Intent.ACTION_SEND);
-      intent.setType("text/plain");
-      intent.putExtra(Intent.EXTRA_TEXT,"https://github.com/facemasr/ShortSeriesAndroid");
-      startActivity(Intent.createChooser(intent,"مشاركة EGYTUBE"));
+    screenRow("⬇  تنزيل EGYTUBE","صفحة التحميل الرسمية على موقع EGYSHOW",this::openAppPage);
+    screenRow("↻  التحقق من التحديثات","الحصول على أحدث إصدار وإصلاحات التطبيق",
+      ()->checkAppUpdate(true));
+    screenRow("↗  مشاركة التطبيق","دعوة الأصدقاء وتحميل EGYTUBE من EGYSHOW",this::shareApp);
+    screenRow("ⓘ  حول التطبيق","EGYTUBE — عرض الإصدار الحالي",()->{
+      String v="غير معروف";
+      try{v=getPackageManager().getPackageInfo(getPackageName(),0).versionName;}
+      catch(Exception ignored){}
+      notice("EGYTUBE "+v+"\\nMini Player • PiP • التشغيل بالخلفية • تحديثات من EGYSHOW");
     });
     placeholder("لا توجد مزامنة حساب Google في هذه النسخة، ولا تُعرض بيانات مستخدمين وهمية.");
   }

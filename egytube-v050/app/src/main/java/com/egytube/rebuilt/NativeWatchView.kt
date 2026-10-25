@@ -59,6 +59,20 @@ import android.util.Log
  */
 @OptIn(UnstableApi::class)
 class NativeWatchView(private val host: MainActivity, private val exit: Runnable) : LinearLayout(host) {
+    companion object {
+      private val sourceLock=Any()
+      private val recentInfo=LinkedHashMap<String,Pair<Long,StreamInfo>>()
+      private const val SOURCE_CACHE_MS=75_000L
+      private fun cachedInfo(videoId:String):StreamInfo?=synchronized(sourceLock){
+        val entry=recentInfo[videoId]
+        if(entry!=null && android.os.SystemClock.elapsedRealtime()-entry.first<SOURCE_CACHE_MS)
+          entry.second else null
+      }
+      private fun storeInfo(videoId:String,info:StreamInfo)=synchronized(sourceLock){
+        recentInfo[videoId]=android.os.SystemClock.elapsedRealtime() to info
+        while(recentInfo.size>4)recentInfo.remove(recentInfo.keys.first())
+      }
+    }
     private val worker = Executors.newSingleThreadExecutor()
     private val images = Executors.newFixedThreadPool(2)
     private val player = PlaybackCore.get(host)
@@ -96,6 +110,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private var relatedChoices:List<StreamInfoItem> = emptyList()
     private val recentlyPlayedIds=LinkedHashSet<String>()
     private var lastEndedTicket=-1
+    private var lastBackgroundSaveAt=0L
     private val bottomLayer = LinearLayout(host)
     private val timeline = SeekBar(host)
     private val elapsed = text("0:00",12f,Color.WHITE)
@@ -408,6 +423,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           updatePlayIcon()
           if(s==Player.STATE_READY){
             fallbackIsPending=false
+            savePlaybackPosition()
             state.text="جاري تشغيل الفيديو · ${formats.getOrNull(active)?.label.orEmpty()}"
           }
           if(s==Player.STATE_ENDED){
@@ -468,7 +484,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       details.scrollTo(0,0)
       worker.execute{
         try{
-          val info=StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
+          val info=cachedInfo(id)?:StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
+            .also{storeInfo(id,it)}
           val sources=options(info)
           val related=info.relatedItems.filterIsInstance<StreamInfoItem>().take(15)
           host.runOnUiThread {
@@ -485,6 +502,20 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
               choose(0)
             }
             showSuggestions(related)
+            if(host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
+                .getBoolean("autoplay_next",true)){
+              val upcoming=relatedChoices.firstOrNull{
+                val nextId=nextVideoId(it.url)
+                nextId!=null && nextId!=videoId && nextId !in recentlyPlayedIds
+              }
+              val nextId=upcoming?.url?.let{nextVideoId(it)}
+              if(nextId!=null && cachedInfo(nextId)==null){
+                worker.execute{
+                  try{storeInfo(nextId,StreamInfo.getInfo("https://www.youtube.com/watch?v=$nextId"))}
+                  catch(_:Exception){}
+                }
+              }
+            }
           }
         }catch(e:Exception){
           host.runOnUiThread{
@@ -618,7 +649,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       catch(e:Exception){state.text="تعذر بدء تشغيل الخلفية: ${e.message.orEmpty()}"}
       active=index
       qualityButton.text="⚙ ${src.label.substringBefore(' ')}"
-      val ds=DefaultDataSource.Factory(host,DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true))
+      val ds=DefaultDataSource.Factory(host,DefaultHttpDataSource.Factory()
+        .setAllowCrossProtocolRedirects(true)
+        .setConnectTimeoutMs(12_000)
+        .setReadTimeoutMs(18_000))
       val metadata=MediaMetadata.Builder().setTitle(videoTitle).setArtist(creator.text.toString()).build()
       fun item(u:String,mime:String?=null):MediaItem=
         MediaItem.Builder().setMediaId(videoId).setUri(u).setMimeType(mime).setMediaMetadata(metadata).build()
@@ -632,9 +666,9 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       }
       state.text="جارٍ تشغيل ${src.label}"
       player.setMediaSource(media)
-      player.prepare()
       if(position>0)player.seekTo(position)
       player.playWhenReady=true
+      player.prepare()
       showChrome()
     }
     private fun showSpeedOptions(){
@@ -813,11 +847,34 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         uiHandler.postDelayed(autoHide,3100L)
     }
     private fun rememberPosition(){
-      if(videoId.isEmpty() || player.currentMediaItem==null)return
+      savePlaybackPosition()
+    }
+    fun savePlaybackPosition(){
+      if(videoId.isEmpty() || player.currentMediaItem==null || shutdown)return
       val now=player.currentPosition
-      if(now>2500L && (player.duration<=0L || now<player.duration-5000L)){
-        host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).edit().putLong("resume_$videoId",now).apply()
+      if(now>2000L && (player.duration<=0L || now<player.duration-2500L)){
+        host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).edit()
+          .putLong("resume_$videoId",now).apply()
+        lastBackgroundSaveAt=android.os.SystemClock.elapsedRealtime()
       }
+    }
+    fun keepAudioInBackground():Boolean=
+      !shutdown && player.currentMediaItem!=null && player.playWhenReady &&
+        player.playbackState!=Player.STATE_ENDED
+    fun reconnectExisting(id:String,title:String,channel:String){
+      if(shutdown || player.currentMediaItem==null)return
+      videoId=id
+      videoTitle=title
+      heading.text=title
+      creator.text=channel
+      ticket++
+      spinner.visibility=View.GONE
+      state.text="تم استعادة جلسة التشغيل في الخلفية"
+      if(player.playbackState==Player.STATE_IDLE && player.playerError==null)player.prepare()
+      updatePlayIcon()
+      resize()
+      updatePiPParameters()
+      showChrome()
     }
     private fun forgetPosition(){
       host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).edit().remove("resume_$videoId").apply()

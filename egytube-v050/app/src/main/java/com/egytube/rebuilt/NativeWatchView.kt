@@ -117,6 +117,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private var recoveryInFlight=false
     private var resumeWatchdog:Runnable?=null
     private var resumeRecoveryPosition=0L
+    private var openAsPaused=false
     private val bottomLayer = LinearLayout(host)
     private val timeline = SeekBar(host)
     private val elapsed = text("0:00",12f,Color.WHITE)
@@ -170,6 +171,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun padding(v:View,a:Int,b:Int,c:Int,d:Int){v.setPadding(dp(a),dp(b),dp(c),dp(d))}
     init {
+      PlaybackCore.attachUi()
       orientation=VERTICAL
       setBackgroundColor(Color.WHITE)
       layoutDirection=View.LAYOUT_DIRECTION_RTL
@@ -473,10 +475,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       showChrome()
     }
 
-    fun openVideo(id:String,title:String,channel:String){
+    fun openVideo(id:String,title:String,channel:String,startPaused:Boolean=false){
       if(!Regex("[A-Za-z0-9_-]{11}").matches(id))return
       if(videoId.isNotEmpty())rememberPosition()
       videoId=id;videoTitle=title
+      openAsPaused=startPaused
       recentlyPlayedIds.add(id)
       while(recentlyPlayedIds.size>90)recentlyPlayedIds.remove(recentlyPlayedIds.first())
       heading.text=title;creator.text=channel
@@ -693,7 +696,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       state.text="جارٍ تشغيل ${src.label}"
       player.setMediaSource(media)
       if(position>0)player.seekTo(position)
-      player.playWhenReady=true
+      player.playWhenReady=!openAsPaused
+      openAsPaused=false
       player.prepare()
       showChrome()
     }
@@ -898,7 +902,12 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun togglePlayback(){
       if(shutdown || videoId.isBlank())return
-      if(player.currentMediaItem==null){
+      if(player.playerError!=null || player.playbackState==Player.STATE_IDLE){
+        // A failed source can remain in a stopped state with playWhenReady=true.
+        // Treat an explicit user tap as a fresh request, not an instruction to pause.
+        resumeRecoveryAttempted=false
+        if(!recoveryInFlight)refreshPausedSource()
+      }else if(player.currentMediaItem==null){
         resumeRecoveryPosition=maxOf(resumeRecoveryPosition,
           host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
             .getLong("resume_$videoId",0L))
@@ -980,6 +989,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     fun keepAudioInBackground():Boolean=
       !shutdown && player.currentMediaItem!=null && player.playWhenReady &&
         player.playbackState!=Player.STATE_ENDED
+    fun hasLoadedOrPendingVideo():Boolean=!shutdown && videoId.isNotBlank()
+    fun isPlaybackRequested():Boolean=!shutdown && player.playWhenReady
     fun onReturnedToForeground(){
       if(shutdown || videoId.isBlank())return
       // A source URL can expire while the app is backgrounded. Only re-resolve
@@ -1141,6 +1152,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       worker.shutdownNow();recoveryWorker.shutdownNow();images.shutdownNow()
       player.removeListener(playerListener)
       mediaView.player=null
+      PlaybackCore.detachUi()
       if(stopPlayback){
         player.stop()
         player.clearMediaItems()

@@ -37,7 +37,7 @@ public class MainActivity extends Activity {
   private static final String APP_PAGE="https://egyshow.com/egytube/";
   private static final String OFFICIAL_UPDATE_JSON=APP_PAGE+"latest.json";
   private static final String FALLBACK_UPDATE_JSON=
-    "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v077-site-download-updates/public-downloads/latest.json";
+    "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v080-official-parallel-install/public-downloads/latest.json";
   private static final String[] ICONS={"⌂","▣","▤","◉"};
   // Existing page identifiers remain stable, only Shorts is removed from navigation.
   private static final int[] TAB_PAGE_IDS={0,2,3,4};

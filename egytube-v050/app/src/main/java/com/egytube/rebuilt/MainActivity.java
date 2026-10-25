@@ -698,7 +698,7 @@ public class MainActivity extends Activity {
   }
   private void searchUploader(Video v){channelScreen(v);}
   private void channelScreen(Video video){
-    requestId++;feed.removeAllViews();scroll.smoothScrollTo(0,0);
+    requestId++;resetSearchState();feed.removeAllViews();scroll.smoothScrollTo(0,0);
     LinearLayout header=linear(LinearLayout.VERTICAL);
     header.setBackground(background(0xfffff1f2,17));pad(header,17,16,17,19);
     LinearLayout avatarLine=linear(LinearLayout.HORIZONTAL);
@@ -743,6 +743,28 @@ public class MainActivity extends Activity {
   }
   void playFromWatch(String url,String title,String uploader){
     play(new Video(title,url,"",uploader,"",0));
+  }
+  // Called by the watch surface when the related list is exhausted.
+  // Search results remain in their original order even after pagination.
+  boolean playNextFromFeed(String currentId,java.util.Set<String> visited){
+    int currentIndex=-1;
+    for(int i=0;i<list.size();i++){
+      if(currentId.equals(list.get(i).id)){currentIndex=i;break;}
+    }
+    for(int i=currentIndex+1;i<list.size();i++){
+      Video candidate=list.get(i);
+      if(candidate.id!=null && !candidate.id.equals(currentId) &&
+          !visited.contains(candidate.id)){
+        play(candidate);return true;
+      }
+    }
+    for(Video candidate:knownVideos.values()){
+      if(candidate.id!=null && !candidate.id.equals(currentId) &&
+          !visited.contains(candidate.id)){
+        play(candidate);return true;
+      }
+    }
+    return false;
   }
   private void closeWatch(){
     if(watchView==null)return;

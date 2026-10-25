@@ -74,6 +74,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       }
     }
     private val worker = Executors.newSingleThreadExecutor()
+    private val recoveryWorker=Executors.newSingleThreadExecutor()
     private val images = Executors.newFixedThreadPool(2)
     private val player = PlaybackCore.get(host)
     private val mediaView = PlayerView(host)
@@ -111,6 +112,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private val recentlyPlayedIds=LinkedHashSet<String>()
     private var lastEndedTicket=-1
     private var lastBackgroundSaveAt=0L
+    private var lastPauseAt=0L
+    private var resumeRecoveryAttempted=false
+    private var recoveryInFlight=false
+    private var resumeWatchdog:Runnable?=null
+    private var resumeRecoveryPosition=0L
     private val bottomLayer = LinearLayout(host)
     private val timeline = SeekBar(host)
     private val elapsed = text("0:00",12f,Color.WHITE)
@@ -255,12 +261,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       viewport.addView(fastBadge,FrameLayout.LayoutParams(dp(156),dp(38),Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply{
         topMargin=dp(56)
       })
-      centerPlay.setOnClickListener{
-        if(player.currentMediaItem!=null){
-          if(player.isPlaying)player.pause() else player.play()
-          updatePlayIcon();showChrome()
-        }
-      }
+      centerPlay.setOnClickListener{togglePlayback()}
       // Thin red seek line sits above the compact dark playback control strip.
       bottomLayer.orientation=VERTICAL
       bottomLayer.layoutDirection=View.LAYOUT_DIRECTION_LTR
@@ -290,12 +291,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         lowerToolbar.addView(t,LinearLayout.LayoutParams(dp(width),dp(39)))
       }
       button(toolbarPlay,"تشغيل أو إيقاف",36)
-      toolbarPlay.setOnClickListener{
-        if(player.currentMediaItem!=null){
-          if(player.isPlaying)player.pause() else player.play()
-          updatePlayIcon();showChrome()
-        }
-      }
+      toolbarPlay.setOnClickListener{togglePlayback()}
       button(nextButton,"الفيديو التالي",34)
       nextButton.setOnClickListener{playNext()}
       button(volumeButton,"كتم أو تفعيل الصوت",31)
@@ -406,16 +402,36 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       below.addView(suggestions)
       playerListener=object:Player.Listener {
         override fun onPlayerError(error:PlaybackException){
-          // A single source may fail on this Android device due to codec support,
-          // container parsing, network expiry or unavailable CDN. Try a different
-          // media source before reporting that the video cannot play.
-          Log.w("EGYTUBE.Player","Video playback failed (code=${error.errorCode}, source=$active)")
-          recoverWithAnotherSource()
+          Log.w("EGYTUBE.Player","Playback failed (code=${error.errorCode}, source=$active)")
+          cancelResumeWatchdog()
+          // Paused for a long period: source URLs can have expired. Renew the
+          // stream URLs once instead of cycling through equally expired links.
+          if(lastPauseAt>0L && !resumeRecoveryAttempted && !recoveryInFlight &&
+             player.playWhenReady){
+            refreshPausedSource()
+          }else{
+            recoverWithAnotherSource()
+          }
+        }
+        override fun onPlayWhenReadyChanged(playWhenReady:Boolean,reason:Int){
+          if(!playWhenReady && player.currentMediaItem!=null){
+            lastPauseAt=android.os.SystemClock.elapsedRealtime()
+            resumeRecoveryPosition=player.currentPosition.coerceAtLeast(0L)
+            resumeRecoveryAttempted=false
+            cancelResumeWatchdog()
+            savePlaybackPosition()
+          }else if(playWhenReady && player.currentMediaItem!=null && lastPauseAt>0L){
+            scheduleResumeWatchdog()
+          }
+          updatePlayIcon()
         }
         override fun onIsPlayingChanged(isPlaying:Boolean){
           host.onMiniPlaybackChanged(isPlaying)
           updatePlayIcon()
-          if(isPlaying)scheduleChromeHide() else showChrome()
+          if(isPlaying){
+            cancelResumeWatchdog()
+            scheduleChromeHide()
+          }else showChrome()
           updatePiPParameters()
         }
         override fun onPlaybackStateChanged(s:Int){
@@ -423,6 +439,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           updatePlayIcon()
           if(s==Player.STATE_READY){
             fallbackIsPending=false
+            if(player.playWhenReady && player.isPlaying)cancelResumeWatchdog()
             savePlaybackPosition()
             state.text="جاري تشغيل الفيديو · ${formats.getOrNull(active)?.label.orEmpty()}"
           }
@@ -467,6 +484,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       lastEndedTicket=-1
       val token=ticket
       formats.clear();active=-1
+      cancelResumeWatchdog()
+      lastPauseAt=0L
+      resumeRecoveryAttempted=false
+      recoveryInFlight=false
       unsuccessfulSources.clear()
       fallbackResumeMs=0L
       fallbackIsPending=false
@@ -607,8 +628,13 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       val next=formats.indices.firstOrNull{it !in unsuccessfulSources}
       if(next==null){
         fallbackIsPending=false
+        if(lastPauseAt>0L && !resumeRecoveryAttempted && !recoveryInFlight &&
+           player.playWhenReady){
+          refreshPausedSource()
+          return
+        }
         spinner.visibility=View.GONE
-        state.text="لا يمكن تشغيل هذا الفيديو بالمصادر المتاحة على جهازك حاليًا."
+        state.text="لا يمكن تشغيل الفيديو بهذه المصادر. أعد المحاولة من المشغّل."
         updatePlayIcon()
         showChrome()
         return
@@ -729,9 +755,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       }else{timeline.progress=0;timeline.secondaryProgress=0}
     }
     private fun updatePlayIcon(){
-      centerPlay.text=if(player.isPlaying)"Ⅱ" else "▶"
-      toolbarPlay.text=if(player.isPlaying)"Ⅱ" else "▶"
-      centerPlay.contentDescription=if(player.isPlaying)"إيقاف مؤقت" else "تشغيل"
+      val playbackRequested=player.playWhenReady && player.currentMediaItem!=null
+      centerPlay.text=if(playbackRequested)"Ⅱ" else "▶"
+      toolbarPlay.text=if(playbackRequested)"Ⅱ" else "▶"
+      centerPlay.contentDescription=if(playbackRequested)"إيقاف مؤقت" else "تشغيل"
       if(!controlsVisible || pipActive || miniTarget!=null){
         centerPlay.animate().cancel()
         centerPlay.visibility=View.GONE
@@ -846,6 +873,98 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(!pipActive && !holdSpeedActive && player.isPlaying && !scrubbing && !settingsOpen)
         uiHandler.postDelayed(autoHide,3100L)
     }
+    private fun cancelResumeWatchdog(){
+      resumeWatchdog?.let{uiHandler.removeCallbacks(it)}
+      resumeWatchdog=null
+    }
+    private fun scheduleResumeWatchdog(){
+      cancelResumeWatchdog()
+      if(shutdown || recoveryInFlight || resumeRecoveryAttempted ||
+         !player.playWhenReady || videoId.isBlank())return
+      val token=ticket
+      val task=Runnable{
+        resumeWatchdog=null
+        if(shutdown || token!=ticket || !player.playWhenReady ||
+           recoveryInFlight || resumeRecoveryAttempted || player.isPlaying)return@Runnable
+        // Avoid refreshing while audio focus, a call or another system policy
+        // suppresses playback. The user can press Play again after focus returns.
+        if(player.playbackSuppressionReason!=Player.PLAYBACK_SUPPRESSION_REASON_NONE)return@Runnable
+        if(player.playbackState==Player.STATE_BUFFERING ||
+           player.playbackState==Player.STATE_IDLE || player.playerError!=null)
+           refreshPausedSource()
+      }
+      resumeWatchdog=task
+      uiHandler.postDelayed(task,7_000L)
+    }
+    private fun togglePlayback(){
+      if(shutdown || videoId.isBlank())return
+      if(player.currentMediaItem==null){
+        resumeRecoveryPosition=maxOf(resumeRecoveryPosition,
+          host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
+            .getLong("resume_$videoId",0L))
+        refreshPausedSource()
+      }else if(player.playWhenReady){
+        // isPlaying may be false during buffering; pause the requested playback.
+        player.pause()
+      }else{
+        val pausedFor=if(lastPauseAt>0L)
+          android.os.SystemClock.elapsedRealtime()-lastPauseAt else 0L
+        resumeRecoveryPosition=player.currentPosition.coerceAtLeast(0L)
+        if(player.playerError!=null || player.playbackState==Player.STATE_IDLE){
+          refreshPausedSource()
+        }else{
+          // Try immediate resume from the existing buffered media. If its
+          // expiring URL has gone stale, the watchdog will renew it once.
+          player.play()
+          if(pausedFor>60_000L)scheduleResumeWatchdog()
+        }
+      }
+      updatePlayIcon()
+      showChrome()
+    }
+    private fun refreshPausedSource(){
+      if(shutdown || videoId.isBlank() || recoveryInFlight || resumeRecoveryAttempted)return
+      cancelResumeWatchdog()
+      recoveryInFlight=true
+      resumeRecoveryAttempted=true
+      val currentTicket=ticket
+      val id=videoId
+      val position=maxOf(resumeRecoveryPosition,player.currentPosition.coerceAtLeast(0L))
+      state.text="جارٍ استعادة الفيديو من موضع التوقف..."
+      spinner.visibility=View.VISIBLE
+      recoveryWorker.execute{
+        try{
+          // Do not reuse the old resolved URLs or the short-lived source cache.
+          val fresh=StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
+          val candidates=options(fresh)
+          host.runOnUiThread{
+            if(shutdown || currentTicket!=ticket || id!=videoId)return@runOnUiThread
+            recoveryInFlight=false
+            if(candidates.isEmpty()){
+              spinner.visibility=View.GONE
+              state.text="مصدر الفيديو غير متاح حاليًا."
+              showChrome()
+              return@runOnUiThread
+            }
+            storeInfo(id,fresh)
+            formats.clear();formats.addAll(candidates)
+            unsuccessfulSources.clear()
+            fallbackIsPending=false
+            active=-1
+            choose(0,positionOverride=position,automaticFallback=true)
+          }
+        }catch(e:Exception){
+          Log.w("EGYTUBE.Player","Cannot refresh paused media",e)
+          host.runOnUiThread{
+            if(shutdown || currentTicket!=ticket || id!=videoId)return@runOnUiThread
+            recoveryInFlight=false
+            spinner.visibility=View.GONE
+            state.text="تعذر استعادة الفيديو. تحقق من الإنترنت واضغط تشغيل للمحاولة مجددًا."
+            showChrome()
+          }
+        }
+      }
+    }
     private fun rememberPosition(){
       savePlaybackPosition()
     }
@@ -945,11 +1064,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     fun hasVideo()=!shutdown && videoId.isNotBlank()
     fun currentVideoTitle()=videoTitle
     fun isPlayingVideo()=player.isPlaying && !shutdown
-    fun toggleMiniPlayback(){
-      if(!hasVideo() || player.currentMediaItem==null)return
-      if(player.isPlaying)player.pause() else player.play()
-      updatePlayIcon()
-    }
+    fun toggleMiniPlayback(){togglePlayback()}
     fun dockIntoMini(container:ViewGroup){
       if(shutdown || miniTarget===container)return
       restoreHoldSpeed()
@@ -1015,6 +1130,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       rememberPosition()
       closeSettings()
       shutdown=true;ticket++
+      cancelResumeWatchdog()
       uiHandler.removeCallbacksAndMessages(null)
       restoreHoldSpeed()
       if(miniTarget!=null){
@@ -1022,7 +1138,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         miniTarget=null
       }
       host.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-      worker.shutdownNow();images.shutdownNow()
+      worker.shutdownNow();recoveryWorker.shutdownNow();images.shutdownNow()
       player.removeListener(playerListener)
       mediaView.player=null
       if(stopPlayback){

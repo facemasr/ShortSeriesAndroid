@@ -1,12 +1,12 @@
 {
   "app": "EGYTUBE",
-  "packageName": "com.egytube.rebuilt",
-  "versionCode": 78,
-  "versionName": "0.7.8",
+  "packageName": "com.egytube.official",
+  "versionCode": 80,
+  "versionName": "0.8.0",
   "releaseDate": "2026-10-25",
   "minimumAndroid": 8,
-  "download_url": "https://egyshow.com/egytube/EGYTUBE-v0.7.8.apk",
+  "download_url": "https://egyshow.com/egytube/EGYTUBE-v0.8.0.apk",
   "landing_url": "https://egyshow.com/egytube/",
-  "notes": "إصلاح ظهور الرمز \\n في رسالة مشاركة التطبيق بحيث يُعرض رابط التحميل في سطر مستقل بصورة صحيحة. جميع مزايا تشغيل الفيديو السابقة محفوظة.",
+  "notes": "إصدار EGYTUBE مستقل يمكن تثبيته بجوار النسخة القديمة المتعارضة دون حذفها. يستخدم توقيعًا رسميًا ثابتًا للإصدارات الجديدة، مع كل مميزات المشغّل السابقة.",
   "mandatory": false
 }

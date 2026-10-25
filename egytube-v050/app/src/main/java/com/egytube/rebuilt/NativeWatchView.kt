@@ -697,6 +697,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       player.setMediaSource(media)
       if(position>0)player.seekTo(position)
       player.playWhenReady=!openAsPaused
+      if(openAsPaused)lastPauseAt=android.os.SystemClock.elapsedRealtime()
       openAsPaused=false
       player.prepare()
       showChrome()
@@ -908,6 +909,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         resumeRecoveryAttempted=false
         if(!recoveryInFlight)refreshPausedSource()
       }else if(player.currentMediaItem==null){
+        resumeRecoveryAttempted=false
         resumeRecoveryPosition=maxOf(resumeRecoveryPosition,
           host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
             .getLong("resume_$videoId",0L))

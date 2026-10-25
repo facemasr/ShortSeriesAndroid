@@ -93,7 +93,9 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private val audioManager = host.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var previousVolume=4
     private var captionsEnabled=false
-    private var nextRecommendation:StreamInfoItem?=null
+    private var relatedChoices:List<StreamInfoItem> = emptyList()
+    private val recentlyPlayedIds=LinkedHashSet<String>()
+    private var lastEndedTicket=-1
     private val bottomLayer = LinearLayout(host)
     private val timeline = SeekBar(host)
     private val elapsed = text("0:00",12f,Color.WHITE)
@@ -408,7 +410,20 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
             fallbackIsPending=false
             state.text="جاري تشغيل الفيديو · ${formats.getOrNull(active)?.label.orEmpty()}"
           }
-          if(s==Player.STATE_ENDED){forgetPosition();showChrome()}
+          if(s==Player.STATE_ENDED){
+            forgetPosition()
+            if(lastEndedTicket!=ticket){
+              lastEndedTicket=ticket
+              val currentTicket=ticket
+              val autoNext=host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
+                .getBoolean("autoplay_next",true)
+              if(autoNext)uiHandler.postDelayed({
+                if(!shutdown && ticket==currentTicket && player.playbackState==Player.STATE_ENDED)
+                  playNext(automatic=true)
+              },750L)
+              else showChrome()
+            }
+          }
         }
         override fun onVideoSizeChanged(size:VideoSize){
           if(size.width>0&&size.height>0){
@@ -429,8 +444,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(!Regex("[A-Za-z0-9_-]{11}").matches(id))return
       if(videoId.isNotEmpty())rememberPosition()
       videoId=id;videoTitle=title
+      recentlyPlayedIds.add(id)
+      while(recentlyPlayedIds.size>90)recentlyPlayedIds.remove(recentlyPlayedIds.first())
       heading.text=title;creator.text=channel
       ticket++
+      lastEndedTicket=-1
       val token=ticket
       formats.clear();active=-1
       unsuccessfulSources.clear()
@@ -444,7 +462,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       videoHeight=if(videoWidth==9)16 else 9
       resize()
       suggestions.removeAllViews()
-      nextRecommendation=null
+      relatedChoices=emptyList()
       state.text="جارٍ تحميل روابط المشاهدة..."
       player.stop();player.clearMediaItems()
       details.scrollTo(0,0)
@@ -477,7 +495,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun showSuggestions(items:List<StreamInfoItem>){
       suggestions.removeAllViews()
-      nextRecommendation=items.firstOrNull{it.url.contains("v=") || it.url.contains("youtu.be/")}
+      relatedChoices=items.filter{ item->
+        val id=nextVideoId(item.url)
+        id!=null && id!=videoId && !(item.streamType?.name.orEmpty().contains("LIVE",true))
+      }.distinctBy{nextVideoId(it.url)}
       for(item in items){
         val match=Regex("(?:v=|youtu\\.be/|shorts/)([A-Za-z0-9_-]{11})").find(item.url)
         val id=match?.groupValues?.get(1)?:continue
@@ -687,14 +708,24 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       volumeButton.text=if(current==0)"◖×" else "◖))"
       if(volumeBar.progress!=current)volumeBar.progress=current
     }
-    private fun playNext(){
-      val info=nextRecommendation
-      val id=info?.url?.let{Regex("(?:v=|youtu[.]be/)([A-Za-z0-9_-]{11})").find(it)?.groupValues?.getOrNull(1)}
-      if(id==null){
-        Toast.makeText(host,"لا يوجد فيديو تالٍ متاح",Toast.LENGTH_SHORT).show()
+    private fun nextVideoId(url:String):String?=
+      Regex("(?:[?&]v=|youtu[.]be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})")
+        .find(url)?.groupValues?.getOrNull(1)
+
+    private fun playNext(automatic:Boolean=false){
+      if(shutdown)return
+      val candidate=relatedChoices.firstOrNull{item->
+        val id=nextVideoId(item.url)
+        id!=null && id !in recentlyPlayedIds
+      }
+      if(candidate!=null){
+        host.playFromWatch(candidate.url,candidate.name,candidate.uploaderName.orEmpty())
         return
       }
-      openVideo(id,info.name,info.uploaderName.orEmpty())
+      if(host.playNextFromFeed(videoId,recentlyPlayedIds))return
+      if(!automatic)Toast.makeText(host,"لا يوجد فيديو تالٍ متاح",Toast.LENGTH_SHORT).show()
+      else state.text="انتهى الفيديو. لا تتوفر اقتراحات جديدة."
+      showChrome()
     }
     private fun toggleCaptions(){
       captionsEnabled=!captionsEnabled
@@ -709,13 +740,20 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
          "الجودة  ·  "+(formats.getOrNull(active)?.label ?: "تلقائي"),
          "السرعة  ·  "+String.format(Locale.US,"%.2g×",playingRate),
          if(zoomed)"العرض  ·  احتواء الفيديو" else "العرض  ·  ملء الإطار",
-         if(captionsEnabled)"الترجمة  ·  تشغيل" else "الترجمة  ·  إيقاف"
+         if(captionsEnabled)"الترجمة  ·  تشغيل" else "الترجمة  ·  إيقاف",
+         if(host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
+             .getBoolean("autoplay_next",true))"الفيديو التالي  ·  تلقائي" else "الفيديو التالي  ·  يدوي"
       ),-1){index->
          when(index){
            0->showQuality()
            1->showSpeedOptions()
            2->{zoomed=!zoomed;mediaView.resizeMode=if(zoomed)AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT}
            3->toggleCaptions()
+           4->{
+             val prefs=host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
+             prefs.edit().putBoolean("autoplay_next",!prefs.getBoolean("autoplay_next",true)).apply()
+             Toast.makeText(host,"تم تحديث التشغيل التلقائي",Toast.LENGTH_SHORT).show()
+           }
          }
       }
     }

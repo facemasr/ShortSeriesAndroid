@@ -585,7 +585,12 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       val previousPosition=if(active>=0)player.currentPosition.coerceAtLeast(0L)
           else host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).getLong("resume_$videoId",0L)
       val position=(positionOverride ?: previousPosition).coerceAtLeast(0L)
-      if(automaticFallback)fallbackResumeMs=position
+      if(automaticFallback){
+        fallbackResumeMs=position
+        // The scheduled retry is now active; allow the next decoder/source error
+        // to select another candidate instead of leaving retries blocked.
+        fallbackIsPending=false
+      }
       val src=formats[index]
       // MediaSessionService continues playback with a media notification when the UI closes.
       try{host.startService(Intent(host,PlaybackService::class.java))}

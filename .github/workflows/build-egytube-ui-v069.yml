@@ -1,4 +1,4 @@
-name: EGYTUBE v0.7.6 Paused Playback Recovery Preview
+name: EGYTUBE v0.7.6 Pause Resume Build Verified
 on:
   push:
     branches:

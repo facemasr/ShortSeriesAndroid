@@ -50,6 +50,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 import java.util.Locale
+import android.util.Log
 
 /**
  * A native in-page YouTube-style watch surface.
@@ -125,6 +126,9 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private val advertisement = WebView(host)
     private val formats = mutableListOf<Source>()
     private var active = -1
+    private val unsuccessfulSources=mutableSetOf<Int>()
+    private var fallbackResumeMs=0L
+    private var fallbackIsPending=false
     private var ticket = 0
     private var videoId = ""
     private var videoTitle = ""
@@ -385,8 +389,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       below.addView(suggestions)
       playerListener=object:Player.Listener {
         override fun onPlayerError(error:PlaybackException){
-          state.text="تعذر تشغيل المصدر الحالي: ${error.errorCodeName}"
-          showChrome();updatePlayIcon()
+          // A single source may fail on this Android device due to codec support,
+          // container parsing, network expiry or unavailable CDN. Try a different
+          // media source before reporting that the video cannot play.
+          Log.w("EGYTUBE.Player","Video playback failed (code=${error.errorCode}, source=$active)")
+          recoverWithAnotherSource()
         }
         override fun onIsPlayingChanged(isPlaying:Boolean){
           host.onMiniPlaybackChanged(isPlaying)
@@ -397,7 +404,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         override fun onPlaybackStateChanged(s:Int){
           spinner.visibility=if(s==Player.STATE_BUFFERING)View.VISIBLE else View.GONE
           updatePlayIcon()
-          if(s==Player.STATE_READY)state.text="جاري تشغيل الفيديو · ${formats.getOrNull(active)?.label.orEmpty()}"
+          if(s==Player.STATE_READY){
+            fallbackIsPending=false
+            state.text="جاري تشغيل الفيديو · ${formats.getOrNull(active)?.label.orEmpty()}"
+          }
           if(s==Player.STATE_ENDED){forgetPosition();showChrome()}
         }
         override fun onVideoSizeChanged(size:VideoSize){
@@ -423,6 +433,9 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       ticket++
       val token=ticket
       formats.clear();active=-1
+      unsuccessfulSources.clear()
+      fallbackResumeMs=0L
+      fallbackIsPending=false
       closeSettings()
       timeline.progress=0;elapsed.text="0:00";total.text="0:00"
       qualityButton.text="⚙ جودة"
@@ -503,23 +516,58 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun options(info:StreamInfo):List<Source>{
       val available=mutableListOf<Source>()
+      // A combined MP4 video+audio source is typically the broadest supported
+      // option on Android. Prefer it over DASH/HLS and over high-res adaptive
+      // codecs that may be AV1, VP9 Profile 2 or HDR-only on older devices.
+      val combined=info.videoStreams
+        .filter{it.isUrl && it.content.startsWith("https://") && !it.isVideoOnly}
+        .sortedByDescending{
+          val name=it.format?.name.orEmpty().uppercase(Locale.ROOT)
+          val score=if(name.contains("MPEG_4") || name.contains("MP4"))100000 else 0
+          score-kotlin.math.abs(it.height.coerceAtLeast(0)-720)
+        }
+      combined.forEach{available+=Source("${it.resolution} · صوت وصورة",it.content)}
       if(!info.hlsUrl.isNullOrBlank()&&info.hlsUrl.startsWith("https://"))
         available+=Source("تلقائي · HLS",info.hlsUrl,mime=MimeTypes.APPLICATION_M3U8)
       if(!info.dashMpdUrl.isNullOrBlank()&&info.dashMpdUrl.startsWith("https://"))
         available+=Source("تلقائي · DASH",info.dashMpdUrl,mime=MimeTypes.APPLICATION_MPD)
-      info.videoStreams.filter{it.isUrl&&it.content.startsWith("https://")&&!it.isVideoOnly}
-        .sortedByDescending{it.height}
-        .forEach{available+=Source("${it.resolution} · صوت وصورة",it.content)}
-      val audio=info.audioStreams.filter{it.isUrl&&it.content.startsWith("https://")}
-      info.videoOnlyStreams.filter{it.isUrl&&it.content.startsWith("https://")}
-        .sortedByDescending{it.height}
+      val audio=info.audioStreams.filter{it.isUrl && it.content.startsWith("https://")}
+      info.videoOnlyStreams.filter{it.isUrl && it.content.startsWith("https://")}
+        .sortedByDescending{
+          val name=it.format?.name.orEmpty().uppercase(Locale.ROOT)
+          val score=if(name.contains("MPEG_4")||name.contains("MP4"))100000 else 0
+          score-kotlin.math.abs(it.height.coerceAtLeast(0)-720)
+        }
         .forEach{v->
           val webm=v.format?.name.orEmpty().contains("WEBM")
-          val track=audio.filter{it.format?.name.orEmpty().contains("WEBM")==webm}.maxByOrNull{it.averageBitrate}
-            ?:audio.maxByOrNull{it.averageBitrate}
+          val matching=audio.filter{it.format?.name.orEmpty().contains("WEBM")==webm}
+          val track=matching.maxByOrNull{it.averageBitrate}?:audio.maxByOrNull{it.averageBitrate}
           if(track!=null)available+=Source("${v.resolution} · فيديو + صوت",v.content,track.content)
         }
       return available.distinctBy{it.url+"|"+it.audio}
+    }
+    private fun recoverWithAnotherSource(){
+      if(shutdown || videoId.isBlank() || active !in formats.indices)return
+      if(fallbackIsPending)return
+      unsuccessfulSources.add(active)
+      val current=player.currentPosition.coerceAtLeast(0L)
+      fallbackResumeMs=maxOf(fallbackResumeMs,current)
+      val next=formats.indices.firstOrNull{it !in unsuccessfulSources}
+      if(next==null){
+        fallbackIsPending=false
+        spinner.visibility=View.GONE
+        state.text="لا يمكن تشغيل هذا الفيديو بالمصادر المتاحة على جهازك حاليًا."
+        updatePlayIcon()
+        showChrome()
+        return
+      }
+      fallbackIsPending=true
+      state.text="جارٍ تجربة جودة أخرى متوافقة مع جهازك..."
+      val videoToken=ticket
+      uiHandler.post{
+        if(!shutdown && videoToken==ticket && fallbackIsPending && next !in unsuccessfulSources)
+          choose(next,positionOverride=fallbackResumeMs,automaticFallback=true)
+      }
     }
     private fun showQuality(){
       if(formats.isEmpty()){
@@ -527,9 +575,22 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       }
       openSettings("جودة الفيديو",formats.map{it.label},active){index->choose(index)}
     }
-    private fun choose(index:Int){
+    private fun choose(index:Int,positionOverride:Long?=null,automaticFallback:Boolean=false){
       if(index !in formats.indices || shutdown)return
-      val position=if(active>=0)player.currentPosition else host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).getLong("resume_$videoId",0L)
+      if(!automaticFallback){
+        unsuccessfulSources.clear()
+        fallbackResumeMs=0L
+        fallbackIsPending=false
+      }
+      val previousPosition=if(active>=0)player.currentPosition.coerceAtLeast(0L)
+          else host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).getLong("resume_$videoId",0L)
+      val position=(positionOverride ?: previousPosition).coerceAtLeast(0L)
+      if(automaticFallback){
+        fallbackResumeMs=position
+        // The scheduled retry is now active; allow the next decoder/source error
+        // to select another candidate instead of leaving retries blocked.
+        fallbackIsPending=false
+      }
       val src=formats[index]
       // MediaSessionService continues playback with a media notification when the UI closes.
       try{host.startService(Intent(host,PlaybackService::class.java))}

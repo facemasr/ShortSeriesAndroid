@@ -1,4 +1,4 @@
-name: EGYTUBE 0.8.0 Official Side By Side Preview
+name: EGYTUBE 0.8.0 Official Release Unsigned Staging
 on:
   push:
     branches:
@@ -30,16 +30,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Compile EGYTUBE v0.8.0 official side by side
+      - name: Compile EGYTUBE v0.8.0 non-debuggable release
         working-directory: ./egytube-v050
-        run: gradle --no-daemon --console=plain :app:assembleDebug
-      - name: Verify signed preview APK
+        run: gradle --no-daemon --console=plain :app:assembleRelease
+      - name: Validate release APK before server-side signing
         run: |
           set -e
-          APK=egytube-v050/app/build/outputs/apk/debug/app-debug.apk
+          APK=egytube-v050/app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$APK"
           unzip -t "$APK" | tail -1
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
+          # Final v2/v3 release signature is applied and verified by the private EGYSHOW server.
           unzip -p "$APK" classes.dex | strings | grep 'MainActivity' > /dev/null
           found=0
           for dex in $(unzip -Z1 "$APK" | grep -E '^classes[0-9]*[.]dex'); do
@@ -49,20 +49,20 @@ jobs:
             fi
           done
           test "$found" -eq 1
-          cp "$APK" EGYTUBE-v0.8.0-debug-staging.apk
+          cp "$APK" EGYTUBE-v0.8.0-UNSIGNED-staging.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYTUBE-080-unsigned-staging
-          path: EGYTUBE-v0.8.0-debug-staging.apk
+          name: EGYTUBE-080-release-staging
+          path: EGYTUBE-v0.8.0-UNSIGNED-staging.apk
           if-no-files-found: error
       - name: Publish preview APK for direct download (preview branch only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/egytube-v069-ui-preview'
         run: |
           set -e
           mkdir -p public-downloads
-          cp EGYTUBE-v0.8.0-debug-staging.apk public-downloads/EGYTUBE-v0.8.0-debug-staging.apk
+          cp EGYTUBE-v0.8.0-UNSIGNED-staging.apk public-downloads/EGYTUBE-v0.8.0-UNSIGNED-staging.apk
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add public-downloads/EGYTUBE-v0.8.0-debug-staging.apk
+          git add public-downloads/EGYTUBE-v0.8.0-UNSIGNED-staging.apk
           git commit -m 'Stage EGYTUBE 0.8.0 APK for official server-side release signing' || exit 0
           git push origin HEAD:egytube-v080-official-parallel-install

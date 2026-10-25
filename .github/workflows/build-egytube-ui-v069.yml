@@ -1,4 +1,4 @@
-name: EGYTUBE v0.7.7 EGYSHOW Download Share Updater
+name: EGYTUBE v0.6.9 UI Preview
 on:
   push:
     branches:
@@ -17,8 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: egytube-v077-site-download-updates
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -30,7 +28,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Compile EGYTUBE v0.7.7 Site Download and Update Check
+      - name: Compile EGYTUBE Android 0.6.9 preview
         working-directory: ./egytube-v050
         run: gradle --no-daemon --console=plain :app:assembleDebug
       - name: Verify signed preview APK
@@ -49,20 +47,20 @@ jobs:
             fi
           done
           test "$found" -eq 1
-          cp "$APK" EGYTUBE-v0.7.7.apk
+          cp "$APK" EGYTUBE-UI-Preview-v0.6.9.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYTUBE-v077
-          path: EGYTUBE-v0.7.7.apk
+          name: EGYTUBE-UI-Preview-v069
+          path: EGYTUBE-UI-Preview-v0.6.9.apk
           if-no-files-found: error
       - name: Publish preview APK for direct download (preview branch only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/egytube-v069-ui-preview'
         run: |
           set -e
           mkdir -p public-downloads
-          cp EGYTUBE-v0.7.7.apk public-downloads/EGYTUBE-v0.7.7.apk
+          cp EGYTUBE-UI-Preview-v0.6.9.apk public-downloads/EGYTUBE-UI-Preview-v0.6.9.apk
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add public-downloads/EGYTUBE-v0.7.7.apk
-          git commit -m 'Publish EGYTUBE v0.7.7 official download APK' || exit 0
-          git push origin HEAD:egytube-v077-site-download-updates
+          git add public-downloads/EGYTUBE-UI-Preview-v0.6.9.apk
+          git commit -m 'Publish EGYTUBE 0.6.9 UI preview APK for direct download' || exit 0
+          git push origin HEAD:egytube-v069-ui-preview

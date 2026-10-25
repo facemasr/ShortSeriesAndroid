@@ -51,6 +51,7 @@ import java.net.URL
 import java.util.concurrent.Executors
 import java.util.Locale
 import android.util.Log
+import android.net.ConnectivityManager
 
 /**
  * A native in-page YouTube-style watch surface.
@@ -60,6 +61,8 @@ import android.util.Log
 @OptIn(UnstableApi::class)
 class NativeWatchView(private val host: MainActivity, private val exit: Runnable) : LinearLayout(host) {
     private val worker = Executors.newSingleThreadExecutor()
+    private val prefetchWorker=Executors.newSingleThreadExecutor()
+    private val playbackPrefs=host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
     private val images = Executors.newFixedThreadPool(2)
     private val player = PlaybackCore.get(host)
     private val mediaView = PlayerView(host)
@@ -122,6 +125,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       override fun run() {
         if(shutdown)return
         rememberPosition()
+        persistSessionSnapshot()
         uiHandler.postDelayed(this,5000L)
       }
     }
@@ -139,6 +143,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     private var videoWidth = 16
     private var videoHeight = 9
     private var shutdown = false
+    private var sessionWasRestored=false
     private lateinit var adContainer:LinearLayout
     private lateinit var playerListener:Player.Listener
     private val colorText = Color.rgb(25,25,25)
@@ -398,6 +403,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           recoverWithAnotherSource()
         }
         override fun onIsPlayingChanged(isPlaying:Boolean){
+          persistSessionSnapshot()
           host.onMiniPlaybackChanged(isPlaying)
           updatePlayIcon()
           if(isPlaying)scheduleChromeHide() else showChrome()
@@ -408,6 +414,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           updatePlayIcon()
           if(s==Player.STATE_READY){
             fallbackIsPending=false
+            persistSessionSnapshot()
             state.text="جاري تشغيل الفيديو · ${formats.getOrNull(active)?.label.orEmpty()}"
           }
           if(s==Player.STATE_ENDED){
@@ -444,6 +451,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(!Regex("[A-Za-z0-9_-]{11}").matches(id))return
       if(videoId.isNotEmpty())rememberPosition()
       videoId=id;videoTitle=title
+      sessionWasRestored=false
+      playbackPrefs.edit().putString("active_video_id",id)
+        .putString("active_video_title",title).putString("active_video_channel",channel)
+        .putLong("active_video_at",System.currentTimeMillis()).apply()
       recentlyPlayedIds.add(id)
       while(recentlyPlayedIds.size>90)recentlyPlayedIds.remove(recentlyPlayedIds.first())
       heading.text=title;creator.text=channel
@@ -476,6 +487,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
             heading.text=info.name
             creator.text=info.uploaderName
             videoTitle=info.name
+            playbackPrefs.edit().putString("active_video_title",videoTitle)
+              .putString("active_video_channel",info.uploaderName).apply()
             formats.clear();formats.addAll(sources)
             if(info.ageLimit>0){
               state.text="هذا الفيديو مقيد بالعمر ولا يمكن تشغيله هنا"
@@ -871,6 +884,45 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(!inPip)showChrome()
       resize()
     }
+    /** Keep the playback details for reconnection after Activity recreation. */
+    private fun persistSessionSnapshot(){
+      if(shutdown || videoId.isBlank() || player.currentMediaItem==null)return
+      val pos=player.currentPosition.coerceAtLeast(0L)
+      playbackPrefs.edit()
+        .putString("active_video_id",videoId)
+        .putString("active_video_title",videoTitle)
+        .putString("active_video_channel",creator.text.toString())
+        .putBoolean("active_video_was_playing",player.playWhenReady &&
+          player.playbackState!=Player.STATE_ENDED)
+        .putLong("active_video_position",pos)
+        .putLong("active_video_at",System.currentTimeMillis())
+        .apply()
+    }
+    fun onLeavingApp(){rememberPosition();persistSessionSnapshot()}
+    fun onReturningToApp(){
+      if(shutdown || !hasVideo())return
+      // Reattach existing Media3 audio/video; do not extract the stream again.
+      updatePlayIcon()
+      updatePiPParameters()
+      if(!pipActive)resize()
+    }
+    fun reconnectExistingPlayback(){
+      val current=player.currentMediaItem?:return
+      val restoredId=playbackPrefs.getString("active_video_id",null)
+        ?:current.mediaId.takeIf{it.length==11} ?: return
+      if(!Regex("[A-Za-z0-9_-]{11}").matches(restoredId))return
+      videoId=restoredId
+      videoTitle=current.mediaMetadata.title?.toString()?.takeIf{it.isNotBlank()}
+        ?:playbackPrefs.getString("active_video_title","فيديو يوتيوب").orEmpty()
+      heading.text=videoTitle
+      creator.text=current.mediaMetadata.artist?.toString()?.takeIf{it.isNotBlank()}
+        ?:playbackPrefs.getString("active_video_channel","").orEmpty()
+      sessionWasRestored=true
+      updatePlayIcon()
+      updatePiPParameters()
+      resize()
+      showChrome()
+    }
     fun hasVideo()=!shutdown && videoId.isNotBlank()
     fun currentVideoTitle()=videoTitle
     fun isPlayingVideo()=player.isPlaying && !shutdown
@@ -951,10 +1003,14 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         miniTarget=null
       }
       host.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-      worker.shutdownNow();images.shutdownNow()
+      worker.shutdownNow();prefetchWorker.shutdownNow();images.shutdownNow()
       player.removeListener(playerListener)
       mediaView.player=null
       if(stopPlayback){
+        playbackPrefs.edit().remove("active_video_id")
+          .remove("active_video_title").remove("active_video_channel")
+          .remove("active_video_was_playing").remove("active_video_position")
+          .remove("active_video_at").apply()
         player.stop()
         player.clearMediaItems()
         host.stopService(Intent(host,PlaybackService::class.java))

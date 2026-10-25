@@ -744,7 +744,7 @@ public class MainActivity extends Activity {
       expandMiniPlayer();
     }
     miniTitle.setText(v.title);
-    watchView.openVideo(v.id,v.title,v.uploader);
+    watchView.openVideo(v.id,v.title,v.uploader,false);
   }
   void playFromWatch(String url,String title,String uploader){
     play(new Video(title,url,"",uploader,"",0));

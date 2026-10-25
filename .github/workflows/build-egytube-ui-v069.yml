@@ -1,4 +1,4 @@
-name: EGYTUBE v0.7.6 Pause Resume Build Verified
+name: EGYTUBE v0.7.6 Final Pause Recovery APK
 on:
   push:
     branches:

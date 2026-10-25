@@ -1,0 +1,12 @@
+{
+  "app": "EGYTUBE",
+  "packageName": "com.egytube.rebuilt",
+  "versionCode": 77,
+  "versionName": "0.7.7",
+  "releaseDate": "2026-10-25",
+  "minimumAndroid": 8,
+  "download_url": "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v077-site-download-updates/public-downloads/EGYTUBE-v0.7.7.apk",
+  "landing_url": "https://egyshow.com/egytube/",
+  "notes": "إضافة مشاركة رابط تحميل EGYTUBE من موقع EGYSHOW، والتحقق من التحديثات داخل التطبيق، مع الحفاظ على Mini Player وPiP واستئناف المشاهدة.",
+  "mandatory": false
+}

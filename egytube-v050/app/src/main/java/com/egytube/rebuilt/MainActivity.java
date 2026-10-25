@@ -775,6 +775,7 @@ public class MainActivity extends Activity {
     if(watchView==null)return;
     // Only explicit Close discards automatic resume; Back/Home never do.
     prefs.edit().putBoolean("bg_resume_requested",false)
+      .putBoolean("bg_was_playing",false)
       .remove("bg_video_id").remove("bg_video_title")
       .remove("bg_video_channel").apply();
     restoreMiniAfterPip=false;
@@ -806,11 +807,20 @@ public class MainActivity extends Activity {
       watchView.reconnectExisting(storedId,title==null?"فيديو يوتيوب":title,
         channel==null?"":channel);
     }else{
-      // Android may kill the entire process after prolonged background use.
-      // Re-resolve an expiring URL and seek to the saved resume position.
-      play(new Video(title==null?"فيديو يوتيوب":title,
-        "https://www.youtube.com/watch?v="+storedId,"",
-        channel==null?"":channel,"",0));
+      // Android may kill a paused media service after long inactivity.
+      // Recover the selected video and seek to its saved position, but don't
+      // start audio unexpectedly if the user had deliberately paused it.
+      String restoreTitle=title==null?"فيديو يوتيوب":title;
+      String restoreChannel=channel==null?"":channel;
+      if(prefs.getBoolean("bg_was_playing",false)){
+        play(new Video(restoreTitle,"https://www.youtube.com/watch?v="+storedId,
+          "",restoreChannel,"",0));
+      }else{
+        watchView=new NativeWatchView(this,()->dockMiniPlayer());
+        shell.addView(watchView,new FrameLayout.LayoutParams(-1,-1));
+        miniTitle.setText(restoreTitle);
+        watchView.openVideo(storedId,restoreTitle,restoreChannel,true);
+      }
     }
   }
   @Override protected void onResume(){
@@ -822,8 +832,9 @@ public class MainActivity extends Activity {
       watchView.savePlaybackPosition();
       // playWhenReady also covers buffering, so Android leaving during a
       // rebuffer does not terminate the background media session.
-      prefs.edit().putBoolean("bg_resume_requested",
-        watchView.keepAudioInBackground()).apply();
+      prefs.edit()
+        .putBoolean("bg_resume_requested",watchView.hasLoadedOrPendingVideo())
+        .putBoolean("bg_was_playing",watchView.isPlaybackRequested()).apply();
     }
     super.onStop();
   }
@@ -1118,9 +1129,9 @@ public class MainActivity extends Activity {
       // When Android removes the UI, the MediaSessionService owns audio playback.
       watchView.savePlaybackPosition();
       boolean continueAudio=watchView.keepAudioInBackground();
-      if(continueAudio){
-        prefs.edit().putBoolean("bg_resume_requested",true).apply();
-      }
+      prefs.edit()
+        .putBoolean("bg_resume_requested",watchView.hasLoadedOrPendingVideo())
+        .putBoolean("bg_was_playing",watchView.isPlaybackRequested()).apply();
       watchView.release(!continueAudio);
       shell.removeView(watchView);
       watchView=null;

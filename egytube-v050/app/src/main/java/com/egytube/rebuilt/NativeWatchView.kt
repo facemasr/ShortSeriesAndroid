@@ -861,6 +861,20 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     fun keepAudioInBackground():Boolean=
       !shutdown && player.currentMediaItem!=null && player.playWhenReady &&
         player.playbackState!=Player.STATE_ENDED
+    fun onReturnedToForeground(){
+      if(shutdown || videoId.isBlank())return
+      // A source URL can expire while the app is backgrounded. Only re-resolve
+      // after a real terminal player error; don't interrupt normal buffering.
+      if(player.playerError!=null &&
+        host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
+          .getBoolean("bg_resume_requested",false)){
+        synchronized(sourceLock){recentInfo.remove(videoId)}
+        openVideo(videoId,videoTitle,creator.text.toString())
+      }else if(player.currentMediaItem!=null && player.playWhenReady &&
+        player.playbackState==Player.STATE_IDLE){
+        player.prepare()
+      }
+    }
     fun reconnectExisting(id:String,title:String,channel:String){
       if(shutdown || player.currentMediaItem==null)return
       videoId=id

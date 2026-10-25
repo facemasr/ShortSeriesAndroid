@@ -1,4 +1,4 @@
-name: EGYTUBE v0.6.9 UI Preview
+name: EGYTUBE v0.7.4 Continuous Feed Preview
 on:
   push:
     branches:
@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: egytube-v074-continuous-feed
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -28,7 +30,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Compile EGYTUBE Android 0.6.9 preview
+      - name: Compile EGYTUBE v0.7.4 autoplay and pagination
         working-directory: ./egytube-v050
         run: gradle --no-daemon --console=plain :app:assembleDebug
       - name: Verify signed preview APK
@@ -47,20 +49,20 @@ jobs:
             fi
           done
           test "$found" -eq 1
-          cp "$APK" EGYTUBE-UI-Preview-v0.6.9.apk
+          cp "$APK" EGYTUBE-Autoplay-Feed-v0.7.4.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYTUBE-UI-Preview-v069
-          path: EGYTUBE-UI-Preview-v0.6.9.apk
+          name: EGYTUBE-Autoplay-Feed-v074
+          path: EGYTUBE-Autoplay-Feed-v0.7.4.apk
           if-no-files-found: error
       - name: Publish preview APK for direct download (preview branch only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/egytube-v069-ui-preview'
         run: |
           set -e
           mkdir -p public-downloads
-          cp EGYTUBE-UI-Preview-v0.6.9.apk public-downloads/EGYTUBE-UI-Preview-v0.6.9.apk
+          cp EGYTUBE-Autoplay-Feed-v0.7.4.apk public-downloads/EGYTUBE-Autoplay-Feed-v0.7.4.apk
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add public-downloads/EGYTUBE-UI-Preview-v0.6.9.apk
-          git commit -m 'Publish EGYTUBE 0.6.9 UI preview APK for direct download' || exit 0
-          git push origin HEAD:egytube-v069-ui-preview
+          git add public-downloads/EGYTUBE-Autoplay-Feed-v0.7.4.apk
+          git commit -m 'Publish EGYTUBE v0.7.4 continuous feed preview APK for direct download' || exit 0
+          git push origin HEAD:egytube-v074-continuous-feed

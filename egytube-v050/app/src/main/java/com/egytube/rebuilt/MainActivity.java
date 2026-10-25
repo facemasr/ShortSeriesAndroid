@@ -1062,7 +1062,7 @@ public class MainActivity extends Activity {
     send.setType("text/plain");
     send.putExtra(Intent.EXTRA_SUBJECT,"تطبيق EGYTUBE");
     send.putExtra(Intent.EXTRA_TEXT,
-      "حمّل تطبيق EGYTUBE للأندرويد من موقع EGYSHOW. أحدث إصدار والتحديثات هنا:\\n"+APP_PAGE);
+      "حمّل تطبيق EGYTUBE للأندرويد من موقع EGYSHOW. أحدث إصدار والتحديثات هنا:\n"+APP_PAGE);
     startActivity(Intent.createChooser(send,"مشاركة رابط تحميل EGYTUBE"));
   }
   private JSONObject getUpdateManifest(String path)throws Exception{

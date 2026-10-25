@@ -33,8 +33,10 @@ import java.util.concurrent.*;
 import java.util.regex.*;
 
 public class MainActivity extends Activity {
-  private static final String[] TABS={"الرئيسية","Shorts","الاشتراكات","المكتبة","حسابي"};
-  private static final String[] ICONS={"⌂","▶","▣","▤","◉"};
+  private static final String[] TABS={"الرئيسية","الاشتراكات","المكتبة","حسابي"};
+  private static final String[] ICONS={"⌂","▣","▤","◉"};
+  // Existing page identifiers remain stable, only Shorts is removed from navigation.
+  private static final int[] TAB_PAGE_IDS={0,2,3,4};
   private final int WHITE=0xffffffff, DARK=0xff171717, RED=0xffe62135, GREY=0xff696969, LIGHT=0xfff4f4f4;
   private final ExecutorService pool=Executors.newFixedThreadPool(5);
   private final Map<String,Bitmap> images=Collections.synchronizedMap(new LinkedHashMap<>());
@@ -54,7 +56,11 @@ public class MainActivity extends Activity {
   private SharedPreferences prefs;
   private int selected=0,requestId=0;
   private String currentQuery="";
-  private boolean currentShorts=false,loading=false;
+  private boolean loading=false,loadingNextPage=false,manualRetryNeeded=false;
+  private int displayedVideoCount=0,emptyPageCount=0;
+  private org.schabi.newpipe.extractor.Page nextSearchPage;
+  private final LinkedHashSet<String> currentVideoIds=new LinkedHashSet<>();
+  private TextView pageStatus;
 
   static class Video {
     String title,url,id,image,uploader,uploaderUrl;
@@ -98,6 +104,10 @@ public class MainActivity extends Activity {
     setupHeader();
     scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setVerticalScrollBarEnabled(false);
     feed=linear(LinearLayout.VERTICAL);scroll.addView(feed);app.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+    scroll.setOnScrollChangeListener((View view,int sx,int sy,int oldX,int oldY)->{
+      // Prefetch while the user is near the bottom; no polling or concurrent loads.
+      if(sy>oldY && feed.getHeight()-sy-scroll.getHeight()<dp(780))loadNextPage();
+    });
     setupMiniPlayer();
     bottom=linear(LinearLayout.HORIZONTAL);bottom.setBackgroundColor(WHITE);pad(bottom,4,4,4,5);
     app.addView(bottom,new LinearLayout.LayoutParams(-1,dp(61)));
@@ -220,7 +230,7 @@ public class MainActivity extends Activity {
     bottom.setBackgroundColor(WHITE);
     bottom.setElevation(dp(4));
     for(int i=0;i<TABS.length;i++){
-      final int tab=i;
+      final int tab=TAB_PAGE_IDS[i];
       final boolean active=tab==selected;
       LinearLayout wrap=linear(LinearLayout.VERTICAL);
       wrap.setGravity(Gravity.CENTER);
@@ -239,20 +249,20 @@ public class MainActivity extends Activity {
     }
   }
   private void show(int tab){
-    selected=tab;requestId++;loading=false;buildNav();feed.removeAllViews();list.clear();currentQuery="";
+    selected=tab;requestId++;resetSearchState();buildNav();feed.removeAllViews();list.clear();currentQuery="";
     scroll.smoothScrollTo(0,0);
     if(tab==0){
-      currentShorts=false;
       addHeading("اكتشف فيديوهات تناسبك");
       load("مقاطع فيديو جديدة 2026",false,requestId);
-    }else if(tab==1){
-      currentShorts=true;
-      addHeading("المقاطع القصيرة");
-      load("shorts",true,requestId);
     }else if(tab==2)subscriptionsScreen();
     else if(tab==3)libraryScreen();
     else if(tab==4)profileScreen();
     else searchScreen();
+  }
+  private void resetSearchState(){
+    loading=false;loadingNextPage=false;manualRetryNeeded=false;
+    displayedVideoCount=0;emptyPageCount=0;
+    nextSearchPage=null;pageStatus=null;currentVideoIds.clear();
   }
   private void addHeading(String label){
     TextView h=text(label,21,DARK,true);
@@ -283,10 +293,10 @@ public class MainActivity extends Activity {
     lane.addView(row);feed.addView(lane);
   }
   private void queryVideos(String q,boolean shorts){
-    selected=shorts?1:5;buildNav();requestId++;feed.removeAllViews();list.clear();
-    currentShorts=shorts;currentQuery=q;
-    addHeading(shorts?"Shorts":"نتائج البحث: "+q);
-    load(q,shorts,requestId);
+    selected=5;buildNav();requestId++;resetSearchState();feed.removeAllViews();list.clear();
+    currentQuery=q;
+    addHeading("نتائج البحث: "+q);
+    load(q,false,requestId);
   }
   private void hero(Video video){
     if(video.image==null||video.image.isEmpty())return;
@@ -391,60 +401,6 @@ public class MainActivity extends Activity {
       lp.leftMargin=dp(11);row.addView(tile,lp);
     }
     scrollX.addView(row);feed.addView(scrollX);
-  }
-  private void shortRail(int token){
-    sectionHead("المقاطع القصيرة",()->show(1));
-    LinearLayout holder=linear(LinearLayout.HORIZONTAL);
-    holder.setGravity(Gravity.CENTER_VERTICAL);pad(holder,15,10,15,10);
-    TextView pending=text("جارٍ جلب المقاطع القصيرة...",13,GREY,false);
-    holder.addView(pending);feed.addView(holder);
-    pool.execute(()->{
-      ArrayList<Video> clips=new ArrayList<>();
-      try{
-        SearchInfo results=SearchInfo.getInfo(NewPipe.getService(0),
-          NewPipe.getService(0).getSearchQHFactory().fromQuery("shorts"));
-        for(InfoItem item:results.getRelatedItems()){
-          if(!(item instanceof StreamInfoItem))continue;
-          StreamInfoItem v=(StreamInfoItem)item;
-          if(v.getStreamType()!=null && v.getStreamType().name().toUpperCase(Locale.ROOT).contains("LIVE"))continue;
-          long dur=v.getDuration();
-          if(!(v.isShortFormContent() || (dur>0&&dur<=180)))continue;
-          Video itemVideo=new Video(v.getName(),v.getUrl(),
-            v.getThumbnails().isEmpty()?"":v.getThumbnails().get(0).getUrl(),
-            v.getUploaderName(),v.getUploaderUrl(),dur);
-          if(itemVideo.id!=null)clips.add(itemVideo);
-          if(clips.size()>=8)break;
-        }
-      }catch(Exception ignored){}
-      runOnUiThread(()->{
-        if(isDestroyed()||isFinishing()||token!=requestId||selected!=0)return;
-        holder.removeAllViews();
-        if(clips.isEmpty()){
-          TextView open=actionChip("استكشف المقاطع القصيرة",()->show(1));holder.addView(open);
-          return;
-        }
-        HorizontalScrollView x=new HorizontalScrollView(this);x.setHorizontalScrollBarEnabled(false);
-        LinearLayout track=linear(LinearLayout.HORIZONTAL);
-        for(Video clip:clips){
-          remember(clip);
-          FrameLayout poster=new FrameLayout(this);
-          poster.setBackground(background(0xff101014,15));poster.setClipToOutline(true);
-          ImageView img=new ImageView(this);img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-          poster.addView(img,new FrameLayout.LayoutParams(-1,-1));showImage(clip.image,img);
-          GradientDrawable tint=new GradientDrawable(
-            GradientDrawable.Orientation.BOTTOM_TOP,new int[]{0xce000000,0x00000000});
-          View dark=new View(this);dark.setBackground(tint);
-          poster.addView(dark,new FrameLayout.LayoutParams(-1,-1));
-          TextView name=text(clip.title,13,WHITE,true);name.setMaxLines(3);
-          pad(name,7,3,7,10);
-          poster.addView(name,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
-          LinearLayout.LayoutParams t=new LinearLayout.LayoutParams(dp(132),dp(220));
-          t.leftMargin=dp(9);track.addView(poster,t);
-          poster.setOnClickListener(v->play(clip));
-        }
-        x.addView(track);holder.addView(x,new LinearLayout.LayoutParams(-1,-2));
-      });
-    });
   }
   private void compactRow(Video video){
     LinearLayout row=linear(LinearLayout.HORIZONTAL);pad(row,13,7,13,8);
@@ -622,46 +578,6 @@ public class MainActivity extends Activity {
     labels.setOnClickListener(v->play(video));
     box.addView(detail);
     feed.addView(box);
-  }
-  private void addShortCard(Video video){
-    FrameLayout tile=new FrameLayout(this);
-    tile.setBackground(background(0xff171717,19));tile.setClipToOutline(true);
-    int height=Math.min(dp(490),(int)(getResources().getDisplayMetrics().heightPixels*.65f));
-    ImageView preview=new ImageView(this);
-    preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
-    tile.addView(preview,new FrameLayout.LayoutParams(-1,-1));
-    showImage(video.image,preview);
-    android.graphics.drawable.GradientDrawable shade=new android.graphics.drawable.GradientDrawable(
-      android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,new int[]{0xe0000000,0x00000000});
-    View scrim=new View(this);scrim.setBackground(shade);
-    tile.addView(scrim,new FrameLayout.LayoutParams(-1,-1));
-    TextView center=text("▶",32,WHITE,true);center.setGravity(Gravity.CENTER);
-    center.setBackground(background(0x88000000,36));
-    tile.addView(center,new FrameLayout.LayoutParams(dp(68),dp(68),Gravity.CENTER));
-    LinearLayout info=linear(LinearLayout.VERTICAL);pad(info,14,8,14,17);
-    TextView title=text(video.title,19,WHITE,true);title.setMaxLines(2);
-    TextView channel=text("◉  "+video.uploader+"   ·   "+formatted(video.duration),13,WHITE,true);
-    info.addView(title);info.addView(channel);
-    FrameLayout.LayoutParams ilp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);tile.addView(info,ilp);
-    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,height);
-    lp.setMargins(dp(14),dp(4),dp(14),dp(15));feed.addView(tile,lp);
-    LinearLayout actions=linear(LinearLayout.VERTICAL);
-    actions.setGravity(Gravity.CENTER);pad(actions,0,2,0,3);
-    TextView like=text("♡",31,WHITE,true);like.setGravity(Gravity.CENTER);
-    TextView share=text("↗",32,WHITE,true);share.setGravity(Gravity.CENTER);
-    TextView save=text("▤",30,WHITE,true);save.setGravity(Gravity.CENTER);
-    TextView follow=text("⊕",30,WHITE,true);follow.setGravity(Gravity.CENTER);
-    for(TextView icon:new TextView[]{like,share,save,follow})
-      actions.addView(icon,new LinearLayout.LayoutParams(dp(55),dp(65)));
-    FrameLayout.LayoutParams actionsLp=new FrameLayout.LayoutParams(dp(55),-2,Gravity.LEFT|Gravity.CENTER_VERTICAL);
-    tile.addView(actions,actionsLp);
-    like.setOnClickListener(v->{archive("favorites",video);Toast.makeText(this,"أضيف للمفضلة",Toast.LENGTH_SHORT).show();});
-    save.setOnClickListener(v->{archive("watch_later",video);Toast.makeText(this,"تم الحفظ للمشاهدة لاحقًا",Toast.LENGTH_SHORT).show();});
-    share.setOnClickListener(v->{Intent send=new Intent(Intent.ACTION_SEND);send.setType("text/plain");
-      send.putExtra(Intent.EXTRA_TEXT,video.url);startActivity(Intent.createChooser(send,"مشاركة"));});
-    follow.setOnClickListener(v->{toggleFollow(video.uploader,video.uploaderUrl);});
-    tile.setOnClickListener(v->play(video));
-    tile.setOnLongClickListener(v->{menu(video);return true;});
   }
   private String formatted(long dur){
     if(dur>=3600)return String.format(Locale.US,"%d:%02d:%02d",dur/3600,(dur/60)%60,dur%60);

@@ -113,8 +113,9 @@ public class MainActivity extends Activity {
     app.addView(bottom,new LinearLayout.LayoutParams(-1,dp(61)));
     View line=new View(this);line.setBackgroundColor(0xffeeeeee);app.addView(line,new LinearLayout.LayoutParams(-1,dp(1)));
     String shared=getIntent()==null?null:getIntent().getStringExtra(Intent.EXTRA_TEXT);
-    if(shared!=null&&idFrom(shared)!=null)play(new Video("فيديو يوتيوب",shared,"","","",0));
     show(0);
+    if(shared!=null&&idFrom(shared)!=null)play(new Video("فيديو يوتيوب",shared,"","","",0));
+    else restoreWatchAfterBackground();
   }
   private void setupMiniPlayer(){
     miniBar=linear(LinearLayout.HORIZONTAL);
@@ -731,6 +732,10 @@ public class MainActivity extends Activity {
   }
   private void play(Video v){
     if(v.id==null){notice("رابط فيديو غير مدعوم");return;}
+    prefs.edit().putString("bg_video_id",v.id)
+      .putString("bg_video_title",v.title)
+      .putString("bg_video_channel",v.uploader)
+      .putBoolean("bg_resume_requested",true).apply();
     archive("history",v);
     if(watchView==null){
       watchView=new NativeWatchView(this, ()->dockMiniPlayer());
@@ -768,6 +773,10 @@ public class MainActivity extends Activity {
   }
   private void closeWatch(){
     if(watchView==null)return;
+    // Only explicit Close discards automatic resume; Back/Home never do.
+    prefs.edit().putBoolean("bg_resume_requested",false)
+      .remove("bg_video_id").remove("bg_video_title")
+      .remove("bg_video_channel").apply();
     restoreMiniAfterPip=false;
     miniVisible=false;
     miniBar.setVisibility(View.GONE);
@@ -777,6 +786,46 @@ public class MainActivity extends Activity {
     getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
     getWindow().setStatusBarColor(WHITE);
     getWindow().setNavigationBarColor(WHITE);
+  }
+  private void restoreWatchAfterBackground(){
+    if(watchView!=null || !prefs.getBoolean("bg_resume_requested",false))return;
+    String storedId=prefs.getString("bg_video_id","");
+    if(storedId==null || !storedId.matches("[A-Za-z0-9_-]{11}"))return;
+    androidx.media3.exoplayer.ExoPlayer active=PlaybackCore.INSTANCE.peek();
+    String title=prefs.getString("bg_video_title","فيديو يوتيوب");
+    String channel=prefs.getString("bg_video_channel","");
+    if(active!=null && active.getCurrentMediaItem()!=null &&
+       storedId.equals(active.getCurrentMediaItem().mediaId) &&
+       active.getPlaybackState()!=androidx.media3.common.Player.STATE_ENDED &&
+       active.getPlayerError()==null){
+      // The service already owns this ExoPlayer. Reattach the player view in
+      // place without recreating HTTP streams or losing the buffered position.
+      watchView=new NativeWatchView(this,()->dockMiniPlayer());
+      shell.addView(watchView,new FrameLayout.LayoutParams(-1,-1));
+      miniTitle.setText(title);
+      watchView.reconnectExisting(storedId,title==null?"فيديو يوتيوب":title,
+        channel==null?"":channel);
+    }else{
+      // Android may kill the entire process after prolonged background use.
+      // Re-resolve an expiring URL and seek to the saved resume position.
+      play(new Video(title==null?"فيديو يوتيوب":title,
+        "https://www.youtube.com/watch?v="+storedId,"",
+        channel==null?"":channel,"",0));
+    }
+  }
+  @Override protected void onResume(){
+    super.onResume();
+    if(watchView!=null)watchView.onReturnedToForeground();
+  }
+  @Override protected void onStop(){
+    if(watchView!=null){
+      watchView.savePlaybackPosition();
+      // playWhenReady also covers buffering, so Android leaving during a
+      // rebuffer does not terminate the background media session.
+      prefs.edit().putBoolean("bg_resume_requested",
+        watchView.keepAudioInBackground()).apply();
+    }
+    super.onStop();
   }
   @Override public void onBackPressed(){
     if(watchView!=null && !miniVisible){
@@ -1038,6 +1087,17 @@ public class MainActivity extends Activity {
     screenRow("⬇  التحميلات والتخزين","مدير تنزيلات الهاتف",this::systemDownloads);
     screenRow("◫  الوضع العائم PiP","أذونات التطبيق والتشغيل بالخلفية",
       ()->settingsScreen("pip"));
+    screenRow("⚡  الاستمرار في الخلفية","فتح إعدادات توفير البطارية للهاتف",
+      ()->new AlertDialog.Builder(this)
+        .setTitle("استمرار التشغيل في الخلفية")
+        .setMessage("يعتمد استمرار المشاهدة عند قفل الشاشة على خدمة التشغيل في التطبيق. "
+          +"قد توقف بعض الهواتف التطبيقات بسبب قيود البطارية. "
+          +"يمكنك اختيار السماح لـ EGYTUBE بالتشغيل في الخلفية من إعدادات النظام. "
+          +"لن يغيّر التطبيق إعدادات البطارية دون اختيارك.")
+        .setPositiveButton("فتح إعدادات البطارية",(d,w)->{
+          try{startActivity(new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));}
+          catch(Exception error){settingsScreen("settings");}
+        }).setNegativeButton("إلغاء",null).show());
     screenRow("◷  الخصوصية","التحكم في سجل المشاهدة المحلي",this::clearHistory);
     screenRow("◉  اللغة","العربية — الواجهة الحالية",
       ()->notice("الواجهة الحالية باللغة العربية."));
@@ -1056,7 +1116,11 @@ public class MainActivity extends Activity {
   @Override protected void onDestroy(){
     if(watchView!=null){
       // When Android removes the UI, the MediaSessionService owns audio playback.
-      boolean continueAudio=watchView.isPlayingVideo();
+      watchView.savePlaybackPosition();
+      boolean continueAudio=watchView.keepAudioInBackground();
+      if(continueAudio){
+        prefs.edit().putBoolean("bg_resume_requested",true).apply();
+      }
       watchView.release(!continueAudio);
       shell.removeView(watchView);
       watchView=null;

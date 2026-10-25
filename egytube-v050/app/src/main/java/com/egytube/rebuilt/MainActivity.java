@@ -813,6 +813,10 @@ public class MainActivity extends Activity {
         channel==null?"":channel,"",0));
     }
   }
+  @Override protected void onResume(){
+    super.onResume();
+    if(watchView!=null)watchView.onReturnedToForeground();
+  }
   @Override protected void onStop(){
     if(watchView!=null){
       watchView.savePlaybackPosition();

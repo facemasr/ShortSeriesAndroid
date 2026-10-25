@@ -38,7 +38,7 @@ class PlaybackService:MediaSessionService(){
   override fun onDestroy(){
     session?.release()
     session=null
-    PlaybackCore.dispose()
+    PlaybackCore.disposeWhenUnused()
     super.onDestroy()
   }
 }

@@ -13,6 +13,14 @@ import androidx.media3.exoplayer.DefaultLoadControl
  */
 object PlaybackCore {
   private var instance:ExoPlayer?=null
+  private var attachedUiCount=0
+  @Synchronized fun attachUi(){attachedUiCount++}
+  @Synchronized fun detachUi(){attachedUiCount=(attachedUiCount-1).coerceAtLeast(0)}
+  @Synchronized fun disposeWhenUnused(){
+    // A paused MediaSessionService may be torn down even while the watch
+    // Activity is visible. Do not release ExoPlayer out from under its UI.
+    if(attachedUiCount==0)dispose()
+  }
   @Synchronized fun get(context:Context):ExoPlayer {
     val existing=instance
     if(existing!=null)return existing

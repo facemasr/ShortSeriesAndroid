@@ -943,7 +943,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       // Keep the current Media3 session alive; do not re-extract media if it is ready.
       if(player.currentMediaItem==null && playbackPrefs.getBoolean("active_video_was_playing",false)){
         val id=playbackPrefs.getString("active_video_id",null)
-        if(id==videoId)openVideo(id,videoTitle,creator.text.toString())
+        if(id!=null && id==videoId)openVideo(id,videoTitle,creator.text.toString())
       } else if(player.currentMediaItem!=null &&
         !player.isPlaying && player.playbackState!=Player.STATE_ENDED &&
         playbackPrefs.getBoolean("active_video_was_playing",false)){

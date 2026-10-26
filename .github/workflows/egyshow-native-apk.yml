@@ -63,14 +63,14 @@ jobs:
         run: flutter analyze --no-fatal-infos lib/main.dart
       - name: Build APK
         run: flutter build apk --release
-      - name: Verify APK matches original EGYSHOW signing certificate
+      - name: Verify APK matches EGYSHOW 2.0.1 signing certificate
         run: |
           set -euo pipefail
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           SIGNER="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
           test -n "$SIGNER"
           CERT="$("$SIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
-          EXPECTED="77a1db62a9596a58be7e42b50a72933c215a504391c200fe6dbce95a77f176cb"
+          EXPECTED="1c390398d4c4efb79bfa300c061590c9f272f5db33978158e114d5a320a95daa"
           if [ "$CERT" != "$EXPECTED" ]; then
             echo "::error::EGYSHOW release signing certificate mismatch. Refusing to publish an incompatible APK."
             exit 1

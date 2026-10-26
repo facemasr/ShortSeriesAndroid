@@ -1,4 +1,4 @@
-name: EGYTUBE v0.6.9 UI Preview
+name: EGYTUBE 0.8.1 Download Manager Share Row Staging
 on:
   push:
     branches:
@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: egytube-v081-downloads-share-row
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -28,16 +30,16 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Compile EGYTUBE Android 0.6.9 preview
+      - name: Compile EGYTUBE v0.8.1 downloads release
         working-directory: ./egytube-v050
-        run: gradle --no-daemon --console=plain :app:assembleDebug
-      - name: Verify signed preview APK
+        run: gradle --no-daemon --console=plain :app:assembleRelease
+      - name: Verify release staging APK
         run: |
           set -e
-          APK=egytube-v050/app/build/outputs/apk/debug/app-debug.apk
+          APK=egytube-v050/app/build/outputs/apk/release/app-release-unsigned.apk
           test -s "$APK"
           unzip -t "$APK" | tail -1
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
+          # The final APK is signed and verified on the authorized EGYSHOW VPS.
           unzip -p "$APK" classes.dex | strings | grep 'MainActivity' > /dev/null
           found=0
           for dex in $(unzip -Z1 "$APK" | grep -E '^classes[0-9]*[.]dex'); do
@@ -47,20 +49,20 @@ jobs:
             fi
           done
           test "$found" -eq 1
-          cp "$APK" EGYTUBE-UI-Preview-v0.6.9.apk
+          cp "$APK" EGYTUBE-v0.8.1-UNSIGNED-staging.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYTUBE-UI-Preview-v069
-          path: EGYTUBE-UI-Preview-v0.6.9.apk
+          name: EGYTUBE-v081-release-staging
+          path: EGYTUBE-v0.8.1-UNSIGNED-staging.apk
           if-no-files-found: error
       - name: Publish preview APK for direct download (preview branch only)
         if: github.event_name == 'push' && github.ref == 'refs/heads/egytube-v069-ui-preview'
         run: |
           set -e
           mkdir -p public-downloads
-          cp EGYTUBE-UI-Preview-v0.6.9.apk public-downloads/EGYTUBE-UI-Preview-v0.6.9.apk
+          cp EGYTUBE-v0.8.1-UNSIGNED-staging.apk public-downloads/EGYTUBE-v0.8.1-UNSIGNED-staging.apk
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add public-downloads/EGYTUBE-UI-Preview-v0.6.9.apk
-          git commit -m 'Publish EGYTUBE 0.6.9 UI preview APK for direct download' || exit 0
-          git push origin HEAD:egytube-v069-ui-preview
+          git add public-downloads/EGYTUBE-v0.8.1-UNSIGNED-staging.apk
+          git commit -m 'Stage EGYTUBE 0.8.1 release APK for stable signing on EGYSHOW' || exit 0
+          git push origin HEAD:egytube-v081-downloads-share-row

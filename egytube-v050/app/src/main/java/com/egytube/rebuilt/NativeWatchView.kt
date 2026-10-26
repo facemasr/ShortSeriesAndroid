@@ -376,21 +376,29 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       actions.gravity=Gravity.CENTER_VERTICAL
       padding(actions,10,2,10,11)
       val share=text("↗ مشاركة",14f,colorText)
-      padding(share,10,9,10,9);actions.addView(share,LinearLayout.LayoutParams(0,-2,1f))
+      share.gravity=Gravity.CENTER
+      padding(share,8,9,8,9);actions.addView(share,LinearLayout.LayoutParams(0,-2,1f))
       share.setOnClickListener{
         val i=Intent(Intent.ACTION_SEND)
         i.type="text/plain";i.putExtra(Intent.EXTRA_TEXT,"https://www.youtube.com/watch?v=$videoId")
         host.startActivity(Intent.createChooser(i,"مشاركة"))
       }
+      val download=text("⬇ تحميل",14f,colorText)
+      padding(download,8,9,8,9)
+      download.gravity=Gravity.CENTER
+      actions.addView(download,LinearLayout.LayoutParams(0,-2,1f))
+      download.setOnClickListener{showDownloadQualities()}
       val favorite=text("☆ حفظ",14f,colorText)
-      padding(favorite,10,9,10,9);actions.addView(favorite,LinearLayout.LayoutParams(0,-2,1f))
+      favorite.gravity=Gravity.CENTER
+      padding(favorite,8,9,8,9);actions.addView(favorite,LinearLayout.LayoutParams(0,-2,1f))
       favorite.setOnClickListener{
         val p=host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE)
         p.edit().putString("lastSavedVideo","https://www.youtube.com/watch?v=$videoId").apply()
         Toast.makeText(host,"تم حفظ رابط الفيديو",Toast.LENGTH_SHORT).show()
       }
       val like=text("♡ إعجاب",14f,colorText)
-      padding(like,10,9,10,9);actions.addView(like,LinearLayout.LayoutParams(0,-2,1f))
+      like.gravity=Gravity.CENTER
+      padding(like,8,9,8,9);actions.addView(like,LinearLayout.LayoutParams(0,-2,1f))
       like.setOnClickListener{like.text=if(like.text.toString().startsWith("♡"))"♥ أعجبني" else "♡ إعجاب"}
       below.addView(actions)
       val divider=View(host);divider.setBackgroundColor(0xffededed.toInt())
@@ -602,7 +610,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           val score=if(name.contains("MPEG_4") || name.contains("MP4"))100000 else 0
           score-kotlin.math.abs(it.height.coerceAtLeast(0)-720)
         }
-      combined.forEach{available+=Source("${it.resolution} · صوت وصورة",it.content)}
+      combined.forEach{
+        val container=if(it.format?.name.orEmpty().contains("WEBM",true))"webm" else "mp4"
+        available+=Source("${it.resolution} · صوت وصورة",it.content,extension=container)
+      }
       if(!info.hlsUrl.isNullOrBlank()&&info.hlsUrl.startsWith("https://"))
         available+=Source("تلقائي · HLS",info.hlsUrl,mime=MimeTypes.APPLICATION_M3U8)
       if(!info.dashMpdUrl.isNullOrBlank()&&info.dashMpdUrl.startsWith("https://"))
@@ -649,6 +660,29 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         if(!shutdown && videoToken==ticket && fallbackIsPending && next !in unsuccessfulSources)
           choose(next,positionOverride=fallbackResumeMs,automaticFallback=true)
       }
+    }
+    private fun showDownloadQualities(){
+      if(shutdown || videoId.isBlank())return
+      // Only present progressive audio+video options; DASH split tracks would
+      // otherwise produce downloaded silent video without remuxing.
+      val downloadable=formats.filter{
+        it.audio==null && it.mime==null && it.url.startsWith("https://") &&
+          (it.extension=="mp4" || it.extension=="webm")
+      }.distinctBy{it.label+"|"+it.extension}
+      if(downloadable.isEmpty()){
+        Toast.makeText(host,"لم تتوفر جودة قابلة للتنزيل بالصوت والصورة لهذا الفيديو",Toast.LENGTH_LONG).show()
+        return
+      }
+      val labels=downloadable.map{it.label+"  ·  "+it.extension.uppercase(Locale.ROOT)}.toTypedArray()
+      android.app.AlertDialog.Builder(host)
+        .setTitle("اختر جودة تحميل الفيديو")
+        .setItems(labels){_,which->
+          if(which in downloadable.indices){
+            val option=downloadable[which]
+            val resolution=option.label.substringBefore(" · ").trim()
+            host.requestVideoDownload(videoId,videoTitle,resolution,option.url,option.extension)
+          }
+        }.setNegativeButton("إلغاء",null).show()
     }
     private fun showQuality(){
       if(formats.isEmpty()){
@@ -1169,5 +1203,5 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       }
       advertisement.stopLoading();advertisement.destroy()
     }
-    private data class Source(val label:String,val url:String,val audio:String?=null,val mime:String?=null)
+    private data class Source(val label:String,val url:String,val audio:String?=null,val mime:String?=null,val extension:String="mp4")
 }

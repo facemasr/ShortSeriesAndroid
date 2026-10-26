@@ -50,12 +50,32 @@ jobs:
             <path android:fillColor="#FFFFFF" android:pathData="M39,28L39,80L82,54z"/>
           </vector>""")
           PY
+      - name: Configure verified production signing
+        env:
+          EGYSHOW_RELEASE_KEYSTORE_BASE64: ${{ secrets.EGYSHOW_RELEASE_KEYSTORE_BASE64 }}
+          EGYSHOW_RELEASE_STORE_PASSWORD: ${{ secrets.EGYSHOW_RELEASE_STORE_PASSWORD }}
+          EGYSHOW_RELEASE_KEY_ALIAS: ${{ secrets.EGYSHOW_RELEASE_KEY_ALIAS }}
+          EGYSHOW_RELEASE_KEY_PASSWORD: ${{ secrets.EGYSHOW_RELEASE_KEY_PASSWORD }}
+        run: python3 scripts/configure_egyshow_release_signing.py
       - name: Dependencies
         run: flutter pub get
       - name: Analyze code
         run: flutter analyze --no-fatal-infos lib/main.dart
       - name: Build APK
         run: flutter build apk --release
+      - name: Verify APK matches original EGYSHOW signing certificate
+        run: |
+          set -euo pipefail
+          SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
+          SIGNER="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$SIGNER"
+          CERT="$("$SIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
+          EXPECTED="77a1db62a9596a58be7e42b50a72933c215a504391c200fe6dbce95a77f176cb"
+          if [ "$CERT" != "$EXPECTED" ]; then
+            echo "::error::EGYSHOW release signing certificate mismatch. Refusing to publish an incompatible APK."
+            exit 1
+          fi
+          echo "Original EGYSHOW signing certificate verified."
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:

@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Only the video screen embeds EGYSHOW's existing player.
 /// Catalog, search, accounts, and episode listings remain native Flutter.
@@ -34,6 +36,55 @@ class _EgyshowSitePlayerState extends State<EgyshowSitePlayer>
   int progress = 0;
   bool failed = false;
 
+  static const String adPath = '/9529e3f1ef2eb6a8d82a/c8e08cf113/';
+  static const String adCapKey = 'egyshow.mobile.externalad.last';
+
+  /// Only open the configured EGYSHOW campaign in Android's default browser.
+  Future<void> _openExternalAd(JavaScriptMessage message) async {
+    final uri = Uri.tryParse(message.message);
+    if (uri == null || uri.scheme != 'https' || uri.host != 'data527.click' ||
+        uri.path != adPath || uri.queryParameters['placementName'] != 'default' ||
+        uri.userInfo.isNotEmpty || !mounted) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final last = prefs.getInt(adCapKey) ?? 0;
+      if (last > 0 && now - last < const Duration(hours: 24).inMilliseconds) return;
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (opened) await prefs.setInt(adCapKey, now);
+    } catch (_) {
+      // A blocked ad must never interfere with video playback.
+    }
+  }
+
+  /// EGYSHOW's player opens its ad using window.open on a real tap.
+  /// Transfer only that ad destination to the Android default browser.
+  Future<void> _installExternalAdBridge() async {
+    try {
+      await controller.runJavaScript(r"""
+        (function () {
+          if (window.__egyshowNativeBrowserBridge || !window.EgyshowExternalAd) return;
+          window.__egyshowNativeBrowserBridge = true;
+          const originalOpen = window.open;
+          window.open = function (url, target, features) {
+            try {
+              const next = new URL(String(url), location.href);
+              if (target === '_blank' &&
+                  next.protocol === 'https:' &&
+                  next.hostname === 'data527.click' &&
+                  next.pathname === '/9529e3f1ef2eb6a8d82a/c8e08cf113/' &&
+                  next.searchParams.get('placementName') === 'default') {
+                window.EgyshowExternalAd.postMessage(next.href);
+                return null;
+              }
+            } catch (_) {}
+            return originalOpen.apply(window, arguments);
+          };
+        })();
+      """);
+    } catch (_) {}
+  }
+
   Uri get url => Uri.https('egyshow.com', '/watch', {
     'target_type': widget.type,
     'target_id': widget.id.toString(),
@@ -46,6 +97,8 @@ class _EgyshowSitePlayerState extends State<EgyshowSitePlayer>
     WidgetsBinding.instance.addObserver(this);
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..addJavaScriptChannel('EgyshowExternalAd',
+          onMessageReceived: _openExternalAd)
       ..setBackgroundColor(Colors.black)
       ..setNavigationDelegate(NavigationDelegate(
         onProgress: (value) {
@@ -56,6 +109,7 @@ class _EgyshowSitePlayerState extends State<EgyshowSitePlayer>
         },
         onPageFinished: (_) async {
           if (mounted) setState(() => progress = 100);
+          await _installExternalAdBridge();
           // Synchronize a signed-in account only with our own first-party page.
           final token = widget.token;
           if (token != null && token.isNotEmpty) {

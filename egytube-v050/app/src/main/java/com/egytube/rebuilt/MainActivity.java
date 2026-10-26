@@ -18,6 +18,16 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.*;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import androidx.work.WorkManager;
+import androidx.work.WorkInfo;
+import androidx.work.Data;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.Constraints;
+import androidx.work.NetworkType;
+import java.util.UUID;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -65,6 +75,19 @@ public class MainActivity extends Activity {
   private org.schabi.newpipe.extractor.Page nextSearchPage;
   private final LinkedHashSet<String> currentVideoIds=new LinkedHashSet<>();
   private TextView pageStatus;
+  private static final int CHOOSE_DOWNLOAD_FOLDER=902;
+  private String[] pendingDownload;
+  private boolean downloadsVisible=false;
+  private int downloadsScreenToken=0;
+  private LinearLayout downloadItems;
+  private final Handler downloadsUi=new Handler(Looper.getMainLooper());
+  private final Runnable downloadsRefresh=new Runnable(){
+    @Override public void run(){
+      if(!downloadsVisible||isFinishing()||isDestroyed())return;
+      renderDownloadItems();
+      downloadsUi.postDelayed(this,2400);
+    }
+  };
 
   static class Video {
     String title,url,id,image,uploader,uploaderUrl;
@@ -255,6 +278,8 @@ public class MainActivity extends Activity {
     }
   }
   private void show(int tab){
+    downloadsVisible=false;
+    downloadsUi.removeCallbacks(downloadsRefresh);
     selected=tab;requestId++;resetSearchState();buildNav();feed.removeAllViews();list.clear();currentQuery="";
     scroll.smoothScrollTo(0,0);
     if(tab==0){
@@ -957,7 +982,190 @@ public class MainActivity extends Activity {
   }
   private void systemDownloads(){
     try{startActivity(new Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS));}
-    catch(Exception error){notice("لا يتوفر مدير تنزيلات على هذا الجهاز.");}
+    catch(Exception error){notice("لا يتوفر مدير التنزيلات على الجهاز.");}
+  }
+  void requestVideoDownload(String id,String title,String quality,String url,String ext){
+    if(id==null||title==null||url==null||!url.startsWith("https://"))return;
+    String tree=prefs.getString("video_download_tree","");
+    ArrayList<String> actions=new ArrayList<>();
+    actions.add(Build.VERSION.SDK_INT>=29?"مجلد التنزيلات الافتراضي · Download/EGYTUBE":"اختيار مجلد على هذا الجهاز");
+    if(!tree.isEmpty())actions.add("المجلد الذي اخترته سابقًا");
+    actions.add("اختيار مجلد حفظ جديد");
+    new AlertDialog.Builder(this)
+      .setTitle("حفظ "+quality+" · "+title)
+      .setItems(actions.toArray(new String[0]),(d,which)->{
+        if(which==0){
+          if(Build.VERSION.SDK_INT>=29)enqueueVideoDownload(id,title,quality,url,ext,"");
+          else chooseDownloadFolder(new String[]{id,title,quality,url,ext});
+        }else if(!tree.isEmpty() && which==1){
+          enqueueVideoDownload(id,title,quality,url,ext,tree);
+        }else{
+          chooseDownloadFolder(new String[]{id,title,quality,url,ext});
+        }
+      }).setNegativeButton("إلغاء",null).show();
+  }
+  private void chooseDownloadFolder(String[] request){
+    pendingDownload=request;
+    try{
+      Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+      picker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION |
+        Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+      startActivityForResult(picker,CHOOSE_DOWNLOAD_FOLDER);
+    }catch(Exception e){
+      pendingDownload=null;
+      notice("اختيار مجلد الحفظ غير مدعوم على هذا الجهاز");
+    }
+  }
+  @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
+    super.onActivityResult(requestCode,resultCode,data);
+    if(requestCode!=CHOOSE_DOWNLOAD_FOLDER)return;
+    String[] selected=pendingDownload;
+    pendingDownload=null;
+    if(resultCode!=RESULT_OK || data==null||data.getData()==null)return;
+    Uri folder=data.getData();
+    try{
+      getContentResolver().takePersistableUriPermission(folder,
+        Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+      prefs.edit().putString("video_download_tree",folder.toString()).apply();
+      if(selected!=null && selected.length==5)
+        enqueueVideoDownload(selected[0],selected[1],selected[2],selected[3],selected[4],folder.toString());
+      else notice("تم اختيار مجلد التنزيلات. يمكنك استخدامه في التنزيلات القادمة.");
+      if(downloadsVisible)renderDownloadItems();
+    }catch(Exception e){notice("تعذر الاحتفاظ بإذن مجلد الحفظ. اختر مجلدًا آخر.");}
+  }
+  private void enqueueVideoDownload(String videoId,String title,String quality,String url,String ext,String tree){
+    Data data=new Data.Builder()
+      .putString(VideoDownloadWorker.K_VIDEO,videoId)
+      .putString(VideoDownloadWorker.K_URL,url)
+      .putString(VideoDownloadWorker.K_TITLE,title)
+      .putString(VideoDownloadWorker.K_QUALITY,quality)
+      .putString(VideoDownloadWorker.K_EXT,ext)
+      .putString(VideoDownloadWorker.K_TREE,tree).build();
+    OneTimeWorkRequest job=new OneTimeWorkRequest.Builder(VideoDownloadWorker.class)
+      .setInputData(data)
+      .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+      .addTag(VideoDownloadWorker.TAG).build();
+    DownloadCatalog.register(this,job.getId().toString(),title,quality,
+      tree.isEmpty()?"Downloads/EGYTUBE":"المجلد الذي اخترته");
+    WorkManager.getInstance(this).enqueue(job);
+    notice("بدأ تنزيل "+quality+" · يمكنك متابعة التقدم في قسم التنزيلات");
+    if(Build.VERSION.SDK_INT>=33 &&
+        checkSelfPermission("android.permission.POST_NOTIFICATIONS")!=
+          android.content.pm.PackageManager.PERMISSION_GRANTED)
+      requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"},916);
+  }
+  private void downloadsScreen(){
+    downloadsVisible=true;
+    downloadsUi.removeCallbacks(downloadsRefresh);
+    requestId++;resetSearchState();
+    selected=3;buildNav();feed.removeAllViews();list.clear();
+    scroll.scrollTo(0,0);
+    addHeading("التنزيلات");
+    String tree=prefs.getString("video_download_tree","");
+    screenRow("📂  مجلد التنزيلات",
+      tree.isEmpty()?"Downloads/EGYTUBE · يمكنك اختيار مجلد آخر":"تم اختيار مجلد خاص للحفظ",
+      ()->chooseDownloadFolder(null));
+    screenRow("↗  مدير تنزيلات الهاتف","يمكنك العثور على الملفات في مدير الملفات",this::systemDownloads);
+    downloadItems=linear(LinearLayout.VERTICAL);
+    feed.addView(downloadItems,new LinearLayout.LayoutParams(-1,-2));
+    renderDownloadItems();
+    downloadsUi.postDelayed(downloadsRefresh,2400);
+  }
+  private void renderDownloadItems(){
+    if(!downloadsVisible || downloadItems==null)return;
+    final int token=++downloadsScreenToken;
+    final List<JSONObject> entries=DownloadCatalog.entries(this);
+    pool.execute(()->{
+      Map<String,WorkInfo> states=new HashMap<>();
+      try{
+        for(WorkInfo info:WorkManager.getInstance(this).getWorkInfosByTag(VideoDownloadWorker.TAG)
+          .get(8,TimeUnit.SECONDS)){
+          states.put(info.getId().toString(),info);
+        }
+      }catch(Exception ignored){}
+      runOnUiThread(()->{
+        if(!downloadsVisible||token!=downloadsScreenToken ||isFinishing())return;
+        downloadItems.removeAllViews();
+        if(entries.isEmpty()){
+          TextView msg=text("لا توجد تنزيلات بعد. افتح فيديو واضغط تحميل أسفل الفيديو بجوار المشاركة.",14,GREY,false);
+          pad(msg,18,25,18,26);
+          downloadItems.addView(msg);
+          return;
+        }
+        for(JSONObject entry:entries){
+          String id=entry.optString("id"),title=entry.optString("title","فيديو");
+          String quality=entry.optString("quality"),location=entry.optString("folder");
+          String persisted=entry.optString("state","queued");
+          WorkInfo work=states.get(id);
+          String state=work!=null?work.getState().name():persisted.toUpperCase(Locale.ROOT);
+          int percent=work!=null?work.getProgress().getInt("percent",-1):-1;
+          if(work!=null && work.getState()==WorkInfo.State.SUCCEEDED)state="DONE";
+          if(work!=null && work.getState()==WorkInfo.State.CANCELLED)state="CANCELLED";
+          if(work!=null && work.getState()==WorkInfo.State.FAILED)state="FAILED";
+          final String finalState=state;
+          LinearLayout box=linear(LinearLayout.VERTICAL);
+          pad(box,14,11,14,12);
+          box.setBackground(background(0xfff5f5f6,13));
+          TextView titleView=text(title,15,DARK,true);
+          titleView.setMaxLines(2);
+          box.addView(titleView);
+          String status=(state.equals("DONE")?"اكتمل التنزيل":
+            state.equals("RUNNING")?"جارٍ التنزيل"+(percent>=0?" · "+percent+"%":""):
+            state.equals("CANCELLED")?"ملغى":
+            state.equals("FAILED")?"فشل التنزيل":"في انتظار بدء التنزيل");
+          TextView detail=text(quality+" · "+status+"\nالحفظ: "+location,12,GREY,false);
+          pad(detail,0,5,0,7);
+          box.addView(detail);
+          if("RUNNING".equals(state) && percent>=0){
+            ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+            progress.setMax(100);progress.setProgress(percent);
+            box.addView(progress,new LinearLayout.LayoutParams(-1,dp(6)));
+          }
+          LinearLayout row=linear(LinearLayout.HORIZONTAL);
+          row.setGravity(Gravity.CENTER_VERTICAL);
+          if("DONE".equals(state)){
+            String uri=entry.optString("uri");
+            if(uri.isEmpty()&&work!=null)uri=work.getOutputData().getString("uri");
+            final String fileUri=uri;
+            TextView open=text("▶ فتح الملف",14,RED,true);
+            pad(open,9,10,9,10);row.addView(open,new LinearLayout.LayoutParams(0,-2,1));
+            open.setOnClickListener(v->openDownloadedVideo(fileUri));
+          }else if("RUNNING".equals(state)||"ENQUEUED".equals(state)||"BLOCKED".equals(state)){
+            TextView stop=text("× إلغاء التنزيل",14,RED,true);
+            pad(stop,9,10,9,10);row.addView(stop,new LinearLayout.LayoutParams(0,-2,1));
+            stop.setOnClickListener(v->{
+              try{WorkManager.getInstance(this).cancelWorkById(UUID.fromString(id));}catch(Exception ignored){}
+              DownloadCatalog.update(this,id,"cancelled",null,null);
+              renderDownloadItems();
+            });
+          }else{
+            TextView hint=text(entry.optString("error","يمكنك فتح الفيديو وإعادة التنزيل"),12,GREY,false);
+            row.addView(hint,new LinearLayout.LayoutParams(0,-2,1));
+          }
+          TextView forget=text("إزالة من القائمة",12,GREY,false);
+          pad(forget,8,10,8,10);row.addView(forget);
+          forget.setOnClickListener(v->new AlertDialog.Builder(this)
+            .setMessage("إزالة هذا التنزيل من القائمة فقط؟ لن يُحذف الملف المحفوظ.")
+            .setPositiveButton("إزالة",(d,w)->{
+              DownloadCatalog.forget(this,id);renderDownloadItems();
+            }).setNegativeButton("إلغاء",null).show());
+          box.addView(row);
+          LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+          p.setMargins(dp(12),dp(7),dp(12),dp(7));
+          downloadItems.addView(box,p);
+        }
+      });
+    });
+  }
+  private void openDownloadedVideo(String value){
+    if(value==null||value.isEmpty()){notice("لم يتم العثور على الملف المحفوظ");return;}
+    try{
+      Uri uri=Uri.parse(value);
+      Intent open=new Intent(Intent.ACTION_VIEW);
+      open.setDataAndType(uri,value.toLowerCase(Locale.ROOT).contains(".webm")?"video/webm":"video/mp4");
+      open.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+      startActivity(Intent.createChooser(open,"فتح الفيديو"));
+    }catch(Exception e){notice("تعذر فتح الملف. يمكنك العثور عليه باستخدام مدير ملفات الهاتف.");}
   }
   private void subscriptionsScreen(){
     sectionHead("الاشتراكات",null);
@@ -1033,7 +1241,7 @@ public class MainActivity extends Activity {
     screenRow("▤  قوائم التشغيل","الفيديوهات المحفوظة في المفضلة",()->{
       requestId++;feed.removeAllViews();sectionHead("قائمة المفضلة",null);saved("favorites");
     });
-    screenRow("⬇  التنزيلات","عرض تنزيلات هذا الجهاز",this::systemDownloads);
+    screenRow("⬇  التنزيلات","ملفات EGYTUBE المحمّلة والتقدّم ومجلد الحفظ",this::downloadsScreen);
     screenRow("◷  المشاهدة لاحقًا","المحفوظة للمشاهدة • "+countSaved("watch_later"),()->{
       requestId++;feed.removeAllViews();sectionHead("المشاهدة لاحقًا",null);saved("watch_later");
     });
@@ -1192,7 +1400,7 @@ public class MainActivity extends Activity {
       ()->settingsScreen("settings"));
     screenRow("▶  تفضيلات التشغيل","إعدادات الجودة والسرعة داخل المشغّل",
       ()->notice("يمكنك تغيير الجودة والسرعة والترجمة من أدوات مشغّل الفيديو نفسه."));
-    screenRow("⬇  التحميلات والتخزين","مدير تنزيلات الهاتف",this::systemDownloads);
+    screenRow("⬇  التحميلات والتخزين","ملفات الفيديو المحمّلة ومكان حفظها",this::downloadsScreen);
     screenRow("◫  الوضع العائم PiP","أذونات التطبيق والتشغيل بالخلفية",
       ()->settingsScreen("pip"));
     screenRow("⚡  الاستمرار في الخلفية","فتح إعدادات توفير البطارية للهاتف",
@@ -1223,6 +1431,8 @@ public class MainActivity extends Activity {
     placeholder("لا توجد مزامنة حساب Google في هذه النسخة، ولا تُعرض بيانات مستخدمين وهمية.");
   }
   @Override protected void onDestroy(){
+    downloadsVisible=false;
+    downloadsUi.removeCallbacks(downloadsRefresh);
     if(watchView!=null){
       // When Android removes the UI, the MediaSessionService owns audio playback.
       watchView.savePlaybackPosition();

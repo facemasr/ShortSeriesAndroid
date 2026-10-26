@@ -11,6 +11,7 @@ import 'native_banner_ads.dart';
 import 'native_sections.dart';
 import 'native_home_sections.dart';
 import 'native_visit_analytics.dart';
+import 'in_app_updates.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -114,7 +115,7 @@ class NativeShell extends StatefulWidget {
   State<NativeShell> createState() => _NativeShellState();
 }
 
-class _NativeShellState extends State<NativeShell> {
+class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   final api = EgyApi();
   SharedPreferences? prefs;
   bool ar = true;
@@ -134,7 +135,18 @@ class _NativeShellState extends State<NativeShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _start();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) EgyshowAppUpdates.check(context, ar: ar);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      EgyshowAppUpdates.check(context, ar: ar);
+    }
   }
 
   Future<void> _start() async {
@@ -314,6 +326,7 @@ class _NativeShellState extends State<NativeShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     searchTimer?.cancel();
     api.dispose();
     super.dispose();
@@ -480,7 +493,13 @@ class _NativeShellState extends State<NativeShell> {
         value: ar, onChanged: (_) => _switchLang(),
         title: Text(tr(ar, 'الواجهة العربية', 'Arabic interface')),
       ),
-      const ListTile(title: Text('EGYSHOW Native'), subtitle: Text('Android native • v1.0')),
+      ListTile(
+        leading: const Icon(Icons.system_update_alt),
+        title: Text(tr(ar, 'التحقق من تحديثات التطبيق', 'Check for app updates')),
+        onTap: () => EgyshowAppUpdates.check(context, ar: ar, manual: true),
+      ),
+      const ListTile(title: Text('EGYSHOW Native'),
+        subtitle: Text('Android • update checks enabled')),
     ]);
   }
 

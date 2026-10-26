@@ -57,27 +57,62 @@ class _EgyshowSitePlayerState extends State<EgyshowSitePlayer>
     }
   }
 
-  /// EGYSHOW's player opens its ad using window.open on a real tap.
-  /// Transfer only that ad destination to the Android default browser.
+  /// Listen to actual taps in the site player. Android WebView frequently
+  /// blocks window.open popups, so relying on it alone misses the first tap.
+  /// Forward only our ad campaign to the native Android browser intent.
   Future<void> _installExternalAdBridge() async {
     try {
       await controller.runJavaScript(r"""
         (function () {
           if (window.__egyshowNativeBrowserBridge || !window.EgyshowExternalAd) return;
           window.__egyshowNativeBrowserBridge = true;
-          const originalOpen = window.open;
-          window.open = function (url, target, features) {
+          const channel = window.EgyshowExternalAd;
+          const campaign = 'https://data527.click/9529e3f1ef2eb6a8d82a/c8e08cf113/?placementName=default';
+          let sent = false;
+          let enabled = false;
+          const valid = function (url) {
             try {
               const next = new URL(String(url), location.href);
-              if (target === '_blank' &&
-                  next.protocol === 'https:' &&
-                  next.hostname === 'data527.click' &&
-                  next.pathname === '/9529e3f1ef2eb6a8d82a/c8e08cf113/' &&
-                  next.searchParams.get('placementName') === 'default') {
-                window.EgyshowExternalAd.postMessage(next.href);
-                return null;
-              }
-            } catch (_) {}
+              return next.protocol === 'https:' &&
+                next.hostname === 'data527.click' &&
+                next.pathname === '/9529e3f1ef2eb6a8d82a/c8e08cf113/' &&
+                next.searchParams.get('placementName') === 'default';
+            } catch (_) { return false; }
+          };
+          const forward = function (url) {
+            if (!enabled || sent || !valid(url)) return;
+            sent = true;
+            try { channel.postMessage(new URL(String(url), location.href).href); }
+            catch (_) { sent = false; }
+          };
+          // Respect the campaign's on/off state in EGYSHOW Ads Studio.
+          const query = new URLSearchParams(location.search);
+          const targetType = query.get('target_type') || 'movie';
+          const targetId = query.get('target_id') || '0';
+          const request = '/api/v1/ads/placements?placements=popup&device_type=mobile&lang=ar'
+            + '&target_type=' + encodeURIComponent(targetType)
+            + '&target_id=' + encodeURIComponent(targetId);
+          fetch(request, {credentials:'same-origin',cache:'no-store'})
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+              const ad = d && d.placements && d.placements.popup;
+              enabled = !!(ad && valid(ad.click_url) && ad.is_active !== false);
+            })
+            .catch(() => { enabled = false; });
+
+          // Capture phase does not cancel or consume the normal play/seek click.
+          document.addEventListener('click', function (event) {
+            const root = document.getElementById('playerRoot');
+            if (!event.isTrusted || !root || !root.contains(event.target)) return;
+            forward(campaign);
+          }, true);
+          // Also handle any player code that still uses window.open.
+          const originalOpen = window.open;
+          window.open = function (url, target, features) {
+            if (target === '_blank' && valid(url)) {
+              forward(url);
+              return null;
+            }
             return originalOpen.apply(window, arguments);
           };
         })();

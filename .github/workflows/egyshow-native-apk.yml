@@ -50,36 +50,26 @@ jobs:
             <path android:fillColor="#FFFFFF" android:pathData="M39,28L39,80L82,54z"/>
           </vector>""")
           PY
-      - name: Configure verified production signing
-        env:
-          EGYSHOW_RELEASE_KEYSTORE_BASE64: ${{ secrets.EGYSHOW_RELEASE_KEYSTORE_BASE64 }}
-          EGYSHOW_RELEASE_STORE_PASSWORD: ${{ secrets.EGYSHOW_RELEASE_STORE_PASSWORD }}
-          EGYSHOW_RELEASE_KEY_ALIAS: ${{ secrets.EGYSHOW_RELEASE_KEY_ALIAS }}
-          EGYSHOW_RELEASE_KEY_PASSWORD: ${{ secrets.EGYSHOW_RELEASE_KEY_PASSWORD }}
-        run: python3 scripts/configure_egyshow_release_signing.py
       - name: Dependencies
         run: flutter pub get
       - name: Analyze code
         run: flutter analyze --no-fatal-infos lib/main.dart
       - name: Build APK
         run: flutter build apk --release
-      - name: Verify APK matches EGYSHOW 2.0.1 signing certificate
+      - name: Validate CI candidate before private server signing
         run: |
           set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
-          SIGNER="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -n 1)"
-          test -n "$SIGNER"
-          CERT="$("$SIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
-          EXPECTED="1c390398d4c4efb79bfa300c061590c9f272f5db33978158e114d5a320a95daa"
-          if [ "$CERT" != "$EXPECTED" ]; then
-            echo "::error::EGYSHOW release signing certificate mismatch. Refusing to publish an incompatible APK."
-            exit 1
-          fi
-          echo "Original EGYSHOW signing certificate verified."
-      - name: Upload installable APK
+          AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$AAPT"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='10' versionName='2.0.2'"
+          echo "CI candidate verified; NOT production-signed, NOT eligible for direct publication."
+      - name: Upload CI APK candidate for private server signing
         uses: actions/upload-artifact@v4
         with:
-          name: EGYSHOW-Native-Android-APK
+          name: EGYSHOW-CI-APK-REQUIRES-SERVER-SIGNING
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30

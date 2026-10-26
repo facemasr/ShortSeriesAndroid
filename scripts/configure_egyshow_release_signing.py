@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Configure release signing with the ORIGINAL EGYSHOW 2.0.0 Android key.
+"""Configure release signing with the EGYSHOW 2.0.1 NEW BASELINE Android key.
 
 Run only inside the short-lived CI runner, after flutter create.
 The private key must be provided using masked GitHub Actions secrets.
@@ -12,12 +12,12 @@ from pathlib import Path
 import subprocess
 import sys
 
-EXPECTED_SIGNER_SHA256 = "77a1db62a9596a58be7e42b50a72933c215a504391c200fe6dbce95a77f176cb"
+EXPECTED_SIGNER_SHA256 = "1c390398d4c4efb79bfa300c061590c9f272f5db33978158e114d5a320a95daa"
 
 def required(name: str) -> str:
     value = os.environ.get(name, "")
     if not value:
-        raise RuntimeError(f"Missing {name}; original EGYSHOW signing key is required")
+        raise RuntimeError(f"Missing {name}; EGYSHOW 2.0.1 signing key is required")
     return value
 
 def main():
@@ -42,7 +42,7 @@ def main():
     if fingerprint != EXPECTED_SIGNER_SHA256:
         key_file.unlink(missing_ok=True)
         raise RuntimeError(
-            "The supplied key does NOT match installed EGYSHOW 2.0.0: "
+            "The supplied key does NOT match EGYSHOW 2.0.1 signing baseline: "
             + fingerprint + " != " + EXPECTED_SIGNER_SHA256
         )
     gradle = Path("android/app/build.gradle.kts")

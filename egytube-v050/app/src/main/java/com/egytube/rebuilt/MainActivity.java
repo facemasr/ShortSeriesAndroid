@@ -208,7 +208,7 @@ public class MainActivity extends Activity {
           TextView retry=text("↻ إعادة المحاولة",15,RED,true);pad(retry,18,14,18,14);
           feed.addView(retry);retry.setOnClickListener(v->{requestId++;load(query,onlyShorts,requestId);});
         }else{
-          for(int i=0;i<rows.size();i++){Video v=rows.get(i);list.add(v);addCard(v,onlyShorts);if(i==3)addAd(AdSlots.RECT_300x250);if(i==9)addAd(AdSlots.BANNER_468x60);if(i==16)addAd(AdSlots.BONEPA_4);}
+          for(int i=0;i<rows.size();i++){Video v=rows.get(i);list.add(v);addCard(v,onlyShorts);if(i==3)addAd(AdSlots.RECT_300x250);if(i==6)addAd(AdSlots.AADS_320x100);if(i==9)addAd(AdSlots.BANNER_468x60);if(i==16)addAd(AdSlots.BONEPA_4);}
         }
       });
     });

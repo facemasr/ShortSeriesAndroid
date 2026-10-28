@@ -19,7 +19,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
- * Four user-supplied creative slots with clearly marked ad containers.
+ * Five user-supplied creative slots with clearly marked ad containers.
  * User-initiated links open in an external browser, never over the media player.
  * Third-party scripts are not granted native Javascript bridges or permissions.
  */
@@ -28,6 +28,7 @@ public final class AdSlots {
     public static final int BANNER_468x60 = 1;
     public static final int PLAYER_320x50 = 2;
     public static final int BONEPA_4 = 3;
+    public static final int AADS_320x100 = 4;
     private static final String DATA_SCRIPT = "https://data527.click/js/responsive.js";
     private AdSlots() {}
 
@@ -45,7 +46,7 @@ public final class AdSlots {
         wrapper.addView(caption);
         WebView webView=new WebView(activity);
         webView.setBackgroundColor(0xfff8f8f8);
-        int height = type==RECT_300x250 ? 260 : type==BANNER_468x60 ? 78 : type==PLAYER_320x50 ? 64 : 108;
+        int height = type==RECT_300x250 ? 260 : type==BANNER_468x60 ? 78 : type==PLAYER_320x50 ? 64 : type==AADS_320x100 ? 108 : 108;
         wrapper.addView(webView,new LinearLayout.LayoutParams(-1,dp(activity,height)));
         loadInto(webView,type);
         return wrapper;
@@ -115,7 +116,7 @@ public final class AdSlots {
             }
         });
         String html=creative(placement);
-        String base=placement==BONEPA_4?"https://bonepa.com/":"https://data527.click/";
+        String base=placement==BONEPA_4?"https://bonepa.com/":placement==AADS_320x100?"https://ad.a-ads.com/":"https://data527.click/";
         webView.loadDataWithBaseURL(base,html,"text/html","UTF-8",null);
     }
 
@@ -153,6 +154,15 @@ public final class AdSlots {
                "<ins style='width:320px;height:50px' data-width='320' data-height='50' class='w34be394bb1'"+
                " data-domain='//data527.click' data-affquery='/e3ed80826e23881d9411/34be394bb1/?placementName=default'></ins>"+
                "<script async src='"+DATA_SCRIPT+"'></script>"+footer;
+        }
+        if(slot==AADS_320x100){
+            // Responsive wrapper retains the creative's 320x100 iframe dimensions.
+            // No fixed positioning or high z-index: ad stays in the feed, not on top of playback.
+            return header+
+               "<div id='aads2460254' style='width:100%;max-width:320px;height:100px;margin:0 auto;overflow:hidden'>"+
+               "<iframe data-aa='2460254' src='https://ad.a-ads.com/2460254/?size=320x100' "+
+               "style='border:0;padding:0;width:320px;max-width:100%;height:100px;overflow:hidden;display:block;margin:0 auto' "+
+               "title='إعلان' loading='lazy'></iframe></div>"+footer;
         }
         return header+"<script src='https://bonepa.com/2de39a55427445e4c1ee/23caae49eb/?placementName=default'></script>"+footer;
     }

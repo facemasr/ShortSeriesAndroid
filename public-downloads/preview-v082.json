@@ -1,0 +1,18 @@
+{
+  "app": "EGYTUBE Preview",
+  "packageName": "com.egytube.official.preview",
+  "versionCode": 82,
+  "versionName": "0.8.2-preview",
+  "download_url": "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v082-aads-update-integration/public-downloads/EGYTUBE-v0.8.2-AADS-PREVIEW.apk",
+  "sha256": "54022344f0f72cb5d311089fcf9e9b07e5e3b7ffd8f91db2a59f2f8b27fe04e4",
+  "sizeBytes": 8302609,
+  "adUnits": [
+    "AADS:2460254",
+    "data527:300x250",
+    "data527:468x60",
+    "data527:320x50",
+    "Bonepa"
+  ],
+  "preview": true,
+  "notes": "نسخة اختبارية مستقلة عن التطبيق الرسمي. لا تُستخدم كتحديث فوق النسخة الرسمية."
+}

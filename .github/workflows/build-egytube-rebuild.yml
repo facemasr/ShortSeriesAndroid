@@ -25,6 +25,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Ensure AADS 2460254 is retained in every new build
+        run: |
+          grep -Fq "2460254" egytube-v050/app/src/main/java/com/egytube/rebuilt/AdSlots.java
+          grep -Fq "AADS_320x100" egytube-v050/app/src/main/java/com/egytube/rebuilt/MainActivity.java
       - name: Compile Android APK
         working-directory: ./egytube-v050
         run: gradle --no-daemon --console=plain :app:assembleDebug
@@ -44,19 +48,43 @@ jobs:
             fi
           done
           test "$found" -eq 1
-          cp "$APK" EGYTUBE-YouTube-Only-v0.6.9.apk
+          cp "$APK" EGYTUBE-YouTube-Only-v0.7.0.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYTUBE-YouTube-Only-v069-APK
-          path: EGYTUBE-YouTube-Only-v0.6.9.apk
+          name: EGYTUBE-YouTube-Only-v070-APK
+          path: EGYTUBE-YouTube-Only-v0.7.0.apk
           if-no-files-found: error
       - name: Publish directly downloadable APK to repository
         continue-on-error: true
         run: |
           mkdir -p public-downloads
-          cp EGYTUBE-YouTube-Only-v0.6.9.apk public-downloads/EGYTUBE-YouTube-Only-v0.6.9.apk
+          cp EGYTUBE-YouTube-Only-v0.7.0.apk public-downloads/EGYTUBE-YouTube-Only-v0.7.0.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public-downloads/EGYTUBE-YouTube-Only-v0.6.9.apk
-          git commit -m "Publish EGYTUBE v0.6.9 APK for direct download" || exit 0
+          python3 - <<'PY'
+          import hashlib, json, pathlib, re
+          apk=pathlib.Path('public-downloads/EGYTUBE-YouTube-Only-v0.7.0.apk')
+          gradle=pathlib.Path('egytube-v050/app/build.gradle').read_text()
+          match=re.search(r"versionCode\s+(\d+);\s*versionName\s+'([^']+)'",gradle)
+          assert match, "Cannot determine version from Gradle."
+          version_code=int(match.group(1))
+          version_name=match.group(2)
+          name=apk.name
+          payload={
+              'schema': 1,
+              'packageName': 'com.egytube.rebuilt',
+              'versionCode': version_code,
+              'versionName': version_name,
+              'apkUrl': 'https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-rebuild-20261024/public-downloads/'+name,
+              'sha256': hashlib.sha256(apk.read_bytes()).hexdigest(),
+              'sizeBytes': apk.stat().st_size,
+              'notes': 'تحديث التطبيق مع الحفاظ على مشغّل EGYTUBE والإعلانات، ومنها AADS 2460254.',
+              'adUnits': ['AADS:2460254','data527:300x250','data527:468x60','data527:320x50','Bonepa'],
+              'minimumAndroidSdk': 26
+          }
+          pathlib.Path('public-downloads/latest.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n')
+          print('Update feed:',payload['versionName'],payload['sha256'])
+          PY
+          git add public-downloads/EGYTUBE-YouTube-Only-v0.7.0.apk public-downloads/latest.json
+          git commit -m "Publish EGYTUBE v0.7.0 APK and auto-update feed" || exit 0
           git push origin HEAD:egytube-rebuild-20261024

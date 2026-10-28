@@ -97,6 +97,7 @@ public class MainActivity extends Activity {
     String shared=getIntent()==null?null:getIntent().getStringExtra(Intent.EXTRA_TEXT);
     if(shared!=null&&idFrom(shared)!=null)play(new Video("فيديو يوتيوب",shared,"","","",0));
     show(0);
+    UpdateChecker.check(this,false);
   }
   private void setupHeader(){
     LinearLayout h=linear(LinearLayout.HORIZONTAL);h.setGravity(Gravity.CENTER_VERTICAL);pad(h,15,7,12,6);
@@ -110,8 +111,12 @@ public class MainActivity extends Activity {
     find.setOnClickListener(v->show(1));
     TextView more=text("⋮",26,DARK,true);more.setGravity(Gravity.CENTER);
     h.addView(more,new LinearLayout.LayoutParams(dp(35),dp(46)));
-    more.setOnClickListener(v->new AlertDialog.Builder(this).setItems(new String[]{"تحديث الرئيسية","حول EGYTUBE","فتح رابط فيديو"},(d,i)->{
-      if(i==0)show(0);else if(i==1)notice("EGYTUBE 0.6.8 — مشغّل أصلي، PiP، تشغيل صوت في الخلفية، ومكتبة محلية.");
+    more.setOnClickListener(v->new AlertDialog.Builder(this).setItems(new String[]{
+      "تحديث الرئيسية","التحقق من تحديثات التطبيق","حول EGYTUBE","فتح رابط فيديو"
+    },(d,i)->{
+      if(i==0)show(0);
+      else if(i==1)UpdateChecker.check(this,true);
+      else if(i==2)notice("EGYTUBE "+BuildConfig.VERSION_NAME+" — تحديثات الإصدار، PiP، وتشغيل الصوت بالخلفية.");
       else askLink();
     }).show());
     app.addView(h);

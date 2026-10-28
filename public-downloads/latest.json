@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "packageName": "com.egytube.rebuilt",
+  "versionCode": 70,
+  "versionName": "0.7.0",
+  "apkUrl": "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-rebuild-20261024/public-downloads/EGYTUBE-YouTube-Only-v0.7.0.apk",
+  "sha256": "08ede5b480d5ef8d2a8d141691bcf7ec8cdfe84bfef3be5be0a81a2235480a4c",
+  "sizeBytes": 7152026,
+  "notes": "تحديث التطبيق مع الحفاظ على مشغّل EGYTUBE والإعلانات، ومنها AADS 2460254.",
+  "adUnits": [
+    "AADS:2460254",
+    "data527:300x250",
+    "data527:468x60",
+    "data527:320x50",
+    "Bonepa"
+  ],
+  "minimumAndroidSdk": 26
+}

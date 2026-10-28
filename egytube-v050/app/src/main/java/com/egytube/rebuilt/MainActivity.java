@@ -47,7 +47,7 @@ public class MainActivity extends Activity {
   private static final String APP_PAGE="https://egyshow.com/egytube/";
   private static final String OFFICIAL_UPDATE_JSON=APP_PAGE+"latest.json";
   private static final String FALLBACK_UPDATE_JSON=
-    "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v080-official-parallel-install/public-downloads/latest.json";
+    "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v081-downloads-share-row/public-downloads/latest.json";
   private static final String[] ICONS={"⌂","▣","▤","◉"};
   // Existing page identifiers remain stable, only Shorts is removed from navigation.
   private static final int[] TAB_PAGE_IDS={0,2,3,4};
@@ -555,6 +555,7 @@ public class MainActivity extends Activity {
       }
       displayedVideoCount++;
       if(displayedVideoCount==10)addAd(AdSlots.RECT_300x250);
+      else if(displayedVideoCount==14)addAd(AdSlots.AADS_320x100);
       else if(displayedVideoCount==20)addAd(AdSlots.BANNER_468x60);
       else if(displayedVideoCount>20 && displayedVideoCount%25==0)
         addAd(AdSlots.BONEPA_4);
@@ -1311,6 +1312,12 @@ public class MainActivity extends Activity {
         if(isFinishing() || isDestroyed())return;
         if(info==null){
           if(manual)notice("لا يمكن التحقق من التحديثات الآن. يمكنك زيارة صفحة التطبيق على EGYSHOW.");
+          return;
+        }
+        // Do not advertise a different Android package as a valid upgrade.
+        String declaredPackage=info.optString("packageName","");
+        if(!declaredPackage.isEmpty() && !getPackageName().equals(declaredPackage)){
+          if(manual)notice("قناة التحديث تخص نسخة مختلفة من التطبيق.");
           return;
         }
         int latestCode=info.optInt("versionCode",0);

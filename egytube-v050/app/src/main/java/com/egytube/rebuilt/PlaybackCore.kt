@@ -16,6 +16,7 @@ object PlaybackCore {
   private var attachedUiCount=0
   @Synchronized fun attachUi(){attachedUiCount++}
   @Synchronized fun detachUi(){attachedUiCount=(attachedUiCount-1).coerceAtLeast(0)}
+  @Synchronized fun hasAttachedUi():Boolean=attachedUiCount>0
   @Synchronized fun disposeWhenUnused(){
     // A paused MediaSessionService may be torn down even while the watch
     // Activity is visible. Do not release ExoPlayer out from under its UI.
@@ -37,6 +38,8 @@ object PlaybackCore {
       .setRenderersFactory(renderers)
       .setLoadControl(loadControl)
       .setAudioAttributes(AudioAttributes.DEFAULT,true)
+      .setSeekForwardIncrementMs(10_000L)
+      .setSeekBackIncrementMs(10_000L)
       .build()
     // Let Media3 manage the required wake/network locks while playback is
     // active. This is not a permanent wake lock and doesn't disable Doze.

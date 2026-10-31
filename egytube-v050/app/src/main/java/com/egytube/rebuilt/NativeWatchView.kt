@@ -426,6 +426,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
           }
         }
         override fun onPlayWhenReadyChanged(playWhenReady:Boolean,reason:Int){
+          // Keep Android 12+ auto-PiP armed only while playback is requested.
+          updatePiPParameters()
           if(!playWhenReady && player.currentMediaItem!=null){
             lastPauseAt=android.os.SystemClock.elapsedRealtime()
             resumeRecoveryPosition=player.currentPosition.coerceAtLeast(0L)
@@ -1117,8 +1119,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         val params=PictureInPictureParams.Builder().setAspectRatio(pipRatio())
         val visible=Rect()
         if((miniTarget ?: viewport).getGlobalVisibleRect(visible)&&!visible.isEmpty)params.setSourceRectHint(visible)
-        // Android 12+ can enter PiP when the user goes Home during active playback.
-        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)params.setAutoEnterEnabled(false)
+        // Android 12+ handles Home/app-switch PiP automatically when video is
+        // playing. Paused videos do not open an unsolicited floating window.
+        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)
+          params.setAutoEnterEnabled(player.playWhenReady && player.playbackState!=Player.STATE_ENDED)
         host.setPictureInPictureParams(params.build())
       }catch(_:Exception){}
     }

@@ -1155,6 +1155,10 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       setChromeVisibility(!inPip)
       if(!inPip)showChrome()
       resize()
+      // Re-arm Android 12+ automatic PiP after returning from a manual or
+      // automatic PiP window. Otherwise the manual PiP builder's settings
+      // could suppress automatic PiP on the next Home press.
+      if(!inPip)updatePiPParameters()
     }
     fun hasVideo()=!shutdown && videoId.isNotBlank()
     fun currentVideoTitle()=videoTitle

@@ -1,0 +1,19 @@
+{
+  "app": "EGYTUBE Preview",
+  "packageName": "com.egytube.official.preview",
+  "versionCode": 85,
+  "versionName": "0.8.5-preview",
+  "download_url": "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v085-background-audio-player/public-downloads/EGYTUBE-v0.8.5-AUDIO-PLAYER-PREVIEW.apk",
+  "sha256": "728b5f91d5ddb93a421893ca47f52d6f5c9b2be63cf788fd81ade0305c89b065",
+  "sizeBytes": 8308365,
+  "adUnits": [
+    "AADS:2460254",
+    "native:f2d83af2e65a70897bc7682d2a8aa66e",
+    "network-script:42e001815a55634ec456dac693eba30a",
+    "sponsored-link",
+    "468x60:e221bdfd44d439c4b0cd8a3d93745882",
+    "320x50:220d0e40b38592136c3d8d9ff3111157"
+  ],
+  "preview": true,
+  "notes": "نسخة اختبارية تعرض تشغيل الفيديو كصوت في الخلفية مع بطاقة مشغّل صوت وأزرار التحكم، وإعادة عرض الفيديو عند الرجوع. لا تحل محل الإصدار الرسمي."
+}

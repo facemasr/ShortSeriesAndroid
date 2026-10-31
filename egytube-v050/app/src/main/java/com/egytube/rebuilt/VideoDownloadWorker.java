@@ -114,6 +114,13 @@ public final class VideoDownloadWorker extends Worker {
           }
           if(status!=200&&status!=206)
             throw new IllegalStateException("تعذر بدء التنزيل: HTTP "+status);
+          // Some expired/blocked playback URLs return an HTML error page with
+          // HTTP 200. Never save that page with a .mp4/.webm extension.
+          String contentType=connection.getContentType();
+          String normalized=contentType==null?"":contentType.toLowerCase(Locale.ROOT);
+          if(normalized.startsWith("text/html") || normalized.startsWith("application/json") ||
+              normalized.startsWith("text/plain") || normalized.startsWith("text/xml"))
+            throw new IllegalStateException("المصدر أعاد صفحة خطأ بدل ملف فيديو. اختر الجودة مرة أخرى.");
           total=connection.getContentLengthLong();
           if(total>MAX_BYTES)throw new IllegalStateException("الملف كبير جدًا");
           try(InputStream input=connection.getInputStream()){

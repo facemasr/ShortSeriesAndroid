@@ -47,7 +47,7 @@ public class MainActivity extends Activity {
   private static final String APP_PAGE="https://egyshow.com/egytube/";
   private static final String OFFICIAL_UPDATE_JSON=APP_PAGE+"latest.json";
   private static final String FALLBACK_UPDATE_JSON=
-    "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v081-downloads-share-row/public-downloads/latest.json";
+    "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v083-download-stability/public-downloads/latest.json";
   private static final String[] ICONS={"⌂","▣","▤","◉"};
   // Existing page identifiers remain stable, only Shorts is removed from navigation.
   private static final int[] TAB_PAGE_IDS={0,2,3,4};
@@ -1103,7 +1103,6 @@ public class MainActivity extends Activity {
           if(work!=null && work.getState()==WorkInfo.State.SUCCEEDED)state="DONE";
           if(work!=null && work.getState()==WorkInfo.State.CANCELLED)state="CANCELLED";
           if(work!=null && work.getState()==WorkInfo.State.FAILED)state="FAILED";
-          final String finalState=state;
           LinearLayout box=linear(LinearLayout.VERTICAL);
           pad(box,14,11,14,12);
           box.setBackground(background(0xfff5f5f6,13));
@@ -1146,8 +1145,10 @@ public class MainActivity extends Activity {
           TextView forget=text("إزالة من القائمة",12,GREY,false);
           pad(forget,8,10,8,10);row.addView(forget);
           forget.setOnClickListener(v->new AlertDialog.Builder(this)
-            .setMessage("إزالة هذا التنزيل من القائمة فقط؟ لن يُحذف الملف المحفوظ.")
+            .setMessage("إزالة هذا التنزيل من القائمة؟ ستُلغى المهمة إذا كانت نشطة، ولن تُحذف الملفات المكتملة.")
             .setPositiveButton("إزالة",(d,w)->{
+              if(work!=null && !work.getState().isFinished())
+                WorkManager.getInstance(this).cancelWorkById(work.getId());
               DownloadCatalog.forget(this,id);renderDownloadItems();
             }).setNegativeButton("إلغاء",null).show());
           box.addView(row);
@@ -1162,8 +1163,12 @@ public class MainActivity extends Activity {
     if(value==null||value.isEmpty()){notice("لم يتم العثور على الملف المحفوظ");return;}
     try{
       Uri uri=Uri.parse(value);
+      // A MediaStore/document URI has no visible filename extension; ask its
+      // content provider for the actual MIME type instead of forcing MP4.
+      String mime=getContentResolver().getType(uri);
+      if(mime==null||!mime.startsWith("video/"))mime="video/*";
       Intent open=new Intent(Intent.ACTION_VIEW);
-      open.setDataAndType(uri,value.toLowerCase(Locale.ROOT).contains(".webm")?"video/webm":"video/mp4");
+      open.setDataAndType(uri,mime);
       open.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
       startActivity(Intent.createChooser(open,"فتح الفيديو"));
     }catch(Exception e){notice("تعذر فتح الملف. يمكنك العثور عليه باستخدام مدير ملفات الهاتف.");}
@@ -1350,8 +1355,8 @@ public class MainActivity extends Activity {
         final String safeUrl=target;
         new AlertDialog.Builder(this)
           .setTitle("يتوفر تحديث EGYTUBE "+latestName)
-          .setMessage(detail+"\\n\\nالإصدار المثبت: "+installedName+
-            "\\nالإصدار الجديد: "+latestName)
+          .setMessage(detail+"\n\nالإصدار المثبت: "+installedName+
+            "\nالإصدار الجديد: "+latestName)
           .setPositiveButton("تحميل التحديث",(dialog,which)->{
              try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(safeUrl)));}
              catch(Exception error){notice("تعذر فتح رابط التحديث. افتح "+APP_PAGE);}

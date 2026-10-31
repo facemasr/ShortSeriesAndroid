@@ -29,6 +29,12 @@ public final class AdSlots {
     public static final int PLAYER_320x50 = 2;
     public static final int BONEPA_4 = 3;
     public static final int AADS_320x100 = 4;
+    // Additional user-supplied placements, isolated from the player surface.
+    public static final int NATIVE_300x250 = 5;
+    public static final int NETWORK_SCRIPT = 6;
+    public static final int SPONSORED_LINK = 7;
+    public static final int NETWORK_WIDE_468x60 = 8;
+    public static final int NETWORK_MOBILE_320x50 = 9;
     private static final String DATA_SCRIPT = "https://data527.click/js/responsive.js";
     private AdSlots() {}
 
@@ -44,9 +50,25 @@ public final class AdSlots {
         caption.setTextSize(11);
         caption.setPadding(dp(activity,4),0,dp(activity,4),dp(activity,4));
         wrapper.addView(caption);
+        if(type==SPONSORED_LINK){
+            TextView link=new TextView(activity);
+            link.setText("↗  عرض الإعلان المموّل في المتصفح");
+            link.setTextSize(14);
+            link.setTextColor(0xffd82033);
+            link.setPadding(dp(activity,12),dp(activity,15),dp(activity,12),dp(activity,15));
+            link.setContentDescription("رابط إعلاني خارجي. لن يفتح إلا عند الضغط عليه");
+            wrapper.addView(link);
+            link.setOnClickListener(v->openBrowser(activity,Uri.parse(
+                "https://astrayentireillegimateillegimate.com/qb38ute8?key=4ea2e7f9933440d5d1130955eff103c3")));
+            return wrapper;
+        }
         WebView webView=new WebView(activity);
         webView.setBackgroundColor(0xfff8f8f8);
-        int height = type==RECT_300x250 ? 260 : type==BANNER_468x60 ? 78 : type==PLAYER_320x50 ? 64 : 108;
+        int height =
+            (type==RECT_300x250||type==NATIVE_300x250)?260:
+            (type==BANNER_468x60||type==NETWORK_WIDE_468x60)?78:
+            (type==PLAYER_320x50||type==NETWORK_MOBILE_320x50)?64:
+            type==NETWORK_SCRIPT?130:108;
         wrapper.addView(webView,new LinearLayout.LayoutParams(-1,dp(activity,height)));
         loadInto(webView,type);
         return wrapper;
@@ -116,7 +138,11 @@ public final class AdSlots {
             }
         });
         String html=creative(placement);
-        String base=placement==BONEPA_4?"https://bonepa.com/":placement==AADS_320x100?"https://ad.a-ads.com/":"https://data527.click/";
+        String base=placement==BONEPA_4?"https://bonepa.com/":
+            placement==AADS_320x100?"https://ad.a-ads.com/":
+            (placement==NATIVE_300x250||placement==NETWORK_SCRIPT)?"https://astrayentireillegimateillegimate.com/":
+            (placement==NETWORK_WIDE_468x60||placement==NETWORK_MOBILE_320x50)?"https://bancadeltempoidea.org/":
+            "https://data527.click/";
         webView.loadDataWithBaseURL(base,html,"text/html","UTF-8",null);
     }
 
@@ -135,6 +161,31 @@ public final class AdSlots {
         String header="<!doctype html><html lang='ar'><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"+
             "<body style='margin:0;padding:2px;background:#f8f8f8;overflow:hidden;text-align:center'>";
         String footer="</body></html>";
+        // Native, scripted and banner creatives load only in marked, fixed-size
+        // WebViews. They cannot create unsolicited browser windows or affect player taps.
+        if(slot==NATIVE_300x250){
+            return header+
+                "<div id='container-f2d83af2e65a70897bc7682d2a8aa66e' style='max-width:100%;min-height:250px'></div>"+
+                "<script async data-cfasync='false' src='https://astrayentireillegimateillegimate.com/f2d83af2e65a70897bc7682d2a8aa66e/invoke.js'></script>"+footer;
+        }
+        if(slot==NETWORK_SCRIPT){
+            return header+
+                "<div style='font-size:11px;color:#777'>مساحة إعلانية</div>"+
+                "<script src='https://astrayentireillegimateillegimate.com/42/e0/01/42e001815a55634ec456dac693eba30a.js'></script>"+footer;
+        }
+        if(slot==NETWORK_WIDE_468x60){
+            return header+
+                "<div id='newwide' style='width:468px;height:60px;transform-origin:top left'>"+
+                "<script>window.atOptions={key:'e221bdfd44d439c4b0cd8a3d93745882',format:'iframe',height:60,width:468,params:{}};</script>"+
+                "<script src='https://bancadeltempoidea.org/22/e221bdfd44d439c4b0cd8a3d93745882'></script></div>"+
+                "<script>var e=document.getElementById('newwide');e.style.transform='scale('+Math.min(1,(document.documentElement.clientWidth-12)/468)+')';</script>"+footer;
+        }
+        if(slot==NETWORK_MOBILE_320x50){
+            return header+
+                "<div style='width:320px;max-width:100%;height:50px;margin:auto'>"+
+                "<script>window.atOptions={key:'220d0e40b38592136c3d8d9ff3111157',format:'iframe',height:50,width:320,params:{}};</script>"+
+                "<script src='https://bancadeltempoidea.org/22/220d0e40b38592136c3d8d9ff3111157'></script></div>"+footer;
+        }
         if(slot==RECT_300x250){
             return header+
                "<ins style='width:300px;height:250px' data-width='300' data-height='250' class='zbdb0fb2d79'"+

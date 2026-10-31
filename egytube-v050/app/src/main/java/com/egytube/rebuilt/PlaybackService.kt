@@ -217,10 +217,17 @@ class PlaybackService:MediaSessionService(){
     // and Stop are advertised as media session controls in the notification.
     val commands=listOf(
       CommandButton.Builder(CommandButton.ICON_SKIP_BACK_10)
+        .setDisplayName("رجوع 10 ثوانٍ")
         .setPlayerCommand(Player.COMMAND_SEEK_BACK).build(),
       CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_10)
+        .setDisplayName("تقديم 10 ثوانٍ")
         .setPlayerCommand(Player.COMMAND_SEEK_FORWARD).build(),
+      // Media3 1.5.1 bridges session commands to legacy CustomAction.
+      // A non-empty display name is mandatory. Without it the service
+      // throws IllegalArgumentException on addSession() and Android closes
+      // the application right after launch (the user's stack trace).
       CommandButton.Builder(CommandButton.ICON_STOP)
+        .setDisplayName("إغلاق المشغّل")
         .setSessionCommand(closeCommand).build()
     )
     // Register the media session and let Android manage its native

@@ -858,6 +858,8 @@ public class MainActivity extends Activity {
   }
   @Override protected void onResume(){
     super.onResume();
+    // Return to regular video decoding only when the watch Activity is visible.
+    PlaybackCore.INSTANCE.setAudioOnlyBackground(false);
     if(watchView!=null)watchView.onReturnedToForeground();
   }
   @Override protected void onStop(){
@@ -868,6 +870,9 @@ public class MainActivity extends Activity {
       prefs.edit()
         .putBoolean("bg_resume_requested",watchView.hasLoadedOrPendingVideo())
         .putBoolean("bg_was_playing",watchView.isPlaybackRequested()).apply();
+      // Audio-only while outside the app; intentional PiP still renders video.
+      if(!isInPictureInPictureMode())
+        PlaybackCore.INSTANCE.setAudioOnlyBackground(true);
     }
     super.onStop();
   }
@@ -895,6 +900,8 @@ public class MainActivity extends Activity {
   @Override public void onPictureInPictureModeChanged(boolean inPip,android.content.res.Configuration config){
     super.onPictureInPictureModeChanged(inPip,config);
     if(watchView!=null)watchView.onPictureInPictureChanged(inPip);
+    // Keep picture visible during PiP rather than switching to background audio.
+    if(inPip)PlaybackCore.INSTANCE.setAudioOnlyBackground(false);
     if(!inPip && restoreMiniAfterPip){
       restoreMiniAfterPip=false;
       if(watchView!=null && watchView.hasVideo())dockMiniPlayer();
@@ -1451,6 +1458,9 @@ public class MainActivity extends Activity {
       // When Android removes the UI, the MediaSessionService owns audio playback.
       watchView.savePlaybackPosition();
       boolean continueAudio=watchView.keepAudioInBackground();
+      // Protect an ongoing audio session even if onStop was skipped.
+      if(continueAudio && !isInPictureInPictureMode())
+        PlaybackCore.INSTANCE.setAudioOnlyBackground(true);
       prefs.edit()
         .putBoolean("bg_resume_requested",watchView.hasLoadedOrPendingVideo())
         .putBoolean("bg_was_playing",watchView.isPlaybackRequested()).apply();

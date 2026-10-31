@@ -1386,9 +1386,19 @@ public class MainActivity extends Activity {
     android.app.NotificationManager manager=(android.app.NotificationManager)
       getSystemService(NOTIFICATION_SERVICE);
     boolean enabled=manager!=null && manager.areNotificationsEnabled();
+    SharedPreferences status=getSharedPreferences("EGYTUBE_MEDIA_STATUS",MODE_PRIVATE);
+    String state=status.getString("service_state","not_started");
+    long last=status.getLong("last_notification_update_at",0);
+    String runtime=state.equals("registered")?"الجلسة مسجلة في خدمة الوسائط":
+      state.equals("stopped")?"خدمة الوسائط متوقفة":
+      state.equals("session_missing")?"فشل تسجيل جلسة الوسائط":
+      "لم تُشغَّل خدمة الوسائط بعد";
+    String update=last>0?"وصل تحديث إشعار من Media3":
+      "لم يُرسل Media3 تحديث إشعار بعد";
     String message=(enabled?"إشعارات EGYTUBE مفعلة في Android.":"إشعارات EGYTUBE معطلة في Android.")
-      +"\n\nتحقق من تفعيل إشعارات التطبيق وقناة تشغيل الوسائط، ثم شغّل فيديو قبل الرجوع إلى الشاشة الرئيسية. "
-      +"بطاقة الوسائط تظهر فقط أثناء وجود جلسة تشغيل نشطة.";
+      +"\n\nحالة الخدمة: "+runtime
+      +"\nحالة الإشعار: "+update
+      +"\n\nشغّل فيديو ثم افتح هذا الفحص مرة أخرى. يمكنك أيضًا فتح إعدادات الإشعارات من الزر أدناه.";
     new AlertDialog.Builder(this)
       .setTitle("إشعارات مشغّل الصوت")
       .setMessage(message.replace("\\\\n","\n"))

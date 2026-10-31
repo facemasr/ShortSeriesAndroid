@@ -142,12 +142,11 @@ class PlaybackService:MediaSessionService(){
     // This app starts PlaybackService directly with startService(), not by
     // binding a MediaController. Without addSession() the service has no
     // registered session to observe and Media3 may never post a media card.
-    setMediaNotificationProvider(
-      DefaultMediaNotificationProvider.Builder(this)
-        .setChannelId("egytube_media_playback_v2")
-        .setSmallIcon(R.drawable.ic_app)
-        .build()
-    )
+    val mediaProvider=DefaultMediaNotificationProvider.Builder(this)
+      .setChannelId("egytube_media_playback_v2")
+      .build()
+    mediaProvider.setSmallIcon(R.drawable.ic_app)
+    setMediaNotificationProvider(mediaProvider)
     val built=MediaSession.Builder(this,player)
       .setCallback(mediaCallback)
       .setSessionActivity(reopen)

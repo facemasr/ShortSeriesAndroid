@@ -1382,6 +1382,25 @@ public class MainActivity extends Activity {
       startActivity(intent);
     }catch(Exception error){notice("تعذر فتح إعدادات التطبيق في النظام.");}
   }
+  private void playbackNotificationSettings(){
+    android.app.NotificationManager manager=(android.app.NotificationManager)
+      getSystemService(NOTIFICATION_SERVICE);
+    boolean enabled=manager!=null && manager.areNotificationsEnabled();
+    String message=(enabled?"إشعارات EGYTUBE مفعلة في Android.":"إشعارات EGYTUBE معطلة في Android.")
+      +"\\n\\nتحقق من تفعيل إشعارات التطبيق وقناة تشغيل الوسائط، ثم شغّل فيديو قبل الرجوع إلى الشاشة الرئيسية. "
+      +"بطاقة الوسائط تظهر فقط أثناء وجود جلسة تشغيل نشطة.";
+    new AlertDialog.Builder(this)
+      .setTitle("إشعارات مشغّل الصوت")
+      .setMessage(message.replace("\\\\n","\n"))
+      .setPositiveButton("فتح إعدادات الإشعارات",(d,w)->{
+        try{
+          Intent intent=new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+          intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,getPackageName());
+          startActivity(intent);
+        }catch(Exception e){settingsScreen("settings");}
+      })
+      .setNegativeButton("إغلاق",null).show();
+  }
   private void clearHistory(){
     new AlertDialog.Builder(this).setTitle("حذف سجل المشاهدة")
       .setMessage("حذف السجل المحفوظ على هذا الجهاز فقط؟")
@@ -1421,6 +1440,7 @@ public class MainActivity extends Activity {
     screenRow("⬇  التحميلات والتخزين","ملفات الفيديو المحمّلة ومكان حفظها",this::downloadsScreen);
     screenRow("◫  الوضع العائم PiP","أذونات التطبيق والتشغيل بالخلفية",
       ()->settingsScreen("pip"));
+    screenRow("🔔  مشغّل الصوت في الإشعارات","فحص تفعيل إشعارات EGYTUBE وفتح إعداداتها",this::playbackNotificationSettings);
     screenRow("⚡  الاستمرار في الخلفية","فتح إعدادات توفير البطارية للهاتف",
       ()->new AlertDialog.Builder(this)
         .setTitle("استمرار التشغيل في الخلفية")

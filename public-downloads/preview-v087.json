@@ -1,11 +1,11 @@
 {
   "app": "EGYTUBE Preview",
-  "packageName": "com.egytube.official.preview",
+  "packageName": "com.egytube.official.preview.v087",
   "versionCode": 87,
   "versionName": "0.8.7-preview",
   "download_url": "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v087-background-audio-default/public-downloads/EGYTUBE-v0.8.7-AUDIO-BACKGROUND-PREVIEW.apk",
-  "sha256": "a815a489946f9ebbed1f36a567a92d152fedf283d3e6d62168e3c6b59c49f1c3",
-  "sizeBytes": 8309953,
+  "sha256": "00a66e10a3b1c072dee4ee42227de6f5193a3e56a77027432646c6b6e00c59db",
+  "sizeBytes": 8309961,
   "adUnits": [
     "AADS:2460254",
     "native:f2d83af2e65a70897bc7682d2a8aa66e",

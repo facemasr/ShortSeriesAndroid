@@ -382,7 +382,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       padding(share,8,9,8,9);actions.addView(share,LinearLayout.LayoutParams(0,-2,1f))
       share.setOnClickListener{
         val i=Intent(Intent.ACTION_SEND)
-        i.type="text/plain";i.putExtra(Intent.EXTRA_TEXT,"https://www.youtube.com/watch?v=$videoId")
+        i.type="text/plain";i.putExtra(Intent.EXTRA_TEXT,"https://egyshow.com/egy?v=$videoId")
         host.startActivity(Intent.createChooser(i,"مشاركة"))
       }
       val download=text("⬇ تحميل",14f,colorText)

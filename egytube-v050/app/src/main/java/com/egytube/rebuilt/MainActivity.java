@@ -45,6 +45,11 @@ import java.util.regex.*;
 public class MainActivity extends Activity {
   private static final String[] TABS={"الرئيسية","الاشتراكات","المكتبة","حسابي"};
   private static final String APP_PAGE="https://egyshow.com/egytube/";
+  private static final String SHARE_VIDEO_BASE="https://egyshow.com/egy?v=";
+  static String shareVideoUrl(String original){
+    String id=idFrom(original);
+    return id==null?APP_PAGE:SHARE_VIDEO_BASE+id;
+  }
   private static final String OFFICIAL_UPDATE_JSON=APP_PAGE+"latest.json";
   private static final String FALLBACK_UPDATE_JSON=
     "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v083-download-stability/public-downloads/latest.json";
@@ -140,6 +145,9 @@ public class MainActivity extends Activity {
     app.addView(bottom,new LinearLayout.LayoutParams(-1,dp(61)));
     View line=new View(this);line.setBackgroundColor(0xffeeeeee);app.addView(line,new LinearLayout.LayoutParams(-1,dp(1)));
     String shared=getIntent()==null?null:getIntent().getStringExtra(Intent.EXTRA_TEXT);
+    Uri deepLink=getIntent()==null?null:getIntent().getData();
+    if(deepLink!=null && "egyshow.com".equalsIgnoreCase(deepLink.getHost())
+        && "/egy".equals(deepLink.getPath())) shared=deepLink.toString();
     show(0);
     if(shared!=null&&idFrom(shared)!=null)play(new Video("فيديو يوتيوب",shared,"","","",0));
     else restoreWatchAfterBackground();
@@ -727,7 +735,7 @@ public class MainActivity extends Activity {
       if(which==3){archive("favorites",video);Toast.makeText(this,"أضيف إلى المفضلة",Toast.LENGTH_SHORT).show();}
       if(which==4){archive("watch_later",video);Toast.makeText(this,"أضيف للمشاهدة لاحقًا",Toast.LENGTH_SHORT).show();}
       if(which==5){Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");
-        i.putExtra(Intent.EXTRA_TEXT,video.url);startActivity(Intent.createChooser(i,"مشاركة"));}
+        i.putExtra(Intent.EXTRA_TEXT,shareVideoUrl(video.url));startActivity(Intent.createChooser(i,"مشاركة"));}
     }).show();
   }
   private void searchUploader(Video v){channelScreen(v);}
@@ -1287,6 +1295,16 @@ public class MainActivity extends Activity {
         prefs.edit().putString("local_profile_name",name).apply();
         show(4);
       }).setNegativeButton("إلغاء",null).show();
+  }
+  @Override protected void onNewIntent(Intent intent){
+    super.onNewIntent(intent);
+    setIntent(intent);
+    Uri link=intent==null?null:intent.getData();
+    String url=link==null?null:link.toString();
+    if(link!=null && "egyshow.com".equalsIgnoreCase(link.getHost())
+        && "/egy".equals(link.getPath()) && idFrom(url)!=null){
+      play(new Video("فيديو EGYTUBE",url,"","","",0));
+    }
   }
   private void shareApp(){
     Intent send=new Intent(Intent.ACTION_SEND);

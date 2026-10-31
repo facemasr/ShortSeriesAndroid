@@ -889,13 +889,10 @@ public class MainActivity extends Activity {
     super.onBackPressed();
   }
   @Override public void onUserLeaveHint(){
-    // A mini PlayerView must be restored before the OS renders the Activity in PiP.
-    if(watchView!=null && miniVisible && watchView.isPlayingVideo())prepareWatchForPip();
+    // Leaving by Home/Recents is a request for background audio, not PiP.
+    // Keep the existing MediaSession alive; onStop handles audio-only tracks.
+    // Explicit picture-in-picture remains available from its player button.
     super.onUserLeaveHint();
-    if(android.os.Build.VERSION.SDK_INT>=26 && android.os.Build.VERSION.SDK_INT<31
-      && watchView!=null && watchView.isPlayingVideo()){
-      watchView.enterPictureInPicture();
-    }
   }
   @Override public void onPictureInPictureModeChanged(boolean inPip,android.content.res.Configuration config){
     super.onPictureInPictureModeChanged(inPip,config);

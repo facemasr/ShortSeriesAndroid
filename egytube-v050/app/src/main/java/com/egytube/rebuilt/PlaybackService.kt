@@ -14,6 +14,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
@@ -138,11 +139,32 @@ class PlaybackService:MediaSessionService(){
       CommandButton.Builder(CommandButton.ICON_STOP)
         .setSessionCommand(closeCommand).build()
     )
-    session=MediaSession.Builder(this,player)
+    // This app starts PlaybackService directly with startService(), not by
+    // binding a MediaController. Without addSession() the service has no
+    // registered session to observe and Media3 may never post a media card.
+    setMediaNotificationProvider(
+      DefaultMediaNotificationProvider.Builder(this)
+        .setChannelId("egytube_media_playback_v2")
+        .setSmallIcon(R.drawable.ic_app)
+        .build()
+    )
+    val built=MediaSession.Builder(this,player)
       .setCallback(mediaCallback)
       .setSessionActivity(reopen)
       .setMediaButtonPreferences(commands)
       .build()
+    session=built
+    addSession(built)
+    Log.i("EGYTUBE.Media","Playback service initialized; registered session=${isSessionAdded(built)}")
+  }
+
+  override fun onUpdateNotification(
+    session:MediaSession,startInForegroundRequired:Boolean
+  ){
+    // Use Media3's managed media-style notification and proper foreground
+    // lifecycle. Do not post a competing generic NotificationCompat alert.
+    Log.d("EGYTUBE.Media","Media notification update: foreground=$startInForegroundRequired")
+    super.onUpdateNotification(session,startInForegroundRequired)
   }
 
   override fun onGetSession(controllerInfo:MediaSession.ControllerInfo):MediaSession?=session

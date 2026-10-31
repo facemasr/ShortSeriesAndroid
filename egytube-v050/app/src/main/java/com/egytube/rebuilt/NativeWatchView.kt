@@ -642,7 +642,9 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       val next=formats.indices.firstOrNull{it !in unsuccessfulSources}
       if(next==null){
         fallbackIsPending=false
-        if(lastPauseAt>0L && !resumeRecoveryAttempted && !recoveryInFlight &&
+        // Background streams may expire even without a pause; resolve fresh
+        // URLs once all candidate sources have failed, preserving position.
+        if(!resumeRecoveryAttempted && !recoveryInFlight &&
            player.playWhenReady){
           refreshPausedSource()
           return

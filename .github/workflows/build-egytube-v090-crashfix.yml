@@ -112,4 +112,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public-downloads/EGYTUBE-v0.8.10-AUDIO-FIX-PREVIEW.apk public-downloads/preview-v090.json
           git commit -m "Publish EGYTUBE 0.8.10 Android media custom action name crashfix preview" || exit 0
+          # CI may have another commit (e.g. emulator test) since checkout.
+          # Rebase the preview-only commit instead of failing non-fast-forward.
+          git fetch origin egytube-v090-media-action-startup-fix
+          git rebase origin/egytube-v090-media-action-startup-fix
           git push origin HEAD:egytube-v090-media-action-startup-fix

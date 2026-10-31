@@ -39,26 +39,7 @@ jobs:
           profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
-          script: |
-            set -eu
-            APK=egytube-v050/app/build/outputs/apk/debug/app-debug.apk
-            PKG=com.egytube.official.audio90
-            adb install -r "$APK"
-            adb logcat -c
-            adb shell am start -W -n "$PKG/com.egytube.rebuilt.MainActivity"
-            sleep 5
-            adb shell pidof "$PKG"
-            # Reproduce the exact user-reported crash: Media3 addSession
-            # translates the custom stop command into Legacy CustomAction.
-            adb shell am startservice -n "$PKG/com.egytube.rebuilt.PlaybackService"
-            sleep 5
-            adb shell pidof "$PKG"
-            adb logcat -d -b crash > /tmp/egytube-crash.log
-            if grep -E 'FATAL EXCEPTION|You must specify a name to build a CustomAction|Unable to create service' /tmp/egytube-crash.log; then
-              cat /tmp/egytube-crash.log
-              exit 1
-            fi
-            echo 'PASS: app Activity + media session service started without fatal exceptions.'
+          script: bash .github/scripts/test-egytube-v090-launch.sh
       - name: Upload emulator crash log (if any)
         if: failure()
         uses: actions/upload-artifact@v4

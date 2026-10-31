@@ -1,0 +1,19 @@
+{
+  "app": "EGYTUBE Preview",
+  "packageName": "com.egytube.official.preview",
+  "versionCode": 84,
+  "versionName": "0.8.4-preview",
+  "download_url": "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v084-ads-background-controls/public-downloads/EGYTUBE-v0.8.4-ADS-BACKGROUND-PREVIEW.apk",
+  "sha256": "ad4d16502730576d00ad259934ecd788f5c22a99c526162e55f518344b1b9014",
+  "sizeBytes": 8306985,
+  "adUnits": [
+    "AADS:2460254",
+    "native:f2d83af2e65a70897bc7682d2a8aa66e",
+    "network-script:42e001815a55634ec456dac693eba30a",
+    "sponsored-link",
+    "468x60:e221bdfd44d439c4b0cd8a3d93745882",
+    "320x50:220d0e40b38592136c3d8d9ff3111157"
+  ],
+  "preview": true,
+  "notes": "نسخة اختبارية: مواضع الإعلانات، إشعار التشغيل في الخلفية والتحكم بالأزرار، والجودات بالدقة فقط. لا تحل محل الإصدار الرسمي."
+}

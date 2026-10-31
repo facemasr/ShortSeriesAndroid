@@ -1,0 +1,19 @@
+{
+  "app": "EGYTUBE Preview",
+  "packageName": "com.egytube.official.preview",
+  "versionCode": 86,
+  "versionName": "0.8.6-preview",
+  "download_url": "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v086-persistent-media-card/public-downloads/EGYTUBE-v0.8.6-MEDIA-CARD-PREVIEW.apk",
+  "sha256": "4491564e39be9847b137bc8094e0c7133783fbb345ebf861a79a68c0d5f505cf",
+  "sizeBytes": 8309581,
+  "adUnits": [
+    "AADS:2460254",
+    "native:f2d83af2e65a70897bc7682d2a8aa66e",
+    "network-script:42e001815a55634ec456dac693eba30a",
+    "sponsored-link",
+    "468x60:e221bdfd44d439c4b0cd8a3d93745882",
+    "320x50:220d0e40b38592136c3d8d9ff3111157"
+  ],
+  "preview": true,
+  "notes": "نسخة اختبارية تحافظ على بطاقة مشغّل الصوت عند إزالة التطبيق من التطبيقات الأخيرة أثناء التشغيل، ولا تُغلق إلا بإيقاف صريح أو بقرار نظام Android. لا تحل محل الإصدار الرسمي."
+}

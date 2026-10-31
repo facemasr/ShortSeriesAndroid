@@ -1096,7 +1096,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         val visible=Rect()
         if((miniTarget ?: viewport).getGlobalVisibleRect(visible)&&!visible.isEmpty)params.setSourceRectHint(visible)
         // Android 12+ can enter PiP when the user goes Home during active playback.
-        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)params.setAutoEnterEnabled(player.isPlaying)
+        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)params.setAutoEnterEnabled(false)
         host.setPictureInPictureParams(params.build())
       }catch(_:Exception){}
     }
@@ -1115,7 +1115,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         val builder=PictureInPictureParams.Builder().setAspectRatio(pipRatio())
         val visible=Rect()
         if(viewport.getGlobalVisibleRect(visible)&&!visible.isEmpty)builder.setSourceRectHint(visible)
-        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)builder.setAutoEnterEnabled(true)
+        if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S)builder.setAutoEnterEnabled(false)
         host.enterPictureInPictureMode(builder.build())
       }catch(e:Exception){
         Toast.makeText(host,"لا يتوفر PiP على هذا الجهاز",Toast.LENGTH_SHORT).show()

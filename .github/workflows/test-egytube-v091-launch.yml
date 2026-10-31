@@ -1,0 +1,49 @@
+name: EGYTUBE 0.8.11 — Real Android service startup test
+on:
+  push:
+    branches:
+      - egytube-v091-automatic-pip-on-home
+    paths:
+      - '.github/workflows/test-egytube-v091-launch.yml'
+      - 'egytube-v050/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  emulator-startup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build debug APK
+        working-directory: ./egytube-v050
+        run: gradle --no-daemon --console=plain :app:assembleDebug
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Launch app and Media3 PlaybackService on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash .github/scripts/test-egytube-v091-launch.sh
+      - name: Upload emulator crash log (if any)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EGYTUBE-v091-STARTUP-TEST-FAILURE
+          path: /tmp/egytube-crash.log
+          if-no-files-found: ignore

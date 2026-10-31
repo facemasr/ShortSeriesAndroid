@@ -155,7 +155,12 @@ class PlaybackService:MediaSessionService(){
       .build()
     session=built
     addSession(built)
-    Log.i("EGYTUBE.Media","Playback service initialized; registered session=${isSessionAdded(built)}")
+    val registered=isSessionAdded(built)
+    getSharedPreferences("EGYTUBE_MEDIA_STATUS",MODE_PRIVATE).edit()
+      .putString("service_state",if(registered)"registered" else "session_missing")
+      .putLong("service_started_at",System.currentTimeMillis())
+      .apply()
+    Log.i("EGYTUBE.Media","Playback service initialized; registered session=$registered")
   }
 
   override fun onUpdateNotification(
@@ -164,6 +169,10 @@ class PlaybackService:MediaSessionService(){
     // Use Media3's managed media-style notification and proper foreground
     // lifecycle. Do not post a competing generic NotificationCompat alert.
     Log.d("EGYTUBE.Media","Media notification update: foreground=$startInForegroundRequired")
+    getSharedPreferences("EGYTUBE_MEDIA_STATUS",MODE_PRIVATE).edit()
+      .putLong("last_notification_update_at",System.currentTimeMillis())
+      .putBoolean("notification_foreground_requested",startInForegroundRequired)
+      .apply()
     super.onUpdateNotification(session,startInForegroundRequired)
   }
 
@@ -191,6 +200,9 @@ class PlaybackService:MediaSessionService(){
     recoveryWorker.shutdownNow()
     session?.release()
     session=null
+    getSharedPreferences("EGYTUBE_MEDIA_STATUS",MODE_PRIVATE).edit()
+      .putString("service_state","stopped")
+      .putLong("service_stopped_at",System.currentTimeMillis()).apply()
     PlaybackCore.disposeWhenUnused()
     super.onDestroy()
   }

@@ -149,6 +149,8 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private val advertisement = WebView(host)
     private val formats = mutableListOf<Source>()
+    // Lowest-bandwidth standalone audio stream, resolved with video metadata.
+    private var lowDataAudioUrl:String?=null
     private var active = -1
     private val unsuccessfulSources=mutableSetOf<Int>()
     private var fallbackResumeMs=0L
@@ -495,6 +497,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       lastEndedTicket=-1
       val token=ticket
       formats.clear();active=-1
+      lowDataAudioUrl=null
       cancelResumeWatchdog()
       lastPauseAt=0L
       resumeRecoveryAttempted=false
@@ -526,6 +529,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
             creator.text=info.uploaderName
             videoTitle=info.name
             formats.clear();formats.addAll(sources)
+            // In background, request just audio instead of video+audio.
+            lowDataAudioUrl=info.audioStreams
+              .filter{it.isUrl && it.content.startsWith("https://")}
+              .minByOrNull{if(it.averageBitrate>0)it.averageBitrate else Int.MAX_VALUE}
+              ?.content
             if(info.ageLimit>0){
               state.text="هذا الفيديو مقيد بالعمر ولا يمكن تشغيله هنا"
             }else if(sources.isEmpty()){
@@ -744,11 +752,13 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       }
       state.text="جارٍ تشغيل ${src.label}"
       player.setMediaSource(media)
+      PlaybackCore.setForegroundSource(videoId,media,lowDataAudioUrl ?: src.audio)
       if(position>0)player.seekTo(position)
       player.playWhenReady=!openAsPaused
       if(openAsPaused)lastPauseAt=android.os.SystemClock.elapsedRealtime()
       openAsPaused=false
       player.prepare()
+      PlaybackCore.applyPendingBackgroundMode()
       showChrome()
     }
     private fun showSpeedOptions(){
@@ -1065,6 +1075,18 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     fun reconnectExisting(id:String,title:String,channel:String){
       if(shutdown || player.currentMediaItem==null)return
+      // If Android restored a media-only session in a new process, fetch the
+      // matching video again instead of showing a blank player on return.
+      if(!PlaybackCore.hasForegroundSource(id)){
+        val oldPosition=player.currentPosition.coerceAtLeast(0L)
+        val wasPlaying=player.playWhenReady
+        if(oldPosition>0L){
+          host.getSharedPreferences("EGYTUBE_ONLY",Context.MODE_PRIVATE).edit()
+            .putLong("resume_$id",oldPosition).apply()
+        }
+        openVideo(id,title,channel,!wasPlaying)
+        return
+      }
       videoId=id
       videoTitle=title
       heading.text=title

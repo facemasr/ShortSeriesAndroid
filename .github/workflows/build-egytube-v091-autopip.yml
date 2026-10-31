@@ -53,6 +53,9 @@ jobs:
           grep -Fq '.setDisplayName("تقديم 10 ثوانٍ")' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
           grep -Fq 'params.setAutoEnterEnabled(player.playWhenReady' egytube-v050/app/src/main/java/com/egytube/rebuilt/NativeWatchView.kt
           grep -Fq 'watchView.enterPictureInPicture();' egytube-v050/app/src/main/java/com/egytube/rebuilt/MainActivity.java
+          grep -Fq 'https://egyshow.com/egy?v=' egytube-v050/app/src/main/java/com/egytube/rebuilt/MainActivity.java
+          grep -Fq 'https://egyshow.com/egy?v=$videoId' egytube-v050/app/src/main/java/com/egytube/rebuilt/NativeWatchView.kt
+          grep -Fq 'android:autoVerify="true"' egytube-v050/app/src/main/AndroidManifest.xml
           grep -Fq 'setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)' egytube-v050/app/src/main/java/com/egytube/rebuilt/NativeWatchView.kt
           test -s egytube-v050/app/src/main/java/com/egytube/rebuilt/AudioNotificationArt.kt
           grep -Fq 'AdSlots.NETWORK_MOBILE_320x50' egytube-v050/app/src/main/java/com/egytube/rebuilt/NativeWatchView.kt

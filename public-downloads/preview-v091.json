@@ -1,0 +1,19 @@
+{
+  "app": "EGYTUBE Preview",
+  "packageName": "com.egytube.official.audio91",
+  "versionCode": 91,
+  "versionName": "0.8.11-auto-pip-test",
+  "download_url": "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v091-automatic-pip-on-home/public-downloads/EGYTUBE-v0.8.11-AUTO-PIP-PREVIEW.apk",
+  "sha256": "011ddda1de1be1c07afa031459afe4bd69d2db82bd2eb4d9e23083f6006e4fcf",
+  "sizeBytes": 8314985,
+  "adUnits": [
+    "AADS:2460254",
+    "native:f2d83af2e65a70897bc7682d2a8aa66e",
+    "network-script:42e001815a55634ec456dac693eba30a",
+    "sponsored-link",
+    "468x60:e221bdfd44d439c4b0cd8a3d93745882",
+    "320x50:220d0e40b38592136c3d8d9ff3111157"
+  ],
+  "preview": true,
+  "notes": "نسخة اختبارية تعالج انهيار تشغيل خدمة Media3 بسبب افتقاد اسم زر CustomAction وتحتفظ بوضع توفير البيانات بالخلفية؛ لا تزال تحتاج اختبارًا على جهاز فعلي."
+}

@@ -3,6 +3,7 @@ package com.egytube.rebuilt
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -15,6 +16,10 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import java.util.concurrent.Executors
@@ -27,6 +32,10 @@ import kotlin.math.abs
  */
 @OptIn(UnstableApi::class)
 class PlaybackService:MediaSessionService(){
+  companion object {
+    private const val COMMAND_CLOSE="com.egytube.rebuilt.CLOSE_MEDIA_PLAYER"
+  }
+  private val closeCommand=SessionCommand(COMMAND_CLOSE,Bundle.EMPTY)
   private var session:MediaSession?=null
   private var servicePlayer:ExoPlayer?=null
   private val main=Handler(Looper.getMainLooper())
@@ -34,6 +43,38 @@ class PlaybackService:MediaSessionService(){
   private var recoveryToken=0
   private var previousRecoveryAt=0L
   private var previousRecoveryId=""
+  // The Stop button is an explicit *close player* action: remove the media
+  // item to dismiss Android's card, then terminate the service. Pausing does
+  // not close the player or reset its position.
+  private val mediaCallback=object:MediaSession.Callback {
+    override fun onConnect(
+      session:MediaSession,controller:MediaSession.ControllerInfo
+    ):MediaSession.ConnectionResult {
+      return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+        .setAvailableSessionCommands(
+          MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+            .add(closeCommand).build()
+        ).build()
+    }
+
+    override fun onCustomCommand(
+      session:MediaSession,controller:MediaSession.ControllerInfo,
+      customCommand:SessionCommand,args:Bundle
+    ):ListenableFuture<SessionResult> {
+      if(customCommand.customAction!=COMMAND_CLOSE)
+        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+      recoveryToken++
+      servicePlayer?.apply {
+        pause()
+        stop()
+        clearMediaItems()
+      }
+      // Clearing the player timeline removes the media card immediately.
+      stopSelf()
+      return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+    }
+  }
+
   private val listener=object:Player.Listener {
     override fun onPlayerError(error:PlaybackException){
       // The attached watch UI already handles source fallback. Recover only
@@ -95,9 +136,10 @@ class PlaybackService:MediaSessionService(){
       CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD_10)
         .setPlayerCommand(Player.COMMAND_SEEK_FORWARD).build(),
       CommandButton.Builder(CommandButton.ICON_STOP)
-        .setPlayerCommand(Player.COMMAND_STOP).build()
+        .setSessionCommand(closeCommand).build()
     )
     session=MediaSession.Builder(this,player)
+      .setCallback(mediaCallback)
       .setSessionActivity(reopen)
       .setMediaButtonPreferences(commands)
       .build()
@@ -107,8 +149,16 @@ class PlaybackService:MediaSessionService(){
 
   override fun onTaskRemoved(rootIntent:Intent?){
     val player=servicePlayer
-    if(player!=null && player.currentMediaItem!=null && player.playWhenReady &&
-       player.playbackState!=Player.STATE_ENDED)return
+    // Removing the app from Recents is NOT an explicit Stop command.
+    // Keep the existing Android media foreground service and session alive
+    // while playback is ongoing; Android keeps its native media card visible.
+    if(player!=null && player.currentMediaItem!=null &&
+       player.playbackState!=Player.STATE_ENDED && isPlaybackOngoing()){
+      PlaybackCore.setAudioOnlyBackground(true)
+      return
+    }
+    // Android requires us to let Media3 stop a service that's no longer in
+    // the foreground (e.g. idle/paused beyond the OS grace period).
     super.onTaskRemoved(rootIntent)
   }
 

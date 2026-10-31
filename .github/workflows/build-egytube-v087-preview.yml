@@ -31,7 +31,8 @@ jobs:
           grep -Fq "versionCode 87; versionName '0.8.7'" egytube-v050/app/build.gradle
           grep -Fq 'setMediaButtonPreferences' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
           grep -Fq 'onTaskRemoved(rootIntent:Intent?)' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
-          grep -Fq 'isPlaybackOngoing()' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
+          # Rebuffering must not close an audio session on task removal.
+          grep -Fq 'player.playWhenReady' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
           grep -Fq 'clearMediaItems()' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
           grep -Fq 'stopWithTask="false"' egytube-v050/app/src/main/AndroidManifest.xml
           grep -Fq 'MediaButtonReceiver' egytube-v050/app/src/main/AndroidManifest.xml

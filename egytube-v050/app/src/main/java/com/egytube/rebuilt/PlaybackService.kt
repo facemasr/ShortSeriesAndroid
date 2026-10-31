@@ -9,6 +9,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -19,6 +20,7 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.SettableFuture
 import com.google.common.util.concurrent.ListenableFuture
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.stream.StreamInfo
@@ -43,10 +45,79 @@ class PlaybackService:MediaSessionService(){
   private var recoveryToken=0
   private var previousRecoveryAt=0L
   private var previousRecoveryId=""
+  private val checkpoint=object:Runnable{
+    override fun run(){
+      savePlaybackPosition()
+      main.postDelayed(this,15_000L)
+    }
+  }
+
+  private fun savePlaybackPosition(){
+    val player=servicePlayer?:return
+    val id=player.currentMediaItem?.mediaId.orEmpty()
+    if(!id.matches(Regex("[A-Za-z0-9_-]{11}")))return
+    val ms=player.currentPosition
+    val editor=getSharedPreferences("EGYTUBE_ONLY",MODE_PRIVATE).edit()
+      .putString("bg_video_id",id)
+      .putBoolean("bg_resume_requested",true)
+      .putBoolean("bg_was_playing",player.playWhenReady)
+    if(ms>1000L)editor.putLong("resume_$id",ms)
+    editor.apply()
+  }
   // The Stop button is an explicit *close player* action: remove the media
   // item to dismiss Android's card, then terminate the service. Pausing does
   // not close the player or reset its position.
   private val mediaCallback=object:MediaSession.Callback {
+    /**
+     * Restart only after explicit Android media-button/system request.
+     * Expiring direct media URLs must never be stored as permanent links.
+     * Re-resolve a playable source at the saved timestamp when requested.
+     */
+    override fun onPlaybackResumption(
+      mediaSession:MediaSession,controller:MediaSession.ControllerInfo,
+      isForPlayback:Boolean
+    ):ListenableFuture<MediaSession.MediaItemsWithStartPosition>{
+      val prefs=getSharedPreferences("EGYTUBE_ONLY",MODE_PRIVATE)
+      val id=prefs.getString("bg_video_id","").orEmpty()
+      if(!prefs.getBoolean("bg_resume_requested",false) ||
+         !id.matches(Regex("[A-Za-z0-9_-]{11}")))
+        return Futures.immediateFailedFuture(IllegalStateException("No resumable EGYTUBE media"))
+      val title=prefs.getString("bg_video_title","EGYTUBE")?:"EGYTUBE"
+      val creator=prefs.getString("bg_video_channel","EGYTUBE")?:"EGYTUBE"
+      val pos=prefs.getLong("resume_$id",0L).coerceAtLeast(0L)
+      val metadata=MediaMetadata.Builder()
+        .setTitle(title).setArtist(creator)
+        .setAlbumTitle("EGYTUBE · مشغّل الصوت")
+        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+        .setArtworkData(AudioNotificationArt.png(),MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+        .build()
+      fun media(source:String)=MediaItem.Builder()
+        .setMediaId(id).setUri(source).setMediaMetadata(metadata).build()
+      if(!isForPlayback){
+        val saved=media("https://www.youtube.com/watch?v=$id")
+        return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(listOf(saved),0,pos))
+      }
+      val future=SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+      recoveryWorker.execute{
+        try{
+          try{NewPipe.init(HttpDownloader())}catch(_:Exception){}
+          val fresh=StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
+          val source=fresh.videoStreams
+            .filter{it.isUrl && !it.isVideoOnly && it.content.startsWith("https://")}
+            .sortedBy{
+              val mp4=it.format?.name.orEmpty().contains("MP4",true)
+              (if(mp4)0 else 10000)+abs(it.height.coerceAtLeast(0)-480)
+            }.firstOrNull()?.content
+            ?:throw IllegalStateException("No combined video/audio stream to resume")
+          future.set(MediaSession.MediaItemsWithStartPosition(listOf(media(source)),0,pos))
+        }catch(e:Exception){
+          Log.w("EGYTUBE.Resumption","Could not refresh stream for media resumption",e)
+          future.setException(e)
+        }
+      }
+      return future
+    }
+
     override fun onConnect(
       session:MediaSession,controller:MediaSession.ControllerInfo
     ):MediaSession.ConnectionResult {
@@ -64,6 +135,14 @@ class PlaybackService:MediaSessionService(){
       if(customCommand.customAction!=COMMAND_CLOSE)
         return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
       recoveryToken++
+      val closingId=servicePlayer?.currentMediaItem?.mediaId.orEmpty()
+      val prefs=getSharedPreferences("EGYTUBE_ONLY",MODE_PRIVATE)
+      prefs.edit().putBoolean("bg_resume_requested",false)
+        .putBoolean("bg_was_playing",false)
+        .remove("bg_video_id").remove("bg_video_title")
+        .remove("bg_video_channel")
+        .apply()
+      if(closingId.isNotBlank())prefs.edit().remove("resume_$closingId").apply()
       servicePlayer?.apply {
         pause()
         stop()
@@ -122,6 +201,7 @@ class PlaybackService:MediaSessionService(){
     val player=PlaybackCore.get(this)
     servicePlayer=player
     player.addListener(listener)
+    main.postDelayed(checkpoint,15_000L)
     val launch=Intent(this,MainActivity::class.java)
       .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     val flag=PendingIntent.FLAG_UPDATE_CURRENT or
@@ -149,11 +229,12 @@ class PlaybackService:MediaSessionService(){
 
   override fun onTaskRemoved(rootIntent:Intent?){
     val player=servicePlayer
-    // Removing the app from Recents is NOT an explicit Stop command.
-    // Keep the existing Android media foreground service and session alive
-    // while playback is ongoing; Android keeps its native media card visible.
-    if(player!=null && player.currentMediaItem!=null &&
-       player.playbackState!=Player.STATE_ENDED && isPlaybackOngoing()){
+    // Task removal is not a Stop request. Even if the network is rebuffering
+    // and Media3 has not yet marked the service foreground, preserve the
+    // user's active Play intent and let Media3 control the notification.
+    if(player!=null && player.currentMediaItem!=null && player.playWhenReady &&
+       player.playbackState!=Player.STATE_ENDED){
+      savePlaybackPosition()
       PlaybackCore.setAudioOnlyBackground(true)
       return
     }
@@ -163,6 +244,8 @@ class PlaybackService:MediaSessionService(){
   }
 
   override fun onDestroy(){
+    main.removeCallbacks(checkpoint)
+    savePlaybackPosition()
     recoveryToken++
     servicePlayer?.removeListener(listener)
     servicePlayer=null

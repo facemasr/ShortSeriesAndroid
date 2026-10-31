@@ -356,7 +356,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       val adLabel=text("إعلان",11f,0xff777777.toInt())
       padding(adLabel,12,2,12,2)
       adBox.addView(adLabel)
-      AdSlots.loadInto(advertisement,AdSlots.PLAYER_320x50)
+      AdSlots.loadInto(advertisement,AdSlots.NETWORK_MOBILE_320x50)
       adBox.addView(advertisement,LinearLayout.LayoutParams(-1,dp(58)))
       addView(adBox,LinearLayout.LayoutParams(-1,dp(79)))
       adContainer=adBox
@@ -688,7 +688,11 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       if(formats.isEmpty()){
         Toast.makeText(host,"الجودات غير متاحة بعد",Toast.LENGTH_SHORT).show();return
       }
-      openSettings("جودة الفيديو",formats.map{it.label},active){index->choose(index)}
+      val indices=formats.indices.distinctBy{formats[it].label.substringBefore(" · ").trim()}
+      val labels=indices.map{formats[it].label.substringBefore(" · ").trim()}
+      openSettings("جودة الفيديو",labels,indices.indexOf(active)){index->
+        indices.getOrNull(index)?.let{choose(it)}
+      }
     }
     private fun choose(index:Int,positionOverride:Long?=null,automaticFallback:Boolean=false){
       if(index !in formats.indices || shutdown)return
@@ -711,7 +715,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
       try{host.startService(Intent(host,PlaybackService::class.java))}
       catch(e:Exception){state.text="تعذر بدء تشغيل الخلفية: ${e.message.orEmpty()}"}
       active=index
-      qualityButton.text="⚙ ${src.label.substringBefore(' ')}"
+      qualityButton.text="⚙ ${src.label.substringBefore(" · ")}"
       val ds=DefaultDataSource.Factory(host,DefaultHttpDataSource.Factory()
         .setAllowCrossProtocolRedirects(true)
         .setConnectTimeoutMs(12_000)
@@ -837,7 +841,7 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
     }
     private fun showPlayerMenu(){
       openSettings("إعدادات المشغّل",listOf(
-         "الجودة  ·  "+(formats.getOrNull(active)?.label ?: "تلقائي"),
+         "الجودة  ·  "+(formats.getOrNull(active)?.label?.substringBefore(" · ") ?: "تلقائي"),
          "السرعة  ·  "+String.format(Locale.US,"%.2g×",playingRate),
          if(zoomed)"العرض  ·  احتواء الفيديو" else "العرض  ·  ملء الإطار",
          if(captionsEnabled)"الترجمة  ·  تشغيل" else "الترجمة  ·  إيقاف",

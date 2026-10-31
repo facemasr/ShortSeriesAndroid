@@ -1,0 +1,19 @@
+{
+  "app": "EGYTUBE Preview",
+  "packageName": "com.egytube.official.audio90",
+  "versionCode": 90,
+  "versionName": "0.8.10-audio-saver-crashfix",
+  "download_url": "https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v090-media-action-startup-fix/public-downloads/EGYTUBE-v0.8.10-AUDIO-FIX-PREVIEW.apk",
+  "sha256": "96fdb9198784e25c6a6aba4fb4424c24e8f15ac7beb1da7e117ca66d00fd9abf",
+  "sizeBytes": 8314429,
+  "adUnits": [
+    "AADS:2460254",
+    "native:f2d83af2e65a70897bc7682d2a8aa66e",
+    "network-script:42e001815a55634ec456dac693eba30a",
+    "sponsored-link",
+    "468x60:e221bdfd44d439c4b0cd8a3d93745882",
+    "320x50:220d0e40b38592136c3d8d9ff3111157"
+  ],
+  "preview": true,
+  "notes": "نسخة اختبارية تعالج انهيار تشغيل خدمة Media3 بسبب افتقاد اسم زر CustomAction وتحتفظ بوضع توفير البيانات بالخلفية؛ لا تزال تحتاج اختبارًا على جهاز فعلي."
+}

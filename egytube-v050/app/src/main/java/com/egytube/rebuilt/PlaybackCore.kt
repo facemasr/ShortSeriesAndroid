@@ -17,6 +17,20 @@ object PlaybackCore {
   @Synchronized fun attachUi(){attachedUiCount++}
   @Synchronized fun detachUi(){attachedUiCount=(attachedUiCount-1).coerceAtLeast(0)}
   @Synchronized fun hasAttachedUi():Boolean=attachedUiCount>0
+  /**
+   * Preserve the current media item, timestamp and audio session while
+   * disabling only video decoding/rendering when the Activity is backgrounded.
+   * No transcoding, new stream URL, seek or restart is necessary.
+   * In PiP callers keep this false so the picture remains visible.
+   */
+  @Synchronized fun setAudioOnlyBackground(enabled:Boolean){
+    val player=instance?:return
+    if(player.currentMediaItem==null)return
+    if(player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO)==enabled)return
+    player.trackSelectionParameters=player.trackSelectionParameters.buildUpon()
+      .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,enabled)
+      .build()
+  }
   @Synchronized fun disposeWhenUnused(){
     // A paused MediaSessionService may be torn down even while the watch
     // Activity is visible. Do not release ExoPlayer out from under its UI.

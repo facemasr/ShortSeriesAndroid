@@ -73,9 +73,9 @@ class PlaybackService:MediaSessionService(){
      * Expiring direct media URLs must never be stored as permanent links.
      * Re-resolve a playable source at the saved timestamp when requested.
      */
+    // Media3 1.5.1 implements the original two-argument resumption callback.
     override fun onPlaybackResumption(
-      mediaSession:MediaSession,controller:MediaSession.ControllerInfo,
-      isForPlayback:Boolean
+      mediaSession:MediaSession,controller:MediaSession.ControllerInfo
     ):ListenableFuture<MediaSession.MediaItemsWithStartPosition>{
       val prefs=getSharedPreferences("EGYTUBE_ONLY",MODE_PRIVATE)
       val id=prefs.getString("bg_video_id","").orEmpty()
@@ -93,10 +93,6 @@ class PlaybackService:MediaSessionService(){
         .build()
       fun media(source:String)=MediaItem.Builder()
         .setMediaId(id).setUri(source).setMediaMetadata(metadata).build()
-      if(!isForPlayback){
-        val saved=media("https://www.youtube.com/watch?v=$id")
-        return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(listOf(saved),0,pos))
-      }
       val future=SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
       recoveryWorker.execute{
         try{

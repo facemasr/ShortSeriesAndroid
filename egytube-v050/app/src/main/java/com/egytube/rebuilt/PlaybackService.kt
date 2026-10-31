@@ -15,6 +15,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
@@ -98,13 +99,18 @@ class PlaybackService:MediaSessionService(){
         try{
           try{NewPipe.init(HttpDownloader())}catch(_:Exception){}
           val fresh=StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
-          val source=fresh.videoStreams
+          // Restore an audio-only session to minimize data usage before
+          // the Activity is visible; a combined stream is only a fallback.
+          val source=fresh.audioStreams
+            .filter{it.isUrl && it.content.startsWith("https://")}
+            .minByOrNull{if(it.averageBitrate>0)it.averageBitrate else Int.MAX_VALUE}
+            ?.content ?: fresh.videoStreams
             .filter{it.isUrl && !it.isVideoOnly && it.content.startsWith("https://")}
             .sortedBy{
               val mp4=it.format?.name.orEmpty().contains("MP4",true)
               (if(mp4)0 else 10000)+abs(it.height.coerceAtLeast(0)-480)
             }.firstOrNull()?.content
-            ?:throw IllegalStateException("No combined video/audio stream to resume")
+            ?:throw IllegalStateException("No playable stream to resume")
           future.set(MediaSession.MediaItemsWithStartPosition(listOf(media(source)),0,pos))
         }catch(e:Exception){
           Log.w("EGYTUBE.Resumption","Could not refresh stream for media resumption",e)
@@ -169,7 +175,10 @@ class PlaybackService:MediaSessionService(){
         try{
           try{NewPipe.init(HttpDownloader())}catch(_:Exception){}
           val fresh=StreamInfo.getInfo("https://www.youtube.com/watch?v=$id")
-          val source=fresh.videoStreams
+          val source=fresh.audioStreams
+            .filter{it.isUrl && it.content.startsWith("https://")}
+            .minByOrNull{if(it.averageBitrate>0)it.averageBitrate else Int.MAX_VALUE}
+            ?.content ?: fresh.videoStreams
             .filter{it.isUrl && !it.isVideoOnly && it.content.startsWith("https://")}
             .sortedBy{
               val mp4=it.format?.name.orEmpty().contains("MP4",true)
@@ -214,11 +223,20 @@ class PlaybackService:MediaSessionService(){
       CommandButton.Builder(CommandButton.ICON_STOP)
         .setSessionCommand(closeCommand).build()
     )
-    session=MediaSession.Builder(this,player)
+    // Register the media session and let Android manage its native
+    // lock-screen / notification media card (no custom overlay).
+    val mediaProvider=DefaultMediaNotificationProvider.Builder(this)
+      .setChannelId("egytube_media_playback_v3")
+      .build()
+    mediaProvider.setSmallIcon(R.drawable.ic_app)
+    setMediaNotificationProvider(mediaProvider)
+    val built=MediaSession.Builder(this,player)
       .setCallback(mediaCallback)
       .setSessionActivity(reopen)
       .setMediaButtonPreferences(commands)
       .build()
+    session=built
+    addSession(built)
   }
 
   override fun onGetSession(controllerInfo:MediaSession.ControllerInfo):MediaSession?=session

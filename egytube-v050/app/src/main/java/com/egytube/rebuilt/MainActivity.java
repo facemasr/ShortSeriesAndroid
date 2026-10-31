@@ -554,10 +554,12 @@ public class MainActivity extends Activity {
         else compactRow(video);
       }
       displayedVideoCount++;
-      if(displayedVideoCount==10)addAd(AdSlots.RECT_300x250);
+      if(displayedVideoCount==8)addAd(AdSlots.NATIVE_300x250);
       else if(displayedVideoCount==14)addAd(AdSlots.AADS_320x100);
-      else if(displayedVideoCount==20)addAd(AdSlots.BANNER_468x60);
-      else if(displayedVideoCount>20 && displayedVideoCount%25==0)
+      else if(displayedVideoCount==20)addAd(AdSlots.NETWORK_WIDE_468x60);
+      else if(displayedVideoCount==27)addAd(AdSlots.NETWORK_SCRIPT);
+      else if(displayedVideoCount==34)addAd(AdSlots.SPONSORED_LINK);
+      else if(displayedVideoCount>35 && displayedVideoCount%45==0)
         addAd(AdSlots.BONEPA_4);
     }
     if(unique.isEmpty())emptyPageCount++;

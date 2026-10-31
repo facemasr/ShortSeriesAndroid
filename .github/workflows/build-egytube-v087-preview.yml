@@ -27,7 +27,7 @@ jobs:
           grep -Fq "https://ad.a-ads.com/2460254/?size=320x100" egytube-v050/app/src/main/java/com/egytube/rebuilt/AdSlots.java
           grep -Fq "AdSlots.AADS_320x100" egytube-v050/app/src/main/java/com/egytube/rebuilt/MainActivity.java
           grep -Fq "applicationId 'com.egytube.official'" egytube-v050/app/build.gradle
-          grep -Fq "applicationIdSuffix '.preview'" egytube-v050/app/build.gradle
+          grep -Fq "applicationIdSuffix '.preview.v087'" egytube-v050/app/build.gradle
           grep -Fq "versionCode 87; versionName '0.8.7'" egytube-v050/app/build.gradle
           grep -Fq 'setMediaButtonPreferences' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
           grep -Fq 'onTaskRemoved(rootIntent:Intent?)' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
@@ -56,7 +56,7 @@ jobs:
           unzip -t egytube-v050/app/build/outputs/apk/release/app-release-unsigned.apk | tail -1
           unzip -t "$APK" | tail -1
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep 'package: name=.com.egytube.official.preview'
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep 'package: name=.com.egytube.official.preview.v087'
           for needle in MainActivity AdSlots NativeWatchView; do
             found=0
             for dex in $(unzip -Z1 "$APK" | grep -E '^classes[0-9]*[.]dex$'); do
@@ -85,7 +85,7 @@ jobs:
           apk=pathlib.Path("public-downloads/EGYTUBE-v0.8.7-AUDIO-BACKGROUND-PREVIEW.apk")
           preview={
             "app":"EGYTUBE Preview",
-            "packageName":"com.egytube.official.preview",
+            "packageName":"com.egytube.official.preview.v087",
             "versionCode":87,
             "versionName":"0.8.7-preview",
             "download_url":"https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v087-background-audio-default/public-downloads/EGYTUBE-v0.8.7-AUDIO-BACKGROUND-PREVIEW.apk",

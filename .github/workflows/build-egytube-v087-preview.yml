@@ -1,0 +1,105 @@
+name: EGYTUBE 0.8.7 Preview — Home Opens Audio Player
+on:
+  push:
+    branches:
+      - egytube-v087-home-audio-instead-of-auto-pip
+    paths:
+      - 'egytube-v050/**'
+      - '.github/workflows/build-egytube-v087-preview.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Validate source and prevent AADS regression
+        run: |
+          grep -Fq "data-aa='2460254'" egytube-v050/app/src/main/java/com/egytube/rebuilt/AdSlots.java
+          grep -Fq "https://ad.a-ads.com/2460254/?size=320x100" egytube-v050/app/src/main/java/com/egytube/rebuilt/AdSlots.java
+          grep -Fq "AdSlots.AADS_320x100" egytube-v050/app/src/main/java/com/egytube/rebuilt/MainActivity.java
+          grep -Fq "applicationId 'com.egytube.official'" egytube-v050/app/build.gradle
+          grep -Fq "applicationIdSuffix '.preview.v087'" egytube-v050/app/build.gradle
+          grep -Fq "versionCode 87; versionName '0.8.7'" egytube-v050/app/build.gradle
+          grep -Fq 'setMediaButtonPreferences' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
+          grep -Fq 'onTaskRemoved(rootIntent:Intent?)' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
+          grep -Fq 'isPlaybackOngoing()' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
+          grep -Fq 'clearMediaItems()' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
+          grep -Fq 'stopWithTask="false"' egytube-v050/app/src/main/AndroidManifest.xml
+          grep -Fq 'setAudioOnlyBackground(true)' egytube-v050/app/src/main/java/com/egytube/rebuilt/MainActivity.java
+          grep -Fq 'params.setAutoEnterEnabled(false)' egytube-v050/app/src/main/java/com/egytube/rebuilt/NativeWatchView.kt
+          grep -Fq 'builder.setAutoEnterEnabled(false)' egytube-v050/app/src/main/java/com/egytube/rebuilt/NativeWatchView.kt
+          if grep -Fq 'watchView.enterPictureInPicture();' egytube-v050/app/src/main/java/com/egytube/rebuilt/MainActivity.java; then
+            echo 'Home still triggers PiP automatically' >&2; exit 1
+          fi
+          grep -Fq 'setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,enabled)' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackCore.kt
+          grep -Fq 'setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)' egytube-v050/app/src/main/java/com/egytube/rebuilt/NativeWatchView.kt
+          test -s egytube-v050/app/src/main/java/com/egytube/rebuilt/AudioNotificationArt.kt
+          grep -Fq 'AdSlots.NETWORK_MOBILE_320x50' egytube-v050/app/src/main/java/com/egytube/rebuilt/NativeWatchView.kt
+          grep -Fq 'AdSlots.NATIVE_300x250' egytube-v050/app/src/main/java/com/egytube/rebuilt/MainActivity.java
+      - name: Build Android preview APK
+        working-directory: ./egytube-v050
+        run: gradle --no-daemon --console=plain :app:assembleDebug :app:assembleRelease
+      - name: Verify Android package integrity
+        run: |
+          set -e
+          APK=egytube-v050/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          test -s egytube-v050/app/build/outputs/apk/release/app-release-unsigned.apk
+          unzip -t egytube-v050/app/build/outputs/apk/release/app-release-unsigned.apk | tail -1
+          unzip -t "$APK" | tail -1
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep 'package: name=.com.egytube.official.preview.v087'
+          for needle in MainActivity AdSlots NativeWatchView; do
+            found=0
+            for dex in $(unzip -Z1 "$APK" | grep -E '^classes[0-9]*[.]dex$'); do
+              if unzip -p "$APK" "$dex" | strings | grep -q "$needle"; then found=1;break;fi
+            done
+            test "$found" -eq 1
+          done
+          cp "$APK" EGYTUBE-v0.8.7-HOME-AUDIO-PREVIEW.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EGYTUBE-v087-HOME-AUDIO-PREVIEW
+          path: EGYTUBE-v0.8.7-HOME-AUDIO-PREVIEW.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EGYTUBE-v087-UNSIGNED-RELEASE-FOR-SERVER-SIGNING
+          path: egytube-v050/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+      - name: Publish preview only (never overwrite official latest.json)
+        run: |
+          set -e
+          mkdir -p public-downloads
+          cp EGYTUBE-v0.8.7-HOME-AUDIO-PREVIEW.apk public-downloads/EGYTUBE-v0.8.7-HOME-AUDIO-PREVIEW.apk
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          apk=pathlib.Path("public-downloads/EGYTUBE-v0.8.7-HOME-AUDIO-PREVIEW.apk")
+          preview={
+            "app":"EGYTUBE Preview",
+            "packageName":"com.egytube.official.preview.v087",
+            "versionCode":87,
+            "versionName":"0.8.7-preview",
+            "download_url":"https://raw.githubusercontent.com/facemasr/ShortSeriesAndroid/egytube-v087-home-audio-instead-of-auto-pip/public-downloads/EGYTUBE-v0.8.7-HOME-AUDIO-PREVIEW.apk",
+            "sha256":hashlib.sha256(apk.read_bytes()).hexdigest(),
+            "sizeBytes":apk.stat().st_size,
+            "adUnits":["AADS:2460254","native:f2d83af2e65a70897bc7682d2a8aa66e","network-script:42e001815a55634ec456dac693eba30a","sponsored-link","468x60:e221bdfd44d439c4b0cd8a3d93745882","320x50:220d0e40b38592136c3d8d9ff3111157"],
+            "preview":True,
+            "notes":"نسخة اختبارية: زر Home وRecents يحولان الفيديو إلى صوت في إشعارات Android بدل الدخول التلقائي إلى PiP. يمكن تفعيل PiP يدويًا. لا تحل محل الإصدار الرسمي."
+          }
+          pathlib.Path("public-downloads/preview-v087.json").write_text(json.dumps(preview,indent=2,ensure_ascii=False)+"\n")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public-downloads/EGYTUBE-v0.8.7-HOME-AUDIO-PREVIEW.apk public-downloads/preview-v087.json
+          git commit -m "Publish separate EGYTUBE 0.8.7 Home background-audio preview and manifest" || exit 0
+          git push origin HEAD:egytube-v087-home-audio-instead-of-auto-pip

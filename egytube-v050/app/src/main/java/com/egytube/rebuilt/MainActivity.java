@@ -889,10 +889,21 @@ public class MainActivity extends Activity {
     super.onBackPressed();
   }
   @Override public void onUserLeaveHint(){
-    // Home/Recents should leave EGYTUBE playing AUDIO in the system media
-    // notification, not silently enter picture-in-picture.
-    // PiP remains available from its explicit player control.
     super.onUserLeaveHint();
+    // The user explicitly wants automatic PiP on Home/app switch while video
+    // playback is requested. Keep normal audio-only mode for screen lock or
+    // when the app is closed without an active video.
+    if(watchView==null || !watchView.hasVideo() ||
+        !watchView.isPlaybackRequested() || isFinishing() ||
+        isInPictureInPictureMode())return;
+    if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S){
+      // Android 12+ uses setAutoEnterEnabled(true) for seamless Home PiP.
+      // Un-dock a mini-player before the system captures the PiP surface.
+      prepareWatchForPip();
+    }else if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O){
+      // Android 8-11 require an explicit PiP transition on Home.
+      watchView.enterPictureInPicture();
+    }
   }
   @Override public void onPictureInPictureModeChanged(boolean inPip,android.content.res.Configuration config){
     super.onPictureInPictureModeChanged(inPip,config);

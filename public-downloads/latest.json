@@ -1,12 +1,13 @@
 {
   "app": "EGYTUBE",
   "packageName": "com.egytube.official",
-  "versionCode": 80,
-  "versionName": "0.8.0",
-  "releaseDate": "2026-10-25",
+  "versionCode": 82,
+  "versionName": "0.8.2",
+  "releaseDate": "2026-10-28",
   "minimumAndroid": 8,
-  "download_url": "https://egyshow.com/egytube/EGYTUBE-v0.8.0.apk",
+  "download_url": "https://egyshow.com/egytube/EGYTUBE-v0.8.2.apk",
   "landing_url": "https://egyshow.com/egytube/",
-  "notes": "إصدار EGYTUBE مستقل يمكن تثبيته بجوار النسخة القديمة المتعارضة دون حذفها. يستخدم توقيعًا رسميًا ثابتًا للإصدارات الجديدة، مع كل مميزات المشغّل السابقة.",
-  "mandatory": false
+  "notes": "الإصدار الرسمي 0.8.2 المتوفر على EGYSHOW. نسخة 0.8.3 في الاختبار ولم تصدر رسميًا بعد.",
+  "mandatory": false,
+  "fallback": true
 }

@@ -18,8 +18,15 @@
     <intent-filter><action android:name="androidx.media3.session.MediaSessionService"/></intent-filter>
   </service>
   <activity android:name=".PlayerActivity" android:exported="false" android:configChanges="orientation|screenSize"/>
-  <activity android:name=".MainActivity" android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode" android:supportsPictureInPicture="true" android:resizeableActivity="true" android:exported="true">
+  <activity android:name=".MainActivity" android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode" android:supportsPictureInPicture="true" android:resizeableActivity="true" android:launchMode="singleTop" android:exported="true">
    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+   <!-- Verified EGYSHOW share links: https://egyshow.com/egy?v=VIDEO_ID -->
+   <intent-filter android:autoVerify="true">
+    <action android:name="android.intent.action.VIEW"/>
+    <category android:name="android.intent.category.DEFAULT"/>
+    <category android:name="android.intent.category.BROWSABLE"/>
+    <data android:scheme="https" android:host="egyshow.com" android:path="/egy"/>
+   </intent-filter>
    <intent-filter><action android:name="android.intent.action.SEND"/><category android:name="android.intent.category.DEFAULT"/><data android:mimeType="text/plain"/></intent-filter>
   </activity>
  </application>

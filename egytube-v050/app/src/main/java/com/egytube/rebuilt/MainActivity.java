@@ -1387,7 +1387,7 @@ public class MainActivity extends Activity {
       getSystemService(NOTIFICATION_SERVICE);
     boolean enabled=manager!=null && manager.areNotificationsEnabled();
     String message=(enabled?"إشعارات EGYTUBE مفعلة في Android.":"إشعارات EGYTUBE معطلة في Android.")
-      +"\\n\\nتحقق من تفعيل إشعارات التطبيق وقناة تشغيل الوسائط، ثم شغّل فيديو قبل الرجوع إلى الشاشة الرئيسية. "
+      +"\n\nتحقق من تفعيل إشعارات التطبيق وقناة تشغيل الوسائط، ثم شغّل فيديو قبل الرجوع إلى الشاشة الرئيسية. "
       +"بطاقة الوسائط تظهر فقط أثناء وجود جلسة تشغيل نشطة.";
     new AlertDialog.Builder(this)
       .setTitle("إشعارات مشغّل الصوت")

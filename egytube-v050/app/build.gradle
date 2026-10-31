@@ -1,7 +1,7 @@
 plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
 android { namespace 'com.egytube.rebuilt'; compileSdk 35
- defaultConfig { applicationId 'com.egytube.official'; minSdk 26; targetSdk 34; versionCode 87; versionName '0.8.7' }
- buildTypes { release { minifyEnabled false }; debug { debuggable true; applicationIdSuffix '.audio87'; versionNameSuffix '-audio-test' } }
+ defaultConfig { applicationId 'com.egytube.official'; minSdk 26; targetSdk 34; versionCode 89; versionName '0.8.9' }
+ buildTypes { release { minifyEnabled false }; debug { debuggable true; applicationIdSuffix '.audio89'; versionNameSuffix '-audio-saver-test' } }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
  kotlinOptions { jvmTarget = '17' }
 }

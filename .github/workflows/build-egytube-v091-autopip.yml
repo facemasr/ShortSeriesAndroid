@@ -36,8 +36,6 @@ jobs:
           grep -Fq 'clearMediaItems()' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
           grep -Fq 'stopWithTask="false"' egytube-v050/app/src/main/AndroidManifest.xml
           grep -Fq 'MediaButtonReceiver' egytube-v050/app/src/main/AndroidManifest.xml
-          grep -Fq 'setAutoEnterEnabled(false)' egytube-v050/app/src/main/java/com/egytube/rebuilt/NativeWatchView.kt
-          grep -Fq 'Home/Recents should leave EGYTUBE playing AUDIO' egytube-v050/app/src/main/java/com/egytube/rebuilt/MainActivity.java
           test -s egytube-v050/app/src/debug/AndroidManifest.xml
           grep -Fq 'onPlaybackResumption(' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt
           grep -Fq 'savePlaybackPosition()' egytube-v050/app/src/main/java/com/egytube/rebuilt/PlaybackService.kt

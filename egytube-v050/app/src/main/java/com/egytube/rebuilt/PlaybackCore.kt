@@ -3,6 +3,8 @@ package com.egytube.rebuilt
 import android.content.Context
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -23,13 +25,69 @@ object PlaybackCore {
    * No transcoding, new stream URL, seek or restart is necessary.
    * In PiP callers keep this false so the picture remains visible.
    */
+  // Keep the currently selected video source so opening the app can restore
+  // the same media and position instead of restarting the whole video.
+  private var foregroundSource:MediaSource?=null
+  private var foregroundVideoId=""
+  private var backgroundAudioUrl:String?=null
+  private var audioStreamActive=false
+  private var backgroundRequested=false
+
+  @Synchronized fun setForegroundSource(id:String,source:MediaSource,audioOnlyUrl:String?){
+    foregroundVideoId=id
+    foregroundSource=source
+    backgroundAudioUrl=audioOnlyUrl?.takeIf{it.startsWith("https://")}
+    audioStreamActive=false
+  }
+
+  @Synchronized fun hasForegroundSource(id:String):Boolean=
+    id==foregroundVideoId && foregroundSource!=null
+
+  /**
+   * When an audio-only URL is available, really stop requesting video bytes
+   * in the background. Disabling the VIDEO renderer alone on a progressive MP4
+   * does not prevent downloading its video data.
+   *
+   * A source change may rebuffer briefly but keeps the video ID, elapsed time,
+   * playback intent, MediaSession metadata, and hardware controls.
+   */
   @Synchronized fun setAudioOnlyBackground(enabled:Boolean){
+    backgroundRequested=enabled
     val player=instance?:return
-    if(player.currentMediaItem==null)return
-    if(player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO)==enabled)return
-    player.trackSelectionParameters=player.trackSelectionParameters.buildUpon()
-      .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,enabled)
-      .build()
+    val item=player.currentMediaItem?:return
+    val position=player.currentPosition.coerceAtLeast(0L)
+    val wasPlaying=player.playWhenReady
+    if(enabled && !audioStreamActive){
+      val audio=backgroundAudioUrl
+      if(audio!=null && item.mediaId==foregroundVideoId){
+        val audioItem=MediaItem.Builder()
+          .setMediaId(item.mediaId)
+          .setUri(audio)
+          .setMediaMetadata(item.mediaMetadata)
+          .build()
+        player.setMediaItem(audioItem,position)
+        player.prepare()
+        player.playWhenReady=wasPlaying
+        audioStreamActive=true
+      }
+    }else if(!enabled && audioStreamActive){
+      val source=foregroundSource
+      if(source!=null && item.mediaId==foregroundVideoId){
+        player.setMediaSource(source,position)
+        player.prepare()
+        player.playWhenReady=wasPlaying
+      }
+      audioStreamActive=false
+    }
+    if(player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_VIDEO)!=enabled){
+      player.trackSelectionParameters=player.trackSelectionParameters.buildUpon()
+        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO,enabled)
+        .build()
+    }
+  }
+
+  @Synchronized fun applyPendingBackgroundMode(){
+    if(backgroundRequested)setAudioOnlyBackground(true)
   }
   @Synchronized fun disposeWhenUnused(){
     // A paused MediaSessionService may be torn down even while the watch
@@ -65,5 +123,10 @@ object PlaybackCore {
   @Synchronized fun dispose(){
     instance?.release()
     instance=null
+    foregroundSource=null
+    foregroundVideoId=""
+    backgroundAudioUrl=null
+    audioStreamActive=false
+    backgroundRequested=false
   }
 }

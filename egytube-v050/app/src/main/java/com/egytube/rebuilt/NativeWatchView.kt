@@ -722,7 +722,16 @@ class NativeWatchView(private val host: MainActivity, private val exit: Runnable
         .setAllowCrossProtocolRedirects(true)
         .setConnectTimeoutMs(12_000)
         .setReadTimeoutMs(18_000))
-      val metadata=MediaMetadata.Builder().setTitle(videoTitle).setArtist(creator.text.toString()).build()
+      // Use audio-style metadata and an original music-note artwork in the
+      // Android lock-screen / notification MediaSession card. This remains a
+      // video inside the app and the actual audio track is never transcoded.
+      val metadata=MediaMetadata.Builder()
+        .setTitle(videoTitle)
+        .setArtist(creator.text.toString().ifBlank{"EGYTUBE"})
+        .setAlbumTitle("EGYTUBE · مشغّل الصوت")
+        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+        .setArtworkData(AudioNotificationArt.png(),MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+        .build()
       fun item(u:String,mime:String?=null):MediaItem=
         MediaItem.Builder().setMediaId(videoId).setUri(u).setMimeType(mime).setMediaMetadata(metadata).build()
       fun direct(u:String):MediaSource=ProgressiveMediaSource.Factory(ds).createMediaSource(item(u))

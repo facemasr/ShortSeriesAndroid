@@ -50,7 +50,7 @@ class PlaybackService:MediaSessionService(){
     override fun onConnect(
       session:MediaSession,controller:MediaSession.ControllerInfo
     ):MediaSession.ConnectionResult {
-      return MediaSession.ConnectionResult.AcceptedResultBuilder(session,controller)
+      return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
         .setAvailableSessionCommands(
           MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
             .add(closeCommand).build()

@@ -173,13 +173,20 @@ class _DirectYacineChannelPlayerState
     _retry = null;
     _renewal?.cancel();
     if (userRetry) _failures = 0;
-    if (mounted) setState(() { _busy = true; _failure = null; });
+    // Keep a healthy stream visible while a renewed source initializes.
+    // Avoid a black screen at every signed-URL refresh.
     final previous = _video;
-    _video = null;
-    if (previous != null) {
-      previous.removeListener(_onMediaChanged);
-      await previous.dispose();
+    final retainCurrent = previous != null &&
+        previous.value.isInitialized && previous.value.isPlaying &&
+        !previous.value.hasError;
+    if (!retainCurrent) {
+      _video = null;
+      if (previous != null) {
+        previous.removeListener(_onMediaChanged);
+        await previous.dispose();
+      }
     }
+    if (mounted) setState(() { _busy = !retainCurrent; _failure = null; });
     var connected = false;
     try {
       final sources = await _ProviderMediaResolver(widget.api.client)
@@ -205,11 +212,19 @@ class _DirectYacineChannelPlayerState
             await candidate.dispose();
             return;
           }
+          await candidate.play();
+          if (_disposed || !mounted) {
+            await candidate.dispose();
+            return;
+          }
+          final oldActive = _video;
           _video = candidate;
           _selectedSource = index;
           candidate.addListener(_onMediaChanged);
-          await candidate.play();
-          if (_disposed || !mounted) return;
+          if (oldActive != null && !identical(oldActive, candidate)) {
+            oldActive.removeListener(_onMediaChanged);
+            unawaited(oldActive.dispose());
+          }
           _lastPosition = null;
           _lastAdvance = DateTime.now();
           _userPaused = false;
@@ -228,7 +243,7 @@ class _DirectYacineChannelPlayerState
       if (mounted && !_disposed) {
         setState(() {
           _busy = false;
-          _failure = label(
+          _failure = retainCurrent ? null : label(
             'هذه القناة لا توفر حاليًا بثًا مباشرًا متوافقًا. ستتم إعادة المحاولة.',
             'No compatible live stream is currently available. Retrying.',
           );

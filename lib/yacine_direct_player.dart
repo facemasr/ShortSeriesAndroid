@@ -144,6 +144,14 @@ class _DirectYacineChannelPlayerState
   Timer? _renewal;
   Timer? _retry;
   Timer? _watchdog;
+  Timer? _sourceRefresh;
+  bool _refreshingSources = false;
+  bool _foreground = true;
+  Uri? _activeUri;
+  String? _activeLabel;
+  DateTime? _lastSourceCheck;
+  bool _lastBuffering = false;
+  bool _lastPlaying = false;
   List<_YacineMediaSource> _sources = const [];
   int _selectedSource = 0;
   bool _busy = true;
@@ -163,10 +171,74 @@ class _DirectYacineChannelPlayerState
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _watchdog = Timer.periodic(const Duration(seconds: 6), (_) => _checkPlayback());
+    // Refresh only the actively viewed channel; polling 675 channels would
+    // overload the provider and invalidate good streams unnecessarily.
+    _sourceRefresh = Timer.periodic(const Duration(seconds: 60),
+        (_) => unawaited(_refreshSources()));
     unawaited(_connect());
   }
 
-  Future<void> _connect({bool userRetry = false, int preferredSource = 0}) async {
+  /// Resolve updated server metadata without interrupting a healthy stream.
+  /// Only switch players when an expiring token has an actual replacement.
+  Future<void> _refreshSources() async {
+    if (_refreshingSources || _connecting || _disposed || !_foreground ||
+        _userPaused) return;
+    final playing = _video;
+    if (playing == null || !playing.value.isInitialized) return;
+    _refreshingSources = true;
+    try {
+      final fresh = await _ProviderMediaResolver(widget.api.client)
+          .resolve(widget.channel.providerId);
+      if (!mounted || _disposed || !_foreground || _userPaused) return;
+      _lastSourceCheck = DateTime.now();
+      final sameLabel = fresh.indexWhere((s) => s.label == _activeLabel);
+      final preferred = sameLabel >= 0 ? sameLabel
+          : _selectedSource < fresh.length ? _selectedSource : 0;
+      final replacement = fresh[preferred];
+      _sources = fresh;
+      // Metadata can change without a player restart. In particular, short
+      // lived signed HLS URLs must not be kept as the permanent source.
+      final activeExpiry = _expirySeconds(_activeUri);
+      final secondsLeft = activeExpiry == null ? null
+          : activeExpiry - DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (secondsLeft != null && secondsLeft <= 90) {
+        if (replacement.uri != _activeUri) {
+          // Start the new player first; retain the current visible video until
+          // initialization succeeds (seamless renewal when the provider allows).
+          await _connect(preferredSource: preferred, preloadedSources: fresh);
+        } else {
+          // Provider returned the same short-lived token; do not break a
+          // healthy video just to try it again. Ask for a fresh one soon.
+          _renewal?.cancel();
+          _renewal = Timer(const Duration(seconds: 15),
+              () => unawaited(_refreshSources()));
+        }
+      }
+      if (mounted) setState(() {});
+    } catch (_) {
+      // A transient provider API error must not stop a playable channel.
+      if (_expirySeconds(_activeUri) != null) {
+        _renewal?.cancel();
+        _renewal = Timer(const Duration(seconds: 15),
+            () => unawaited(_refreshSources()));
+      }
+    } finally {
+      _refreshingSources = false;
+    }
+  }
+
+  int? _expirySeconds(Uri? uri) {
+    if (uri == null) return null;
+    final raw = uri.queryParameters['e'] ??
+        uri.queryParameters['expires'] ?? uri.queryParameters['exp'];
+    final n = int.tryParse(raw ?? '');
+    if (n == null || n < 1700000000) return null;
+    // Some providers use milliseconds rather than seconds.
+    return n > 9999999999 ? n ~/ 1000 : n;
+  }
+
+  Future<void> _connect({bool userRetry = false, int preferredSource = 0,
+      List<_YacineMediaSource>? preloadedSources}) async {
     if (_connecting || _disposed) return;
     _connecting = true;
     _retry?.cancel();
@@ -189,9 +261,11 @@ class _DirectYacineChannelPlayerState
     if (mounted) setState(() { _busy = !retainCurrent; _failure = null; });
     var connected = false;
     try {
-      final sources = await _ProviderMediaResolver(widget.api.client)
-          .resolve(widget.channel.providerId);
+      final sources = preloadedSources ??
+          await _ProviderMediaResolver(widget.api.client)
+              .resolve(widget.channel.providerId);
       if (_disposed || !mounted) return;
+      _lastSourceCheck = DateTime.now();
       _sources = sources;
       final indices = [
         if (preferredSource >= 0 && preferredSource < sources.length) preferredSource,
@@ -220,6 +294,10 @@ class _DirectYacineChannelPlayerState
           final oldActive = _video;
           _video = candidate;
           _selectedSource = index;
+          _activeUri = source.uri;
+          _activeLabel = source.label;
+          _lastBuffering = candidate.value.isBuffering;
+          _lastPlaying = candidate.value.isPlaying;
           candidate.addListener(_onMediaChanged);
           if (oldActive != null && !identical(oldActive, candidate)) {
             oldActive.removeListener(_onMediaChanged);
@@ -269,11 +347,19 @@ class _DirectYacineChannelPlayerState
     final video = _video;
     if (video == null || _connecting || _disposed) return;
     if (video.value.hasError) {
-      if (mounted) setState(() => _failure = label(
-        'حدث انقطاع في البث؛ جاري تحديث الرابط...',
-        'Stream interrupted; refreshing the channel...'));
-      _scheduleRetry();
-    } else if (mounted) {
+      if (_retry == null && mounted) {
+        setState(() => _failure = label(
+          'حدث انقطاع في البث؛ جاري تحديث الرابط...',
+          'Stream interrupted; refreshing the channel...'));
+        _scheduleRetry();
+      }
+    } else if (mounted &&
+        (video.value.isBuffering != _lastBuffering ||
+         video.value.isPlaying != _lastPlaying)) {
+      // VideoPlayer emits frequent position notifications; avoid rebuilding
+      // the screen for every video frame.
+      _lastBuffering = video.value.isBuffering;
+      _lastPlaying = video.value.isPlaying;
       setState(() {});
     }
   }
@@ -294,14 +380,16 @@ class _DirectYacineChannelPlayerState
   }
 
   void _scheduleRenewal(Uri url) {
-    final expiry = int.tryParse(
-      url.queryParameters['e'] ?? url.queryParameters['expires'] ?? '',
-    );
-    if (expiry == null || expiry < 1700000000) return;
+    _renewal?.cancel();
+    final expiry = _expirySeconds(url);
+    if (expiry == null) return;
     final remaining = expiry - DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    if (remaining <= 25) return;
-    _renewal = Timer(Duration(seconds: remaining - 20), () {
-      if (mounted && !_disposed) unawaited(_connect());
+    // Refresh the provider metadata up to 90 seconds before token expiry.
+    // Do not restart the player solely because its URL has a deadline.
+    final delay = remaining > 100 ? remaining - 90
+        : remaining > 30 ? remaining - 25 : 5;
+    _renewal = Timer(Duration(seconds: delay), () {
+      if (mounted && !_disposed) unawaited(_refreshSources());
     });
   }
 
@@ -338,11 +426,18 @@ class _DirectYacineChannelPlayerState
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _foreground = false;
       _video?.pause();
-    } else if (state == AppLifecycleState.resumed && !_userPaused) {
+    } else if (state == AppLifecycleState.resumed) {
+      _foreground = true;
       _lastAdvance = DateTime.now();
-      _video?.play();
+      if (!_userPaused) {
+        _video?.play();
+        // Refresh immediately after returning from the background.
+        unawaited(_refreshSources());
+      }
     }
   }
 
@@ -353,6 +448,7 @@ class _DirectYacineChannelPlayerState
     _renewal?.cancel();
     _retry?.cancel();
     _watchdog?.cancel();
+    _sourceRefresh?.cancel();
     if (_fullScreen) {
       unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
       unawaited(SystemChrome.setPreferredOrientations(const [
@@ -463,8 +559,11 @@ class _DirectYacineChannelPlayerState
                   const Icon(Icons.circle, color: Color(0xFF12D6C0), size: 8),
                   const SizedBox(width: 7),
                   Expanded(child: Text(label(
-                    'EGY TV SPORT · تحديث تلقائي لرابط القناة عند الحاجة',
-                    'EGY TV SPORT · Automatic channel URL refresh'),
+                    'EGY TV SPORT · فحص السيرفر كل دقيقة وتجديد الرابط قبل انتهائه',
+                    'EGY TV SPORT · Check server every minute; refresh expiring URLs') +
+                    (_lastSourceCheck == null ? '' :
+                      ' · ' + _lastSourceCheck!.hour.toString().padLeft(2, '0') +
+                      ':' + _lastSourceCheck!.minute.toString().padLeft(2, '0')),
                     style: const TextStyle(color: Colors.white70, fontSize: 12))),
                 ])),
               // Reuse EGYSHOW's approved ad manager placements.

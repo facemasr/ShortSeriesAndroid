@@ -49,9 +49,18 @@ class LiveChannel {
   LiveChannel(this.raw);
   final Map<String, dynamic> raw;
   int get id => numId(raw['id']);
+  String get providerId => txt(raw['provider_id']);
+  String get group => txt(raw['category']).isNotEmpty
+      ? txt(raw['category']) : txt(raw['package_name']);
   String get logo => txt(raw['logo_url']);
-  String title(bool ar) => txt(raw[ar ? 'name_ar' : 'name_en']).isNotEmpty
-      ? txt(raw[ar ? 'name_ar' : 'name_en']) : txt(raw['name_ar']);
+  String title(bool ar) {
+    final first = txt(raw[ar ? 'title_ar' : 'title_en']).trim();
+    if (first.isNotEmpty) return first;
+    final original = txt(raw[ar ? 'name_ar' : 'name_en']).trim();
+    if (original.isNotEmpty) return original;
+    return txt(raw['title_ar']).isNotEmpty ? txt(raw['title_ar'])
+        : txt(raw['name_ar']);
+  }
 }
 
 class ApiException implements Exception {
@@ -119,6 +128,17 @@ class EgyApi {
   Future<Media> details(int id) async =>
       Media(asMap((await call('/api/v1/media/' + id.toString()))['media']));
   Future<List<LiveChannel>> live({int page = 1}) async {
+    try {
+      // The native catalog includes all 675 synchronized provider channels.
+      // Media URLs remain private and are obtained directly on the device.
+      final catalog = await call('/api/v1/yacine/mobile/catalog?page=' +
+          page.toString() + '&per_page=675');
+      final items = asList(catalog['channels'])
+          .map((v) => LiveChannel(asMap(v))).where((c) => c.id > 0).toList();
+      if (items.isNotEmpty) return items;
+    } catch (_) {
+      // Keep the existing website live directory available as a fallback.
+    }
     final json = await call('/api/v1/live?page=' + page.toString() + '&limit=24');
     return asList(json['channels']).map((v) => LiveChannel(asMap(v))).toList();
   }

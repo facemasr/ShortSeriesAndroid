@@ -8,6 +8,21 @@ import 'package:http/http.dart' as http;
 /// A working playlist is not proof that the media segments can be fetched.
 enum YacineMediaStatus { segmentReachable, manifestOnly }
 
+
+/// A provider may encode the absence of DRM as false, 0, "0", or "false".
+/// Treat only an actually enabled/unknown descriptor as protected.
+bool yacineDescriptorHasDrm(Object? raw) {
+  if (raw == null || raw == false) return false;
+  if (raw is num && raw == 0) return false;
+  if (raw is String) {
+    final value = raw.trim().toLowerCase();
+    if (value.isEmpty || const {'null', 'false', 'none', '0'}.contains(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 class YacineProbeFailure implements Exception {
   const YacineProbeFailure(this.code);
   final String code;

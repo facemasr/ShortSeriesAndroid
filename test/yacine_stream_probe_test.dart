@@ -6,6 +6,16 @@ import 'package:egyshow_mobile/yacine_stream_probe.dart';
 void main() {
   final base = Uri.parse('https://cdn.example/live/master.m3u8');
 
+  test('accepts false/zero DRM markers but rejects encrypted descriptors', () {
+    for (final value in <Object?>[null, false, 0, '0', 'false', 'null', '']) {
+      expect(yacineDescriptorHasDrm(value), isFalse, reason: '$value');
+    }
+    for (final value in <Object?>[true, 1, '1', 'widevine', 'clearkey']) {
+      expect(yacineDescriptorHasDrm(value), isTrue, reason: '$value');
+    }
+  });
+
+
   test('resolves the first actual variant from an HLS master', () {
     const manifest =
         '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2500000\nvariant/720p.m3u8\n';

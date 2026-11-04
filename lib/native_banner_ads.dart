@@ -27,6 +27,7 @@ class _EgyshowBannerAdState extends State<EgyshowBannerAd> {
       DateTime.now().difference(_lastGesture!) < const Duration(seconds: 2);
 
   Future<void> _openAdLink(String url) async {
+    if (!_recentTap) return;
     final target = Uri.tryParse(url.trim());
     if (target == null || !target.hasAuthority ||
         !const {'https', 'http'}.contains(target.scheme) ||
@@ -150,7 +151,7 @@ class _EgyshowBannerAdState extends State<EgyshowBannerAd> {
           : GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: clickUrl.isNotEmpty
-                ? () => unawaited(_openAdLink(clickUrl)) : null,
+                ? () { _lastGesture = DateTime.now(); unawaited(_openAdLink(clickUrl)); } : null,
               child: Image.network(image, fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const SizedBox.shrink())),
       )));

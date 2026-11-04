@@ -62,7 +62,9 @@ class _ProviderMediaResolver {
 
   static String? _safeHeader(dynamic raw) {
     if (raw == null) return null;
-    final value = raw.toString();
+    final value = raw.toString().replaceAll(
+      RegExp(r'[\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFEFF]'), ''
+    ).trim();
     if (value.isEmpty || value.length > 700 ||
         RegExp(r'[\r\n\x00-\x1f\x7f]').hasMatch(value)) return null;
     return value;

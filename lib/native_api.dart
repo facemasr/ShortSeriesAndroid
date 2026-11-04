@@ -162,8 +162,16 @@ class EgyApi {
 /// Direct catalog client. Only movie/series/auth/ads/update APIs use EGYSHOW.
 /// Live channel categories, IDs and stream resolution never use EGYSHOW.
 class _YacineDirectCatalog {
-  const _YacineDirectCatalog(this.client);
+  _YacineDirectCatalog(this.client);
   final http.Client client;
+
+  DateTime _nextApiRequest = DateTime.fromMillisecondsSinceEpoch(0);
+  Future<void> _paceApi() async {
+    // Match the supplied collector's conservative catalog request rate.
+    final remaining = _nextApiRequest.difference(DateTime.now());
+    if (remaining > Duration.zero) await Future.delayed(remaining);
+    _nextApiRequest = DateTime.now().add(const Duration(milliseconds: 250));
+  }
   static const _base = 'https://def001.ycnapi.com/api/';
   static const _agent = 'okhttp/4.12.0';
   static const _prefix = 'c!xZj+N9&G@Ev@vw';
@@ -205,25 +213,39 @@ class _YacineDirectCatalog {
     if (!RegExp(r'^categories(?:/\d+(?:/channels)?)?$').hasMatch(route)) {
       throw const ApiException('provider_route_invalid');
     }
-    http.Response response;
-    try {
-      response = await client.get(Uri.parse(_base + route),
-        headers: const {
-          'User-Agent': _agent,
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-        }).timeout(const Duration(seconds: 18));
-    } on TimeoutException {
-      throw const ApiException('provider_catalog_timeout');
-    } catch (_) {
-      throw const ApiException('provider_catalog_network_unavailable');
+    for (var attempt = 0; attempt < 2; attempt++) {
+      await _paceApi();
+      try {
+        final response = await client.get(Uri.parse(_base + route),
+          headers: const {
+            'User-Agent': _agent,
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+          }).timeout(const Duration(seconds: 18));
+        if (response.statusCode == 200) return _decode(response);
+        final retryable = response.statusCode == 429 ||
+            response.statusCode >= 500;
+        if (!retryable || attempt == 1) {
+          throw ApiException(
+            'provider_catalog_http_' + response.statusCode.toString(),
+            response.statusCode,
+          );
+        }
+      } on ApiException {
+        rethrow;
+      } on TimeoutException {
+        if (attempt == 1) {
+          throw const ApiException('provider_catalog_timeout');
+        }
+      } catch (_) {
+        if (attempt == 1) {
+          throw const ApiException('provider_catalog_network_unavailable');
+        }
+      }
+      await Future.delayed(const Duration(milliseconds: 700));
     }
-    if (response.statusCode != 200) {
-      throw ApiException('provider_catalog_http_' + response.statusCode.toString(),
-          response.statusCode);
-    }
-    return _decode(response);
+    throw const ApiException('provider_catalog_network_unavailable');
   }
 
   int _stableId(String providerId, Set<int> taken) {

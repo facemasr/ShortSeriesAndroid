@@ -145,10 +145,10 @@ resizeBoard();
     if (_failed) return const SizedBox.shrink();
     final screenWidth = MediaQuery.sizeOf(context).width;
     final available = (screenWidth - (widget.compact ? 12.0 : 24.0))
-        .clamp(160.0, 728.0);
+        .clamp(160.0, 728.0).toDouble();
     final height = switch (widget.format) {
       EgyshowAdFormat.leaderboard =>
-          (90 * available / 728).clamp(32.0, 90.0) + 12,
+          (90 * available / 728).clamp(32.0, 90.0).toDouble() + 12.0,
       EgyshowAdFormat.nativeWidget => widget.compact ? 112.0 : 210.0,
       EgyshowAdFormat.partnerScript => widget.compact ? 75.0 : 105.0,
       EgyshowAdFormat.adaptiveAads => widget.compact ? 100.0 : 135.0,

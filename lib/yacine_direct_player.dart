@@ -422,14 +422,21 @@ class _DirectYacineChannelPlayerState
 
   void _checkPlayback() {
     final player = _video;
-    if (_disposed || _connecting || player == null ||
-        !player.value.isInitialized || !player.value.isPlaying || _userPaused) return;
+    if (_disposed || _connecting || !_foreground || player == null ||
+        !player.value.isInitialized || _userPaused) return;
+    if (player.value.hasError) {
+      _scheduleRetry();
+      return;
+    }
     final position = player.value.position;
     if (position != _lastPosition) {
       _lastPosition = position;
       _lastAdvance = DateTime.now();
       if (_failures > 0) _failures = 0;
-    } else if (DateTime.now().difference(_lastAdvance).inSeconds > 23) {
+    } else if (player.value.isBuffering &&
+        DateTime.now().difference(_lastAdvance).inSeconds > 25) {
+      // Some live HLS broadcasts do not advance their exposed play position.
+      // Only restart after sustained buffering, not a healthy live picture.
       _lastAdvance = DateTime.now();
       _scheduleRetry();
     }

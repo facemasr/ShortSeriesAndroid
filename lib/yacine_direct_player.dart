@@ -10,6 +10,7 @@ import 'package:video_player/video_player.dart';
 import 'native_api.dart';
 import 'native_banner_ads.dart';
 import 'yacine_media_format.dart';
+import 'yacine_media_headers.dart';
 import 'yacine_stream_probe.dart';
 
 /// Direct, device-side playback for provider-authorized HLS channels.
@@ -45,7 +46,6 @@ class _ProviderMediaResolver {
   static const String _apiAgent = 'okhttp/4.12.0';
   // API identity and media identity are separate. This is a fallback only when
   // the provider does not declare a media User-Agent for this stream.
-  static const String _fallbackMediaAgent = 'okhttp/4.12.0';
   static const String _keyPrefix = 'c!xZj+N9&G@Ev@vw';
 
   static Map<String, dynamic> _decode(Uint8List bytes, String? stamp) {
@@ -64,34 +64,6 @@ class _ProviderMediaResolver {
       decoded[i] = encrypted[i] ^ key[i % key.length];
     }
     return asMap(jsonDecode(utf8.decode(decoded)));
-  }
-
-  static String? _safeHeader(dynamic raw) {
-    if (raw == null) return null;
-    final value = raw.toString().replaceAll(
-      RegExp(r'[\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFEFF]'), ''
-    ).trim();
-    if (value.isEmpty || value.length > 700 ||
-        RegExp(r'[\r\n\x00-\x1f\x7f]').hasMatch(value) ||
-        value.codeUnits.any((code) => code > 0x7e)) return null;
-    return value;
-  }
-
-  static String? _header(Map<String, dynamic> headers, String name) {
-    for (final entry in headers.entries) {
-      if (entry.key.toLowerCase() == name) {
-        return _safeHeader(entry.value);
-      }
-    }
-    return null;
-  }
-
-  static String? _safeHttpUrlHeader(String? value) {
-    if (value == null) return null;
-    final uri = Uri.tryParse(value);
-    if (uri == null || !uri.hasAuthority || uri.userInfo.isNotEmpty ||
-        (uri.scheme != 'http' && uri.scheme != 'https')) return null;
-    return uri.toString();
   }
 
   Future<List<_YacineMediaSource>> resolve(String providerId) async {
@@ -139,23 +111,9 @@ class _ProviderMediaResolver {
         continue;
       }
 
-      final supplied = asMap(source['headers']);
-      // Provider-defined media UA wins; use the known-compatible fallback only
-      // when missing. Send the same headers to HLS playlists and segments via
-      // video_player's network datasource; never persist temporary tokens.
-      final agent = _safeHeader(source['user_agent']) ??
-          _header(supplied, 'User-Agent') ?? _fallbackMediaAgent;
-      final referer = _safeHttpUrlHeader(
-          _safeHeader(source['referer']) ?? _header(supplied, 'Referer'));
-      final origin = _safeHttpUrlHeader(_header(supplied, 'Origin'));
-      final accept = _header(supplied, 'Accept');
-      // Fallback media UA is unverified; the provider's declared value wins.
-      final headers = <String, String>{
-        'User-Agent': agent,
-        if (referer != null) 'Referer': referer,
-        if (origin != null) 'Origin': origin,
-        if (accept != null) 'Accept': accept,
-      };
+      // Send one validated, provider-declared header map through native
+      // ExoPlayer for playlists, variants and media segments.
+      final headers = yacinePlaybackHeaders(source);
       final quality = txt(source['name']).isNotEmpty ? txt(source['name'])
           : txt(source['quality']).isNotEmpty ? txt(source['quality'])
           : 'Server ' + (found.length + 1).toString();

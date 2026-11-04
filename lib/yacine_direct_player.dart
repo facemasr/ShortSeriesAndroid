@@ -145,6 +145,9 @@ class _DirectYacineChannelPlayerState
   Timer? _retry;
   Timer? _watchdog;
   Timer? _sourceRefresh;
+  Timer? _controlsTimer;
+  bool _showControls = true;
+  double _volume = 1.0;
   bool _refreshingSources = false;
   bool _foreground = true;
   Uri? _activeUri;
@@ -299,6 +302,8 @@ class _DirectYacineChannelPlayerState
           _lastBuffering = candidate.value.isBuffering;
           _lastPlaying = candidate.value.isPlaying;
           candidate.addListener(_onMediaChanged);
+          await candidate.setVolume(_volume);
+          _revealControls();
           if (oldActive != null && !identical(oldActive, candidate)) {
             oldActive.removeListener(_onMediaChanged);
             unawaited(oldActive.dispose());
@@ -410,6 +415,22 @@ class _DirectYacineChannelPlayerState
     }
   }
 
+  void _revealControls() {
+    _controlsTimer?.cancel();
+    if (mounted) setState(() => _showControls = true);
+    _controlsTimer = Timer(const Duration(seconds: 6), () {
+      if (mounted && !_disposed && _video?.value.isPlaying == true) {
+        setState(() => _showControls = false);
+      }
+    });
+  }
+
+  void _changeVolume(double volume) {
+    setState(() => _volume = volume);
+    unawaited(_video?.setVolume(volume) ?? Future<void>.value());
+    _revealControls();
+  }
+
   void _togglePause() {
     final video = _video;
     if (video == null || !video.value.isInitialized) return;
@@ -421,7 +442,7 @@ class _DirectYacineChannelPlayerState
       _lastAdvance = DateTime.now();
       unawaited(video.play());
     }
-    if (mounted) setState(() {});
+    _revealControls();
   }
 
   @override
@@ -449,6 +470,7 @@ class _DirectYacineChannelPlayerState
     _retry?.cancel();
     _watchdog?.cancel();
     _sourceRefresh?.cancel();
+    _controlsTimer?.cancel();
     if (_fullScreen) {
       unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
       unawaited(SystemChrome.setPreferredOrientations(const [
@@ -462,10 +484,44 @@ class _DirectYacineChannelPlayerState
     super.dispose();
   }
 
+  Widget _qualityMenu() {
+    return PopupMenuButton<int>(
+      tooltip: label('اختيار السيرفر والجودة', 'Choose server and quality'),
+      initialValue: _selectedSource,
+      enabled: !_connecting && _sources.isNotEmpty,
+      icon: const Icon(Icons.tune_rounded, color: Colors.white),
+      onSelected: (index) {
+        _revealControls();
+        unawaited(_connect(userRetry: true, preferredSource: index));
+      },
+      itemBuilder: (_) => [
+        for (var i = 0; i < _sources.length; i++)
+          PopupMenuItem<int>(value: i,
+            child: Row(children: [
+              Icon(i == _selectedSource ? Icons.check_circle_rounded
+                  : Icons.hd_outlined,
+                color: i == _selectedSource
+                    ? const Color(0xFF12D6C0) : Colors.white70),
+              const SizedBox(width: 9),
+              Flexible(child: Text(_sources[i].label,
+                overflow: TextOverflow.ellipsis)),
+            ])),
+      ],
+    );
+  }
+
   Widget _playerContent() {
     final player = _video;
-    if (_busy) return const Center(child: CircularProgressIndicator(
-      color: Color(0xFF12D6C0)));
+    const teal = Color(0xFF12D6C0);
+    if (_busy && player == null) {
+      return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const CircularProgressIndicator(color: teal),
+        const SizedBox(height: 18),
+        Text(label('جارٍ جلب سيرفر القناة وبدء البث...',
+            'Resolving channel server and opening stream...'),
+            style: const TextStyle(color: Colors.white70, fontSize: 12)),
+      ]));
+    }
     if (player == null || !player.value.isInitialized) {
       return Center(child: Padding(padding: const EdgeInsets.all(24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -477,39 +533,100 @@ class _DirectYacineChannelPlayerState
           OutlinedButton.icon(
             onPressed: _connecting ? null : () => _connect(userRetry: true),
             icon: const Icon(Icons.refresh_rounded),
-            label: Text(label('إعادة المحاولة', 'Retry')),
+            label: Text(label('تحديث رابط القناة', 'Refresh channel URL')),
           ),
         ])));
     }
     return Center(child: AspectRatio(
       aspectRatio: player.value.aspectRatio > 0
           ? player.value.aspectRatio : 16 / 9,
-      child: Stack(fit: StackFit.expand, children: [
-        VideoPlayer(player),
-        PositionedDirectional(start: 8, bottom: 7,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            IconButton.filledTonal(
-              tooltip: label('تشغيل / إيقاف', 'Play / Pause'),
-              icon: Icon(player.value.isPlaying ? Icons.pause_rounded
-                  : Icons.play_arrow_rounded),
-              onPressed: _togglePause),
-            const SizedBox(width: 4),
-            IconButton.filledTonal(
-              tooltip: label('ملء الشاشة', 'Fullscreen'),
-              icon: Icon(_fullScreen ? Icons.fullscreen_exit_rounded
-                  : Icons.fullscreen_rounded),
-              onPressed: () => _setFullscreen(!_fullScreen)),
-          ])),
-        if (_fullScreen)
-          PositionedDirectional(top: 6, end: 6,
-            child: IconButton.filledTonal(
-              onPressed: () => _setFullscreen(false),
-              icon: const Icon(Icons.close_rounded))),
-        if (player.value.isBuffering)
-          const Positioned(top: 15, left: 0, right: 0,
-            child: LinearProgressIndicator(
-              color: Color(0xFF12D6C0), minHeight: 2)),
-      ]),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _revealControls,
+        onDoubleTap: () => _setFullscreen(!_fullScreen),
+        child: Stack(fit: StackFit.expand, children: [
+          VideoPlayer(player),
+          // Transparent status layer; live playback is not time-seekable.
+          PositionedDirectional(top: 11, start: 11,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: const Color(0xD9101827),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: teal.withValues(alpha: .45))),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.circle, size: 8, color: teal),
+                  SizedBox(width: 7),
+                  Text('LIVE', style: TextStyle(
+                    fontWeight: FontWeight.w800, color: Colors.white,
+                    letterSpacing: 1.1, fontSize: 11)),
+                ]),
+              ),
+            )),
+          if (player.value.isBuffering)
+            const Center(child: CircularProgressIndicator(
+              color: teal, strokeWidth: 3)),
+          IgnorePointer(
+            ignoring: !_showControls,
+            child: AnimatedOpacity(
+              opacity: _showControls ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 220),
+              child: Column(children: [
+                if (_fullScreen)
+                  Align(alignment: AlignmentDirectional.topEnd,
+                    child: Padding(padding: const EdgeInsets.all(6),
+                      child: IconButton.filledTonal(
+                        tooltip: label('الخروج من ملء الشاشة', 'Exit fullscreen'),
+                        icon: const Icon(Icons.fullscreen_exit_rounded),
+                        onPressed: () => _setFullscreen(false)))),
+                const Spacer(),
+                DecoratedBox(
+                  decoration: const BoxDecoration(gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Color(0xED050A14)])),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7, vertical: 7),
+                    child: Row(children: [
+                      IconButton.filledTonal(
+                        tooltip: label('تشغيل / إيقاف مؤقت', 'Play / Pause'),
+                        icon: Icon(player.value.isPlaying
+                          ? Icons.pause_rounded : Icons.play_arrow_rounded),
+                        onPressed: _togglePause),
+                      IconButton(
+                        tooltip: label('تحديث سيرفر القناة', 'Refresh channel server'),
+                        onPressed: _connecting
+                          ? null : () => unawaited(_connect(userRetry: true)),
+                        icon: const Icon(Icons.refresh_rounded,
+                          color: Colors.white)),
+                      IconButton(
+                        tooltip: label('كتم / تشغيل الصوت', 'Mute / Unmute'),
+                        onPressed: () => _changeVolume(_volume == 0 ? 1.0 : 0.0),
+                        icon: Icon(_volume <= 0
+                          ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                          color: Colors.white)),
+                      Expanded(child: Slider(
+                        value: _volume, min: 0, max: 1,
+                        activeColor: teal, inactiveColor: Colors.white38,
+                        onChanged: _changeVolume)),
+                      _qualityMenu(),
+                      IconButton(
+                        tooltip: label('ملء الشاشة', 'Fullscreen'),
+                        onPressed: () => _setFullscreen(!_fullScreen),
+                        icon: Icon(_fullScreen
+                          ? Icons.fullscreen_exit_rounded
+                          : Icons.fullscreen_rounded,
+                          color: Colors.white)),
+                    ]),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ]),
+      ),
     ));
   }
 

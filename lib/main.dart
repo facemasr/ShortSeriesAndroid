@@ -13,6 +13,7 @@ import 'native_home_sections.dart';
 import 'native_visit_analytics.dart';
 import 'in_app_updates.dart';
 import 'yacine_direct_player.dart';
+import 'egy_tv_sport_hub.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -209,7 +210,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     if (next >= 1 && next <= 3) {
       final t = ['movie', 'series', 'short_series'][next - 1];
       if (!catalogs.containsKey(t)) await _loadCatalog(t, fresh: true);
-    } else if (next == 4 && channels.isEmpty) {
+    } else if ((next == 4 || next == 9) && channels.isEmpty) {
       await _loadLive();
     }
   }
@@ -352,7 +353,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       Text(error, textAlign: TextAlign.center,
           style: const TextStyle(color: Colors.orangeAccent)),
       TextButton.icon(onPressed: () { if (tab == 0) _loadHome();
-          else if (tab == 4) _loadLive();
+          else if (tab == 4 || tab == 9) _loadLive();
           else if (tab > 0 && tab < 4) _loadCatalog(
               ['movie','series','short_series'][tab - 1], fresh: true);
         }, icon: const Icon(Icons.refresh), label: Text(tr(ar, 'إعادة المحاولة', 'Retry'))),
@@ -399,6 +400,18 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
             ])),
         ])),
       EgyshowBannerAd(api: api, placement: 'home'),
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Color(0xFF0B5E65), Color(0xFF132333)]),
+            borderRadius: BorderRadius.circular(17)),
+          child: ListTile(
+            leading: const Icon(Icons.sports_soccer_rounded, color: Color(0xFF12D6C0), size: 35),
+            title: const Text('EGY TV SPORT', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1)),
+            subtitle: Text(tr(ar, 'قنوات الرياضة والبث المباشر', 'Sports and live TV channels')),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => _select(9))),
+      ),
       _rail(tr(ar, 'الأكثر مشاهدة', 'Trending'), homeData['trending'] ?? []),
       _rail(tr(ar, 'أضيف حديثًا', 'Just added'), homeData['latest'] ?? []),
       HomeExtras(api: api, ar: ar, openMedia: _open,
@@ -594,6 +607,10 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       final type = ['movie', 'series', 'short_series'][tab - 1];
       body = _grid(catalogs[type] ?? [], paginate: true, type: type);
     } else if (tab == 4) body = _live();
+    else if (tab == 9) body = EgyTvSportHub(
+      api: api, ar: ar, channels: channels, loading: listBusy,
+      onRefresh: _loadLive,
+      onOpen: (channel) => _play('channel', channel.id, channel.title(ar)));
     else if (tab == 5 || tab == 6) body = WebsiteSection(
       key: ValueKey('section-' + tab.toString() + (ar ? '-ar' : '-en')),
       kind: tab == 5 ? 'matches' : 'youtube', ar: ar, api: api);
@@ -609,6 +626,10 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
               tooltip: tr(ar, 'بحث', 'Search'),
               onPressed: () => setState(() { tab = isSearch ? 0 : 8; error = ''; }),
               icon: Icon(isSearch ? Icons.close : Icons.search_rounded)),
+            IconButton(
+              tooltip: 'EGY TV SPORT',
+              onPressed: () => _select(9),
+              icon: const Icon(Icons.live_tv_rounded, color: Color(0xFF12D6C0))),
             IconButton(
               tooltip: tr(ar, 'المباريات','Matches'),
               onPressed: () => _select(5),
@@ -631,6 +652,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
               _navItem(2, Icons.tv_outlined, tr(ar, 'مسلسلات', 'Series')),
               _navItem(3, Icons.smart_display_outlined, tr(ar, 'قصيرة', 'Shorts')),
               _navItem(4, Icons.live_tv_outlined, tr(ar, 'مباشر', 'Live')),
+              _navItem(9, Icons.sports_soccer_rounded, 'EGY TV Sport'),
               _navItem(5, Icons.sports_soccer_outlined, tr(ar, 'مباريات', 'Matches')),
               _navItem(6, Icons.play_circle_outline, 'YouTube'),
               _navItem(7, Icons.person_outline, tr(ar, 'حسابي', 'Profile')),

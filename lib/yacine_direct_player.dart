@@ -83,7 +83,12 @@ class _ProviderMediaResolver {
     }
     final response = await client.get(
       Uri.parse(_apiUrl + providerId),
-      headers: const {'User-Agent': _apiAgent, 'Accept': 'application/json'},
+      headers: const {
+        'User-Agent': _apiAgent,
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      },
     ).timeout(const Duration(seconds: 14));
 
     if (response.statusCode != 200) {
@@ -240,6 +245,9 @@ class _DirectYacineChannelPlayerState
     return n > 9999999999 ? n ~/ 1000 : n;
   }
 
+  /// Open and retry paths always re-resolve the provider channel endpoint.
+  /// Only a just-fetched in-memory response may be passed during a renewal.
+  /// Signed playback URLs must never be persisted with the channel catalog.
   Future<void> _connect({bool userRetry = false, int preferredSource = 0,
       List<_YacineMediaSource>? preloadedSources}) async {
     if (_connecting || _disposed) return;
@@ -277,6 +285,13 @@ class _DirectYacineChannelPlayerState
       ];
       for (final index in indices) {
         final source = sources[index];
+        // Even a freshly fetched signed URL may expire while another server
+        // is being initialized: skip it rather than opening a stale token.
+        final expiry = _expirySeconds(source.uri);
+        if (expiry != null &&
+            expiry <= DateTime.now().millisecondsSinceEpoch ~/ 1000 + 15) {
+          continue;
+        }
         VideoPlayerController? candidate;
         try {
           candidate = VideoPlayerController.networkUrl(
@@ -455,9 +470,16 @@ class _DirectYacineChannelPlayerState
       _foreground = true;
       _lastAdvance = DateTime.now();
       if (!_userPaused) {
-        _video?.play();
-        // Refresh immediately after returning from the background.
-        unawaited(_refreshSources());
+        final expiry = _expirySeconds(_activeUri);
+        final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        if (expiry != null && expiry <= now + 45) {
+          // A backgrounded player can hold an expired HLS token. Resolve a
+          // fresh one on resume rather than reusing the old media URL.
+          unawaited(_connect());
+        } else {
+          _video?.play();
+          unawaited(_refreshSources());
+        }
       }
     }
   }

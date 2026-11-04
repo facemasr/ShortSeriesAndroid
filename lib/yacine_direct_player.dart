@@ -124,8 +124,13 @@ class _ProviderMediaResolver {
           (url.scheme != 'https' && url.scheme != 'http')) continue;
       if (url.path.toLowerCase().endsWith('.mpd')) continue; // No DRM/DASH fallback.
       if (!url.path.toLowerCase().endsWith('.m3u8')) continue;
-      final expires = int.tryParse(url.queryParameters['e'] ??
-          url.queryParameters['expires'] ?? '');
+      // Tokens may use seconds or milliseconds. Reject short-lived URLs
+      // that have already expired, without persisting them.
+      final rawExpiry = int.tryParse(url.queryParameters['e'] ??
+          url.queryParameters['expires'] ??
+          url.queryParameters['exp'] ?? '');
+      final expires = rawExpiry != null && rawExpiry > 9999999999
+          ? rawExpiry ~/ 1000 : rawExpiry;
       if (expires != null &&
           expires > 1700000000 &&
           expires <= DateTime.now().millisecondsSinceEpoch ~/ 1000 + 20) {

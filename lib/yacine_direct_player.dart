@@ -11,6 +11,7 @@ import 'native_api.dart';
 import 'native_banner_ads.dart';
 import 'yacine_media_format.dart';
 import 'yacine_media_headers.dart';
+import 'yacine_provider_policy.dart';
 import 'yacine_stream_probe.dart';
 
 /// Direct, device-side playback for provider-authorized HLS channels.
@@ -70,17 +71,32 @@ class _ProviderMediaResolver {
     if (!RegExp(r'^\d{1,24}$').hasMatch(providerId)) {
       throw const ApiException('provider_channel_invalid');
     }
-    final response = await client.get(
-      Uri.parse(_apiUrl + providerId),
-      headers: const {
-        'User-Agent': _apiAgent,
-        'Accept': 'application/json',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-      },
-    ).timeout(const Duration(seconds: 14));
-
-    if (response.statusCode != 200) {
+    // Fetch current per-channel metadata, just as a two-stage channel/player
+    // flow does. A few API 404/5xx responses are temporary during rotation.
+    // Never reuse a cached signed media URL to work around an API failure.
+    http.Response? response;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 650));
+      }
+      try {
+        response = await client.get(
+          Uri.parse(_apiUrl + providerId),
+          headers: const {
+            'User-Agent': _apiAgent,
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+          },
+        ).timeout(const Duration(seconds: 12));
+      } on Exception {
+        if (attempt == 1) rethrow;
+        continue;
+      }
+      if (response.statusCode == 200 ||
+          !yacineRetryableProviderStatus(response.statusCode)) break;
+    }
+    if (response == null || response.statusCode != 200) {
       throw const ApiException('provider_api_unavailable');
     }
     final raw = _decode(response.bodyBytes, response.headers['t']);
@@ -136,6 +152,7 @@ class _DirectYacineChannelPlayerState
   bool _showControls = true;
   double _volume = 1.0;
   BoxFit _videoFit = BoxFit.contain;
+  bool _landscapeLeft = true;
   bool _refreshingSources = false;
   bool _foreground = true;
   Uri? _activeUri;
@@ -449,6 +466,19 @@ class _DirectYacineChannelPlayerState
     }
   }
 
+  /// YTV-style manual screen rotation while keeping the player embedded.
+  /// Android's native orientation is restored when leaving fullscreen.
+  Future<void> _rotateVideo() async {
+    if (_disposed || !mounted) return;
+    if (!_fullScreen) await _setFullscreen(true);
+    _landscapeLeft = !_landscapeLeft;
+    await SystemChrome.setPreferredOrientations([
+      _landscapeLeft ? DeviceOrientation.landscapeLeft
+          : DeviceOrientation.landscapeRight,
+    ]);
+    _revealControls();
+  }
+
   void _revealControls() {
     _controlsTimer?.cancel();
     if (mounted) setState(() => _showControls = true);
@@ -639,10 +669,17 @@ class _DirectYacineChannelPlayerState
                 if (_fullScreen)
                   Align(alignment: AlignmentDirectional.topEnd,
                     child: Padding(padding: const EdgeInsets.all(6),
-                      child: IconButton.filledTonal(
-                        tooltip: label('الخروج من ملء الشاشة', 'Exit fullscreen'),
-                        icon: const Icon(Icons.fullscreen_exit_rounded),
-                        onPressed: () => _setFullscreen(false)))),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        IconButton.filledTonal(
+                          tooltip: label('تدوير الشاشة', 'Rotate screen'),
+                          icon: const Icon(Icons.screen_rotation_rounded),
+                          onPressed: _rotateVideo),
+                        const SizedBox(width: 5),
+                        IconButton.filledTonal(
+                          tooltip: label('الخروج من ملء الشاشة', 'Exit fullscreen'),
+                          icon: const Icon(Icons.fullscreen_exit_rounded),
+                          onPressed: () => _setFullscreen(false)),
+                      ]))),
                 const Spacer(),
                 DecoratedBox(
                   decoration: const BoxDecoration(gradient: LinearGradient(
@@ -723,6 +760,10 @@ class _DirectYacineChannelPlayerState
               tooltip: label('تحديث رابط القناة', 'Refresh stream'),
               onPressed: _connecting ? null : () => _connect(userRetry: true),
               icon: const Icon(Icons.refresh_rounded)),
+            IconButton(
+              tooltip: label('تدوير الشاشة', 'Rotate screen'),
+              onPressed: _rotateVideo,
+              icon: const Icon(Icons.screen_rotation_rounded)),
             IconButton(
               tooltip: label('ملء الشاشة', 'Fullscreen'),
               onPressed: () => _setFullscreen(true),

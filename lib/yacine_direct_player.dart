@@ -115,11 +115,8 @@ class _ProviderMediaResolver {
     for (final item in rows.take(15)) {
       final source = asMap(item);
       if (source.isEmpty) continue;
-      if (!['1', '3'].contains(txt(source['url_type']).isEmpty
-          ? '1' : txt(source['url_type']))) continue;
       final drm = source['drm'];
-      if (drm != null && drm != false && drm.toString() != '' &&
-          drm.toString().toLowerCase() != 'null') continue;
+      if (yacineDescriptorHasDrm(drm)) continue;
 
       final url = Uri.tryParse(txt(source['url']));
       if (url == null || !url.hasAuthority ||

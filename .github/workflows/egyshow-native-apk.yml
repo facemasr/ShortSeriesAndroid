@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - egyshow-native-mobile
+      - feature/egyshow-direct-yacine-channels-20261104
   workflow_dispatch:
 
 permissions:
@@ -64,7 +65,7 @@ jobs:
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='10' versionName='2.0.2'"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='11' versionName='2.0.3'"
           echo "CI candidate verified; NOT production-signed, NOT eligible for direct publication."
       - name: Upload CI APK candidate for private server signing
         uses: actions/upload-artifact@v4

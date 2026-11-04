@@ -149,7 +149,7 @@ class _ProviderMediaResolver {
       final accept = _header(supplied, 'Accept');
       // Fallback media UA is unverified; the provider's declared value wins.
       final headers = <String, String>{
-        'User-Agent': agent ?? _apiAgent,
+        'User-Agent': agent,
         if (referer != null) 'Referer': referer,
         if (origin != null) 'Origin': origin,
         if (accept != null) 'Accept': accept,

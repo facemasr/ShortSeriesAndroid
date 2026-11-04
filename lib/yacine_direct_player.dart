@@ -183,7 +183,7 @@ class _DirectYacineChannelPlayerState
           _video = candidate;
           candidate.addListener(_onMediaChanged);
           await candidate.play();
-          _failures = 0;
+          // Retain the limited automatic-retry count for this session.
           _scheduleRenewal(source.uri);
           setState(() { _busy = false; _failure = null; });
           return;

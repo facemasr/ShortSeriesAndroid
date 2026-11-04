@@ -31,7 +31,7 @@ YacineHlsInspection inspectYacineHls(String text, Uri base) {
   final lines = const LineSplitter().convert(text).map((s) => s.trim()).toList();
   for (final line in lines) {
     if (line.startsWith('#EXT-X-KEY:') &&
-        !RegExp(r'\\bMETHOD=NONE(?:,|$)').hasMatch(line)) {
+        !RegExp(r'\bMETHOD=NONE(?:,|$)').hasMatch(line)) {
       return const YacineHlsInspection(encrypted: true);
     }
   }

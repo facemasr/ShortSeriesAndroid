@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 /// Isolated and labelled advertising slots for EGYSHOW Android.
 /// Each ad runs in its own WebView, outside all playback layers.
-/// Popup windows and unsolicited top-level redirects are disabled.
+/// An intentional ad tap opens the device's browser; automatic redirects stay blocked.
 enum EgyshowAdFormat {
   leaderboard,
   nativeWidget,
@@ -30,6 +32,61 @@ class EgyshowAdPlacement extends StatefulWidget {
 class _EgyshowAdPlacementState extends State<EgyshowAdPlacement> {
   late final WebViewController _webview;
   bool _failed = false;
+  DateTime? _lastGesture;
+  DateTime? _lastOpen;
+  String? _lastOpenedUrl;
+
+  bool get _recentTap => _lastGesture != null &&
+      DateTime.now().difference(_lastGesture!) < const Duration(seconds: 2);
+
+  Future<void> _openAdLink(String raw) async {
+    if (!_recentTap) return;
+    final uri = Uri.tryParse(raw.trim());
+    if (uri == null || !uri.hasAuthority ||
+        !const {'http', 'https'}.contains(uri.scheme) ||
+        uri.userInfo.isNotEmpty || uri.host.isEmpty) return;
+    final now = DateTime.now();
+    if (_lastOpenedUrl == uri.toString() && _lastOpen != null &&
+        now.difference(_lastOpen!) < const Duration(seconds: 2)) return;
+    _lastOpenedUrl = uri.toString();
+    _lastOpen = now;
+    try { await launchUrl(uri, mode: LaunchMode.externalApplication); }
+    catch (_) { /* Keep the app and ad slot in place on failure. */ }
+  }
+
+  static const String _clickBridge = r'''
+<script>
+(function () {
+  var nativeAd = window.EgyshowAdClick;
+  if (!nativeAd) return;
+  var lastTouch = 0;
+  function forward(raw) {
+    try {
+      var target = new URL(String(raw), document.baseURI);
+      if ((target.protocol === 'https:' || target.protocol === 'http:') &&
+          target.hostname) nativeAd.postMessage(target.href);
+    } catch (_) {}
+  }
+  document.addEventListener('pointerdown', function(event) {
+    if (event.isTrusted) lastTouch = Date.now();
+  }, true);
+  document.addEventListener('click', function(event) {
+    if (!event.isTrusted) return;
+    lastTouch = Date.now();
+    var a = event.target && event.target.closest && event.target.closest('a[href]');
+    if (!a) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    forward(a.href);
+  }, true);
+  // Open only user-initiated script destinations, never timer pop-unders.
+  window.open = function(url) {
+    if (url && Date.now() - lastTouch < 2000) forward(url);
+    return null;
+  };
+})();
+</script>
+''';
 
   static const _root = '''
 <!doctype html><html><head>
@@ -95,11 +152,12 @@ resizeBoard();
 ''';
 
   String get _html {
+    final root = _root.replaceFirst('</head>', _clickBridge + '</head>');
     switch (widget.format) {
-      case EgyshowAdFormat.leaderboard: return _root + _leaderboard + '</body></html>';
-      case EgyshowAdFormat.nativeWidget: return _root + _native + '</body></html>';
-      case EgyshowAdFormat.partnerScript: return _root + _script + '</body></html>';
-      case EgyshowAdFormat.adaptiveAads: return _root + _aads + '</body></html>';
+      case EgyshowAdFormat.leaderboard: return root + _leaderboard + '</body></html>';
+      case EgyshowAdFormat.nativeWidget: return root + _native + '</body></html>';
+      case EgyshowAdFormat.partnerScript: return root + _script + '</body></html>';
+      case EgyshowAdFormat.adaptiveAads: return root + _aads + '</body></html>';
     }
   }
 
@@ -109,10 +167,12 @@ resizeBoard();
     _webview = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF101620))
+      ..addJavaScriptChannel('EgyshowAdClick',
+          onMessageReceived: (message) => unawaited(_openAdLink(message.message)))
       ..setNavigationDelegate(NavigationDelegate(
         onNavigationRequest: (request) {
-          // Subframes can load ad content; never replace the app's screen
-          // with an automatic redirect or pop-under destination.
+          // Allow embedded ad assets to load without navigating the app.
+          // External main-frame links require a recent actual pointer gesture.
           if (!request.isMainFrame) return NavigationDecision.navigate;
           final target = Uri.tryParse(request.url);
           if (target != null &&
@@ -120,6 +180,7 @@ resizeBoard();
                (target.scheme == 'https' && target.host == 'egyshow.com'))) {
             return NavigationDecision.navigate;
           }
+          if (_recentTap) unawaited(_openAdLink(request.url));
           return NavigationDecision.prevent;
         },
         onWebResourceError: (error) {
@@ -161,7 +222,9 @@ resizeBoard();
           child: ClipRRect(
             borderRadius: BorderRadius.circular(widget.compact ? 7 : 13),
             child: SizedBox(width: available, height: height,
-              child: WebViewWidget(controller: _webview)),
+              child: Listener(
+                onPointerDown: (_) => _lastGesture = DateTime.now(),
+                child: WebViewWidget(controller: _webview))),
           ),
         ),
       ),

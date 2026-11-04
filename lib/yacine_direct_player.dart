@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 
 import 'native_api.dart';
 import 'native_banner_ads.dart';
+import 'yacine_stream_probe.dart';
 
 /// Direct, device-side playback for provider-authorized HLS channels.
 /// No EGYSHOW VPS media relay, DRM circumvention, stored signed URLs or
@@ -144,8 +145,9 @@ class _ProviderMediaResolver {
           _safeHeader(source['referer']) ?? _header(supplied, 'Referer'));
       final origin = _safeHttpUrlHeader(_header(supplied, 'Origin'));
       final accept = _header(supplied, 'Accept');
+      // Fallback media UA is unverified; the provider's declared value wins.
       final headers = <String, String>{
-        if (agent != null) 'User-Agent': agent,
+        'User-Agent': agent ?? _apiAgent,
         if (referer != null) 'Referer': referer,
         if (origin != null) 'Origin': origin,
         if (accept != null) 'Accept': accept,
@@ -184,6 +186,7 @@ class _DirectYacineChannelPlayerState
   bool _fullScreen = false;
   bool _userPaused = false;
   String? _failure;
+  String? _lastProbeFailure;
   int _failures = 0;
   bool _disposed = false;
   Duration? _lastPosition;
@@ -273,6 +276,7 @@ class _DirectYacineChannelPlayerState
     _retry = null;
     _renewal?.cancel();
     if (userRetry) _failures = 0;
+    _lastProbeFailure = null;
     // Keep a healthy stream visible while a renewed source initializes.
     // Avoid a black screen at every signed-URL refresh.
     final previous = _video;
@@ -307,6 +311,19 @@ class _DirectYacineChannelPlayerState
         final expiry = _expirySeconds(source.uri);
         if (expiry != null &&
             expiry <= DateTime.now().millisecondsSinceEpoch ~/ 1000 + 15) {
+          continue;
+        }
+        // The catalogue API returning a URL does not prove that any video
+        // segment can be fetched. Check the active channel on the viewer's
+        // own device, using its declared media headers, before connecting.
+        try {
+          await YacineMediaProbe(widget.api.client)
+              .verifyHls(source.uri, source.headers);
+        } on YacineProbeFailure catch (e) {
+          _lastProbeFailure = e.code;
+          continue;
+        } catch (_) {
+          _lastProbeFailure = 'source_probe_failed';
           continue;
         }
         VideoPlayerController? candidate;
@@ -345,6 +362,7 @@ class _DirectYacineChannelPlayerState
           _userPaused = false;
           _scheduleRenewal(source.uri);
           connected = true;
+          _lastProbeFailure = null;
           if (mounted) setState(() { _busy = false; _failure = null; });
           return;
         } catch (_) {
@@ -359,8 +377,12 @@ class _DirectYacineChannelPlayerState
         setState(() {
           _busy = false;
           _failure = retainCurrent ? null : label(
-            'هذه القناة لا توفر حاليًا بثًا مباشرًا متوافقًا. ستتم إعادة المحاولة.',
-            'No compatible live stream is currently available. Retrying.',
+            _lastProbeFailure == 'source_http_403'
+                ? 'مصدر البث يرفض تشغيل هذه القناة (403). سيتم طلب رابط جديد.'
+                : 'لم يتم التحقق من بث متاح لهذه القناة. ستتم إعادة المحاولة.',
+            _lastProbeFailure == 'source_http_403'
+                ? 'The stream provider rejected this channel (403). Retrying with a fresh URL.'
+                : 'No verified live stream is available. Retrying.',
           );
         });
       }

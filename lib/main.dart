@@ -14,6 +14,7 @@ import 'native_visit_analytics.dart';
 import 'in_app_updates.dart';
 import 'yacine_direct_player.dart';
 import 'egy_tv_sport_hub.dart';
+import 'egyshow_global_ads.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -400,6 +401,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
             ])),
         ])),
       EgyshowBannerAd(api: api, placement: 'home'),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.nativeWidget),
       Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         child: Container(
           decoration: BoxDecoration(
@@ -417,6 +419,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       HomeExtras(api: api, ar: ar, openMedia: _open,
         play: _play, openTab: (section) { _select(section); }),
       EgyshowBannerAd(api: api, placement: 'banner'),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.adaptiveAads),
       const SizedBox(height: 24),
     ]));
   }
@@ -424,6 +427,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   Widget _grid(List<Media> data, {bool paginate = false, String type = ''}) =>
       ListView(children: [
         EgyshowBannerAd(api: api, placement: 'banner'),
+        const EgyshowAdPlacement(format: EgyshowAdFormat.adaptiveAads),
         if (error.isNotEmpty) _error(),
         Padding(padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
           child: Text(paginate ? categoryTitle(type, ar) :
@@ -456,6 +460,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
             .toLowerCase().contains(search)).toList();
     return Column(children: [
       EgyshowBannerAd(api: api, placement: 'banner'),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.partnerScript, compact: true),
       Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
         child: TextField(
           decoration: InputDecoration(
@@ -546,6 +551,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
         onTap: () => _open(m),
       )),
       const SizedBox(height: 24),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.partnerScript),
       Text(tr(ar, 'الإعدادات', 'Settings'),
         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
       SwitchListTile(
@@ -645,7 +651,11 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
         body: body,
         bottomNavigationBar: SafeArea(
           top: false,
-          child: SizedBox(height: 75,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            EgyshowAdPlacement(
+              key: const ValueKey('egyshow-global-footer-ad'),
+              format: EgyshowAdFormat.leaderboard, compact: true, ar: ar),
+            SizedBox(height: 75,
             child: ListView(scrollDirection: Axis.horizontal, children: [
               _navItem(0, Icons.home_outlined, tr(ar, 'الرئيسية', 'Home')),
               _navItem(1, Icons.movie_outlined, tr(ar, 'أفلام', 'Movies')),
@@ -657,7 +667,8 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
               _navItem(6, Icons.play_circle_outline, 'YouTube'),
               _navItem(7, Icons.person_outline, tr(ar, 'حسابي', 'Profile')),
             ]),
-          ),
+            ),
+          ]),
         ),
       ),
     );
@@ -772,6 +783,7 @@ class _NativeDetailsState extends State<NativeDetails> {
               gradient: LinearGradient(colors: [dark, Colors.transparent],
               begin: Alignment.bottomCenter, end: Alignment.center))),
           ])),
+          EgyshowAdPlacement(format: EgyshowAdFormat.nativeWidget, ar: ar),
           Padding(padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(m.title(ar), style: const TextStyle(fontSize: 26,

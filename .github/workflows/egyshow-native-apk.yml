@@ -78,8 +78,10 @@ jobs:
           PY
       - name: Dependencies
         run: flutter pub get
-      - name: Analyze code
-        run: flutter analyze --no-fatal-infos lib/main.dart
+      - name: Analyze Android playback and ad code
+        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_stream_probe.dart lib/native_banner_ads.dart lib/egyshow_global_ads.dart lib/native_player.dart
+      - name: Test bounded temporary HLS segment validation
+        run: flutter test test/yacine_stream_probe_test.dart
       - name: Build APK
         run: flutter build apk --release
       - name: Validate CI candidate before private server signing

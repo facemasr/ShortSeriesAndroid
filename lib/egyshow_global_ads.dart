@@ -146,17 +146,13 @@ resizeBoard();
     final screenWidth = MediaQuery.sizeOf(context).width;
     final available = (screenWidth - (widget.compact ? 12.0 : 24.0))
         .clamp(160.0, 728.0);
-    final double height;
-    switch (widget.format) {
-      case EgyshowAdFormat.leaderboard:
-        height = (90 * available / 728).clamp(32.0, 90.0) + 12;
-      case EgyshowAdFormat.nativeWidget:
-        height = widget.compact ? 112 : 210;
-      case EgyshowAdFormat.partnerScript:
-        height = widget.compact ? 75 : 105;
-      case EgyshowAdFormat.adaptiveAads:
-        height = widget.compact ? 100 : 135;
-    }
+    final height = switch (widget.format) {
+      EgyshowAdFormat.leaderboard =>
+          (90 * available / 728).clamp(32.0, 90.0) + 12,
+      EgyshowAdFormat.nativeWidget => widget.compact ? 112.0 : 210.0,
+      EgyshowAdFormat.partnerScript => widget.compact ? 75.0 : 105.0,
+      EgyshowAdFormat.adaptiveAads => widget.compact ? 100.0 : 135.0,
+    };
     return Semantics(
       label: widget.ar ? 'مساحة إعلانية' : 'Sponsored advertising area',
       child: Center(

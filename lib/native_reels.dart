@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'native_api.dart';
 import 'native_player.dart';
+import 'egyshow_global_ads.dart';
 
 /// TikTok-style vertical episode browsing, while each playable page embeds
 /// the *same* EGYSHOW player and its website-managed adverts.
@@ -53,7 +54,8 @@ class _EpisodeReelsState extends State<EpisodeReels> {
     }
     return Scaffold(
       backgroundColor: Colors.black,
-      body: SafeArea(child: Stack(children: [
+      body: SafeArea(child: Column(children: [
+        Expanded(child: Stack(children: [
         PageView.builder(
           controller: pages,
           scrollDirection: Axis.vertical,
@@ -113,6 +115,9 @@ class _EpisodeReelsState extends State<EpisodeReels> {
                 icon: const Icon(Icons.keyboard_arrow_down)),
             ]),
           )),
+      ])),
+        const EgyshowAdPlacement(format: EgyshowAdFormat.leaderboard,
+          compact: true),
       ])),
     );
   }

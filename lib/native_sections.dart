@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'native_api.dart';
+import 'egyshow_global_ads.dart';
 
 const sectionRed = Color(0xFFE50914);
 const sectionDark = Color(0xFF111116);
@@ -38,7 +39,8 @@ class _SiteWatchState extends State<SiteWatch> {
     backgroundColor: Colors.black,
     appBar: AppBar(title: Text(widget.title, maxLines: 1,
         overflow: TextOverflow.ellipsis)),
-    body: Stack(children: [
+    body: Column(children: [
+      Expanded(child: Stack(children: [
       Positioned.fill(child: WebViewWidget(controller: browser)),
       if (progress < 100 && error.isEmpty) const Positioned(
         top: 0, left: 0, right: 0, child: LinearProgressIndicator(
@@ -52,6 +54,9 @@ class _SiteWatchState extends State<SiteWatch> {
             browser.reload();
           }, icon: const Icon(Icons.refresh), label: const Text('إعادة المحاولة')),
         ]))),
+      ])),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.leaderboard,
+        compact: true),
     ]),
   );
 }
@@ -309,6 +314,8 @@ class _WebsiteSectionState extends State<WebsiteSection> {
     onRefresh: _load,
     child: ListView(physics: const AlwaysScrollableScrollPhysics(), children: [
       _header(),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.nativeWidget,
+        compact: true),
       if (busy) const Padding(padding: EdgeInsets.all(36),
         child: Center(child: CircularProgressIndicator(color: sectionRed))),
       if (error.isNotEmpty) Padding(padding: const EdgeInsets.all(25),
@@ -323,6 +330,8 @@ class _WebsiteSectionState extends State<WebsiteSection> {
             textAlign: TextAlign.center)),
       if (!busy && isMatch) ...matches.map(_matchCard),
       if (!busy && !isMatch) ...clips.map(_videoCard),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.adaptiveAads,
+        compact: true),
       const SizedBox(height: 22),
     ]),
   );

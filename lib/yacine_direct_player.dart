@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 
 import 'native_api.dart';
 import 'native_banner_ads.dart';
+import 'yacine_media_format.dart';
 import 'yacine_stream_probe.dart';
 
 /// Direct, device-side playback for provider-authorized HLS channels.
@@ -29,10 +30,11 @@ class DirectYacineChannelPlayer extends StatefulWidget {
 }
 
 class _YacineMediaSource {
-  const _YacineMediaSource(this.uri, this.headers, this.label);
+  const _YacineMediaSource(this.uri, this.headers, this.label, this.formatHint);
   final Uri uri;
   final Map<String, String> headers;
   final String label;
+  final VideoFormat? formatHint;
 }
 
 class _ProviderMediaResolver {
@@ -122,8 +124,8 @@ class _ProviderMediaResolver {
       if (url == null || !url.hasAuthority ||
           url.userInfo.isNotEmpty ||
           (url.scheme != 'https' && url.scheme != 'http')) continue;
-      if (url.path.toLowerCase().endsWith('.mpd')) continue; // No DRM/DASH fallback.
-      if (!url.path.toLowerCase().endsWith('.m3u8')) continue;
+      // Support HLS, unprotected DASH, and native direct-media formats.
+      if (!yacineIsMediaSource(url, providerMode: source['url_type'])) continue;
       // Tokens may use seconds or milliseconds. Reject short-lived URLs
       // that have already expired, without persisting them.
       final rawExpiry = int.tryParse(url.queryParameters['e'] ??
@@ -157,7 +159,8 @@ class _ProviderMediaResolver {
       final quality = txt(source['name']).isNotEmpty ? txt(source['name'])
           : txt(source['quality']).isNotEmpty ? txt(source['quality'])
           : 'Server ' + (found.length + 1).toString();
-      found.add(_YacineMediaSource(url, headers, quality));
+      found.add(_YacineMediaSource(url, headers, quality,
+          yacineMediaFormat(url, providerMode: source['url_type'])));
     }
     if (found.isEmpty) throw const ApiException('provider_stream_unavailable');
     return found;
@@ -174,6 +177,7 @@ class _DirectYacineChannelPlayerState
   Timer? _controlsTimer;
   bool _showControls = true;
   double _volume = 1.0;
+  BoxFit _videoFit = BoxFit.contain;
   bool _refreshingSources = false;
   bool _foreground = true;
   Uri? _activeUri;
@@ -323,7 +327,7 @@ class _DirectYacineChannelPlayerState
           candidate = VideoPlayerController.networkUrl(
             source.uri,
             httpHeaders: source.headers,
-            formatHint: VideoFormat.hls,
+            formatHint: source.formatHint,
           );
           await candidate.initialize().timeout(const Duration(seconds: 16));
           if (_disposed || !mounted) {
@@ -363,10 +367,14 @@ class _DirectYacineChannelPlayerState
           // it, and a 403 here reflects the upstream provider response.
           if (_lastProbeFailure == null && !_disposed) {
             try {
-              final result = await YacineMediaProbe(widget.api.client)
-                  .verifyHls(source.uri, source.headers);
-              _lastProbeFailure = result == YacineMediaStatus.manifestOnly
-                  ? 'manifest_only' : 'native_player_failed';
+              if (source.formatHint == VideoFormat.hls) {
+                final result = await YacineMediaProbe(widget.api.client)
+                    .verifyHls(source.uri, source.headers);
+                _lastProbeFailure = result == YacineMediaStatus.manifestOnly
+                    ? 'manifest_only' : 'native_player_failed';
+              } else {
+                _lastProbeFailure = 'native_player_failed';
+              }
             } on YacineProbeFailure catch (e) {
               _lastProbeFailure = e.code;
             } catch (_) {
@@ -585,6 +593,23 @@ class _DirectYacineChannelPlayerState
     );
   }
 
+  Widget _aspectMenu() {
+    return PopupMenuButton<BoxFit>(
+      tooltip: label('نسبة عرض الفيديو', 'Video aspect ratio'),
+      initialValue: _videoFit,
+      icon: const Icon(Icons.aspect_ratio_rounded, color: Colors.white),
+      onSelected: (fit) { setState(() => _videoFit = fit); _revealControls(); },
+      itemBuilder: (_) => [
+        PopupMenuItem(value: BoxFit.contain,
+          child: Text(label('ملاءمة الشاشة', 'Fit screen'))),
+        PopupMenuItem(value: BoxFit.cover,
+          child: Text(label('ملء الشاشة دون تشويه', 'Fill and crop'))),
+        PopupMenuItem(value: BoxFit.fill,
+          child: Text(label('تمديد الصورة', 'Stretch video'))),
+      ],
+    );
+  }
+
   Widget _playerContent() {
     final player = _video;
     const teal = Color(0xFF12D6C0);
@@ -612,15 +637,20 @@ class _DirectYacineChannelPlayerState
           ),
         ])));
     }
-    return Center(child: AspectRatio(
-      aspectRatio: player.value.aspectRatio > 0
-          ? player.value.aspectRatio : 16 / 9,
-      child: GestureDetector(
+    final videoSize = player.value.size;
+    return SizedBox.expand(child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _revealControls,
         onDoubleTap: () => _setFullscreen(!_fullScreen),
         child: Stack(fit: StackFit.expand, children: [
-          VideoPlayer(player),
+          ClipRect(child: FittedBox(
+            fit: _videoFit, alignment: Alignment.center,
+            child: SizedBox(
+              width: videoSize.width > 0 ? videoSize.width : 1280,
+              height: videoSize.height > 0 ? videoSize.height : 720,
+              child: VideoPlayer(player),
+            ),
+          )),
           // Transparent status layer; live playback is not time-seekable.
           PositionedDirectional(top: 11, start: 11,
             child: DecoratedBox(
@@ -687,6 +717,7 @@ class _DirectYacineChannelPlayerState
                         activeColor: teal, inactiveColor: Colors.white38,
                         onChanged: _changeVolume)),
                       _qualityMenu(),
+                      _aspectMenu(),
                       IconButton(
                         tooltip: label('ملء الشاشة', 'Fullscreen'),
                         onPressed: () => _setFullscreen(!_fullScreen),
@@ -701,7 +732,6 @@ class _DirectYacineChannelPlayerState
             ),
           ),
         ]),
-      ),
     ));
   }
 

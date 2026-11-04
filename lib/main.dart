@@ -12,6 +12,7 @@ import 'native_sections.dart';
 import 'native_home_sections.dart';
 import 'native_visit_analytics.dart';
 import 'in_app_updates.dart';
+import 'yacine_direct_player.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -125,6 +126,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   final Map<String, List<Media>> catalogs = {};
   final Map<String, int> pages = {};
   List<LiveChannel> channels = [];
+  String channelQuery = '';
   List<Media> searchResults = [];
   String query = '';
   bool busy = true, listBusy = false, searchBusy = false;
@@ -294,6 +296,19 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   void _play(String type, int id, String title, [String mediaKey = '']) {
+    if (type == 'channel') {
+      LiveChannel? match;
+      for (final channel in channels) {
+        if (channel.id == id) { match = channel; break; }
+      }
+      final directChannel = match;
+      if (directChannel != null && directChannel.providerId.isNotEmpty) {
+        Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+          DirectYacineChannelPlayer(channel: directChannel, api: api, ar: ar)));
+        return;
+      }
+    }
+    // Movies, episodes, and legacy channels retain the existing site player.
     final parentId = type == 'episode'
         ? (int.tryParse(mediaKey) ?? id) : id;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => NativePlayer(
@@ -421,36 +436,67 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
             child: CircularProgressIndicator())),
       ]);
 
-  Widget _live() => RefreshIndicator(onRefresh: _loadLive,
-    child: ListView(children: [
+  Widget _live() {
+    final search = channelQuery.trim().toLowerCase();
+    final filtered = search.isEmpty ? channels : channels.where((channel) =>
+        (channel.title(ar) + ' ' + channel.group)
+            .toLowerCase().contains(search)).toList();
+    return Column(children: [
       EgyshowBannerAd(api: api, placement: 'banner'),
-      if (error.isNotEmpty) _error(),
-      Padding(padding: const EdgeInsets.all(16),
-        child: Text(tr(ar, 'القنوات المباشرة', 'Live TV'),
-          style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900))),
-      if (listBusy && channels.isEmpty) const Center(child: CircularProgressIndicator()),
-      GridView.builder(
-        shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2, childAspectRatio: 1.25, mainAxisSpacing: 10,
-          crossAxisSpacing: 10),
-        itemCount: channels.length,
-        itemBuilder: (_, i) => InkWell(
-          onTap: () => _play('channel', channels[i].id, channels[i].title(ar)),
-          child: Container(
-            decoration: BoxDecoration(color: panel,
-              borderRadius: BorderRadius.circular(12)),
-            padding: const EdgeInsets.all(12),
-            child: Column(children: [
-              Expanded(child: Art(channels[i].logo, fit: BoxFit.contain)),
-              const SizedBox(height: 6),
-              Text(channels[i].title(ar), maxLines: 1, overflow: TextOverflow.ellipsis),
-              const Icon(Icons.play_arrow_rounded, color: red),
-            ])),
+      Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: TextField(
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.search),
+            hintText: tr(ar, 'ابحث في جميع القنوات', 'Search live channels'),
+            border: const OutlineInputBorder(),
           ),
-        ),
-    ]));
+          onChanged: (value) => setState(() => channelQuery = value),
+        )),
+      if (error.isNotEmpty) _error(),
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Align(alignment: AlignmentDirectional.centerStart,
+          child: Text(tr(ar, 'القنوات المباشرة', 'Live TV') +
+            ' · ' + filtered.length.toString(),
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)))),
+      Expanded(child: RefreshIndicator(onRefresh: _loadLive,
+        child: listBusy && channels.isEmpty
+          ? ListView(children: const [
+              SizedBox(height: 180),
+              Center(child: CircularProgressIndicator()),
+            ])
+          : GridView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2, childAspectRatio: 1.15,
+                mainAxisSpacing: 10, crossAxisSpacing: 10),
+              itemCount: filtered.length,
+              itemBuilder: (_, i) {
+                final channel = filtered[i];
+                return InkWell(
+                  onTap: () => _play('channel', channel.id, channel.title(ar)),
+                  child: Container(
+                    decoration: BoxDecoration(color: panel,
+                      borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.all(12),
+                    child: Column(children: [
+                      Expanded(child: Art(channel.logo, fit: BoxFit.contain)),
+                      const SizedBox(height: 6),
+                      Text(channel.title(ar), maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                      if (channel.group.isNotEmpty)
+                        Text(channel.group, maxLines: 1,
+                          style: const TextStyle(
+                            fontSize: 10, color: Colors.white54),
+                          overflow: TextOverflow.ellipsis),
+                      const Icon(Icons.play_arrow_rounded, color: red),
+                    ]),
+                  ),
+                );
+              },
+            ))),
+    ]);
+  }
 
   Widget _profile() {
     final name = txt(user?['display_name']).isNotEmpty

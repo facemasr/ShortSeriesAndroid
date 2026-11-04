@@ -310,19 +310,9 @@ class _DirectYacineChannelPlayerState
             expiry <= DateTime.now().millisecondsSinceEpoch ~/ 1000 + 15) {
           continue;
         }
-        // The catalogue API returning a URL does not prove that any video
-        // segment can be fetched. Check the active channel on the viewer's
-        // own device, using its declared media headers, before connecting.
-        try {
-          await YacineMediaProbe(widget.api.client)
-              .verifyHls(source.uri, source.headers);
-        } on YacineProbeFailure catch (e) {
-          _lastProbeFailure = e.code;
-          continue;
-        } catch (_) {
-          _lastProbeFailure = 'source_probe_failed';
-          continue;
-        }
+        // The native Android video engine is the actual playback authority.
+        // A separate Dart HTTP probe may be rejected while ExoPlayer works,
+        // so probing must never block the first playback attempt.
         VideoPlayerController? candidate;
         try {
           candidate = VideoPlayerController.networkUrl(
@@ -363,6 +353,21 @@ class _DirectYacineChannelPlayerState
           if (mounted) setState(() { _busy = false; _failure = null; });
           return;
         } catch (_) {
+          // Diagnose only the first native playback failure, on the device.
+          // A reachable manifest/segment is not proof that ExoPlayer can decode
+          // it, and a 403 here reflects the upstream provider response.
+          if (_lastProbeFailure == null && !_disposed) {
+            try {
+              final result = await YacineMediaProbe(widget.api.client)
+                  .verifyHls(source.uri, source.headers);
+              _lastProbeFailure = result == YacineMediaStatus.manifestOnly
+                  ? 'manifest_only' : 'native_player_failed';
+            } on YacineProbeFailure catch (e) {
+              _lastProbeFailure = e.code;
+            } catch (_) {
+              _lastProbeFailure = 'playback_diagnostic_failed';
+            }
+          }
           candidate?.removeListener(_onMediaChanged);
           if (identical(_video, candidate)) _video = null;
           await candidate?.dispose();

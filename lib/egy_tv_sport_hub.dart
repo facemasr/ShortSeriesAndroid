@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'native_api.dart';
 import 'egy_tv_sport_ads.dart';
+import 'egyshow_global_ads.dart';
 
 /// Native EGY TV Sport experience. Catalog metadata only; no signed stream URLs.
 class EgyTvSportHub extends StatefulWidget {
@@ -222,7 +223,8 @@ class _EgyTvSportHubState extends State<EgyTvSportHub> {
               onChanged: (next) => setState(() => package = next ?? ''),
             ),
           )),
-          const SliverToBoxAdapter(child: EgyTvSportAd()),
+          const SliverToBoxAdapter(child: EgyshowAdPlacement(
+            format: EgyshowAdFormat.nativeWidget, compact: true)),
           SliverToBoxAdapter(child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(children: [
@@ -254,7 +256,8 @@ class _EgyTvSportHubState extends State<EgyTvSportHub> {
                     mainAxisSpacing: 10, crossAxisSpacing: 10),
                   itemBuilder: (_, i) => _card(results[i]));
               })),
-          const SliverToBoxAdapter(child: EgyTvSportAd(large: true)),
+          const SliverToBoxAdapter(child: EgyshowAdPlacement(
+            format: EgyshowAdFormat.adaptiveAads)),
           SliverToBoxAdapter(child: EgyTvSportSponsorLink(ar: widget.ar)),
           const SliverToBoxAdapter(child: SizedBox(height: 22)),
         ]));

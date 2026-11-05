@@ -133,7 +133,10 @@ class YacineChannelResolver {
       }
 
       // A generic on-device session; player-specific playback is handled later.
-      final headers = yacinePlaybackHeaders(source);
+      // Desktop EGY TV Sport falls back to this identity when a descriptor
+      // has no media User-Agent. Keep API identity and media identity distinct.
+      final headers = yacinePlaybackHeaders(
+          source, fallbackUserAgent: 'okhttp/4.12.0');
       final quality = _localText(source['name']).isNotEmpty ? _localText(source['name'])
           : _localText(source['quality']).isNotEmpty ? _localText(source['quality'])
           : 'Server ' + (found.length + 1).toString();

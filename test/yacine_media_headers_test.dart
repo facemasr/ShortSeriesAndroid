@@ -64,8 +64,20 @@ void main() {
     expect(result.containsKey('Host'), isFalse);
   });
 
-  test('uses media fallback only when source did not supply User-Agent', () {
+  test('uses native device or VLC identity when provider omitted agent', () {
     final result = yacinePlaybackHeaders({'headers': <String, String>{}});
-    expect(result, {'User-Agent': 'okhttp/4.12.0'});
+    expect(result.containsKey('User-Agent'), isFalse);
+  });
+
+  test('explicit platform agent only fills absent provider agent', () {
+    final result = yacinePlaybackHeaders({
+      'referer': 'https://provider.example/live',
+    }, fallbackUserAgent: 'AndroidPlayer/1.0');
+    expect(result['User-Agent'], 'AndroidPlayer/1.0');
+    expect(result['Referer'], 'https://provider.example/live');
+    final declared = yacinePlaybackHeaders({
+      'user_agent': 'ProviderAgent/8',
+    }, fallbackUserAgent: 'AndroidPlayer/1.0');
+    expect(declared['User-Agent'], 'ProviderAgent/8');
   });
 }

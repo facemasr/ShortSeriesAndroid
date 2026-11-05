@@ -12,6 +12,7 @@ import 'native_banner_ads.dart';
 import 'yacine_media_format.dart';
 import 'yacine_media_headers.dart';
 import 'yacine_provider_policy.dart';
+import 'yacine_vlc_m3u.dart';
 import 'yacine_stream_probe.dart';
 
 /// Direct, device-side playback for provider-authorized HLS channels.
@@ -555,6 +556,36 @@ class _DirectYacineChannelPlayerState
     super.dispose();
   }
 
+  /// Fresh user-requested playlist for the active channel only.
+  /// Never save signed tokens or long-lived media links to the catalog.
+  Future<void> _copyCurrentChannelM3u() async {
+    if (_connecting || _disposed) return;
+    try {
+      final fresh = await _ProviderMediaResolver(widget.api.client)
+          .resolve(widget.channel.providerId);
+      if (_disposed || !mounted || fresh.isEmpty) return;
+      final preferred = fresh.indexWhere((s) => s.label == _activeLabel);
+      final source = fresh[preferred >= 0 ? preferred : 0];
+      final playlist = yacineVlcM3u(
+        stream: source.uri,
+        channelName: widget.channel.title(widget.ar),
+        tvgId: widget.channel.providerId,
+        groupTitle: widget.channel.group,
+        headers: source.headers,
+      );
+      await Clipboard.setData(ClipboardData(text: playlist));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label(
+          'تم نسخ ملف M3U الحالي. الروابط المؤقتة تنتهي صلاحيتها.',
+          'Current M3U copied. Temporary stream links expire.'))));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(label(
+          'تعذر جلب رابط جديد للقناة الآن.',
+          'Could not retrieve a fresh channel link.'))));
+    }
+  }
+
   Widget _qualityMenu() {
     return PopupMenuButton<int>(
       tooltip: label('اختيار السيرفر والجودة', 'Choose server and quality'),
@@ -756,6 +787,10 @@ class _DirectYacineChannelPlayerState
                       child: Text(_sources[i].label +
                         (i == _selectedSource ? ' ✓' : ''))),
                 ]),
+            IconButton(
+              tooltip: label('نسخ رابط القناة بصيغة M3U', 'Copy current channel M3U'),
+              onPressed: _connecting ? null : _copyCurrentChannelM3u,
+              icon: const Icon(Icons.playlist_add_check_rounded)),
             IconButton(
               tooltip: label('تحديث رابط القناة', 'Refresh stream'),
               onPressed: _connecting ? null : () => _connect(userRetry: true),

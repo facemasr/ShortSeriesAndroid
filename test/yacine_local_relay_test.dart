@@ -78,6 +78,19 @@ void main() {
     }
   });
 
+  test('HLS with provider Referer uses the device-local relay', () {
+    final hls = YacinePlaybackSource(
+        Uri.parse('https://cdn.example/live/index.m3u8'),
+        {'User-Agent': 'Playback/3', 'Referer': 'https://site.example/'},
+        'HD', 3);
+    final mp4 = YacinePlaybackSource(
+        Uri.parse('https://cdn.example/video.mp4'),
+        {'User-Agent': 'Playback/3', 'Referer': 'https://site.example/'},
+        'HD', 1);
+    expect(YacineLocalRelay.needsRelay(hls), isTrue);
+    expect(YacineLocalRelay.needsRelay(mp4), isFalse);
+  });
+
   test('provider-encrypted HLS is rejected by the local relay', () async {
     final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     origin.listen((request) async {

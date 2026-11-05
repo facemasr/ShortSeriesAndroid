@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -139,7 +140,7 @@ class YacineLocalRelay {
       throw const FormatException('Invalid variant');
     }
     final current = _source;
-    if (current == null) throw const StateError('Channel unavailable');
+    if (current == null) throw StateError('Channel unavailable');
     final cached = _manifests[lineage];
     if (cached != null && cached.version == _version &&
         DateTime.now().difference(cached.at) <

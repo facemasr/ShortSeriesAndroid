@@ -39,8 +39,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   Map<String, String>? _activeHeaders;
   DateTime? _activeSince;
   DateTime _lastSwitch = DateTime.now();
-  DateTime _lastFrame = DateTime.now();
-  DateTime? _lastApiFetch;
+  DateTime? _bufferingSince;
   Timer? _poll;
   Timer? _watchdog;
   Timer? _retry;
@@ -100,7 +99,6 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
           await YacineChannelResolver(_http).resolve(widget.channel.providerId);
       if (_disposed || !mounted || sources.isEmpty) return;
       _sources = sources;
-      _lastApiFetch = DateTime.now();
       final choice = preferred ?? _server;
       final index = choice >= 0 && choice < sources.length ? choice : 0;
       _startMedia(sources[index], index, force: force);
@@ -140,7 +138,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       _activeSince = DateTime.now();
       _server = index;
       _lastSwitch = DateTime.now();
-      _lastFrame = DateTime.now();
+      _bufferingSince = null;
       _loading = true;
       _hadPlayback = false;
       _lastError = null;
@@ -162,7 +160,6 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       final sources = await YacineChannelResolver(_http)
           .resolve(widget.channel.providerId);
       if (_disposed || !mounted || !_foreground || sources.isEmpty) return;
-      _lastApiFetch = DateTime.now();
       final label = _server >= 0 && _server < _sources.length
           ? _sources[_server].label : null;
       final match = label == null
@@ -194,8 +191,13 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     if (_disposed || !mounted) return;
     final value = _controller?.value;
     if (value == null) return;
-    if (value.isPlaying) {
-      _lastFrame = DateTime.now();
+    if (value.isBuffering && !_userPaused) {
+      _bufferingSince ??= DateTime.now();
+    } else {
+      _bufferingSince = null;
+    }
+    if (value.isPlaying && !value.isBuffering) {
+      _bufferingSince = null;
       _failures = 0;
       if (!_hadPlayback || _loading || _notice != null) {
         setState(() {
@@ -229,6 +231,12 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       return;
     }
     if (value.hasError || value.isEnded) {
+      _scheduleRetry();
+      return;
+    }
+    if (_bufferingSince != null &&
+        DateTime.now().difference(_bufferingSince!).inSeconds >= 28) {
+      _bufferingSince = DateTime.now();
       _scheduleRetry();
       return;
     }

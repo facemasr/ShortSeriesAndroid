@@ -12,7 +12,6 @@ import 'native_sections.dart';
 import 'native_home_sections.dart';
 import 'native_visit_analytics.dart';
 import 'in_app_updates.dart';
-import 'yacine_direct_player.dart';
 import 'yacine_vlc_player.dart';
 import 'egy_tv_sport_hub.dart';
 import 'yacine_catalog_cache.dart';

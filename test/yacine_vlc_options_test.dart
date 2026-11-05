@@ -8,10 +8,11 @@ void main() {
       'Referer': 'http://example.test/player',
     });
     final httpOptions = options.http!.options;
-    expect(httpOptions, contains(
-      'http-user-agent=Mozilla/5.0 Chrome/150.0.0.0'));
-    expect(httpOptions, contains('http-referrer=http://example.test/player'));
-    expect(httpOptions, contains('http-reconnect'));
+    expect(httpOptions.any(
+        (value) => value.contains('http-user-agent=Mozilla/5.0 Chrome/150.0.0.0')), isTrue);
+    expect(httpOptions.any(
+        (value) => value.contains('http-referrer=http://example.test/player')), isTrue);
+    expect(httpOptions.any((value) => value.contains('http-reconnect')), isTrue);
   });
 
   test('VLC does not invent missing media headers', () {

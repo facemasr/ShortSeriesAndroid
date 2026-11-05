@@ -14,6 +14,7 @@ import 'native_visit_analytics.dart';
 import 'in_app_updates.dart';
 import 'yacine_direct_player.dart';
 import 'egy_tv_sport_hub.dart';
+import 'yacine_catalog_cache.dart';
 import 'egyshow_global_ads.dart';
 
 void main() {
@@ -127,6 +128,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   Map<String, List<Media>> homeData = {};
   final Map<String, List<Media>> catalogs = {};
   final Map<String, int> pages = {};
+  static const String _liveCatalogKey = 'egyshow_live_catalog_metadata_v1';
   List<LiveChannel> channels = [];
   String channelQuery = '';
   List<Media> searchResults = [];
@@ -158,6 +160,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     try {
       prefs = await SharedPreferences.getInstance();
       ar = prefs?.getBool('language_ar') ?? true;
+      channels = decodeYacineCatalog(prefs?.getString(_liveCatalogKey));
       for (final row in prefs?.getStringList('favorites') ?? <String>[]) {
         try {
           final media = Media(asMap(jsonDecode(row)));
@@ -232,13 +235,27 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _loadLive() async {
+  Future<void> _loadLive({bool force = false}) async {
+    // Preserve the locally cached catalog until the user requests a refresh.
+    // Actual playback sessions continue to resolve each channel on demand.
+    if (!force && channels.isNotEmpty) return;
+    if (listBusy) return;
     if (mounted) setState(() { listBusy = true; error = ''; });
     try {
       final items = await api.live();
-      if (mounted) setState(() { channels = items; listBusy = false; });
+      if (items.isEmpty) throw const ApiException('provider_catalog_empty');
+      if (!mounted) return;
+      setState(() { channels = items; listBusy = false; error = ''; });
+      try {
+        await prefs?.setString(_liveCatalogKey, encodeYacineCatalog(items));
+      } catch (_) {
+        // Storage errors must not block playback of a fetched catalog.
+      }
     } catch (e) {
-      if (mounted) setState(() { error = e.toString(); listBusy = false; });
+      if (mounted) setState(() {
+        error = channels.isEmpty ? e.toString() : '';
+        listBusy = false;
+      });
     }
   }
 
@@ -476,7 +493,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
           child: Text(tr(ar, 'القنوات المباشرة', 'Live TV') +
             ' · ' + filtered.length.toString(),
             style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)))),
-      Expanded(child: RefreshIndicator(onRefresh: _loadLive,
+      Expanded(child: RefreshIndicator(onRefresh: () => _loadLive(force: true),
         child: listBusy && channels.isEmpty
           ? ListView(children: const [
               SizedBox(height: 180),
@@ -615,7 +632,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     } else if (tab == 4) body = _live();
     else if (tab == 9) body = EgyTvSportHub(
       api: api, ar: ar, channels: channels, loading: listBusy,
-      onRefresh: _loadLive,
+      onRefresh: () => _loadLive(force: true),
       onOpen: (channel) => _play('channel', channel.id, channel.title(ar)));
     else if (tab == 5 || tab == 6) body = WebsiteSection(
       key: ValueKey('section-' + tab.toString() + (ar ? '-ar' : '-en')),

@@ -83,9 +83,9 @@ jobs:
       - name: Dependencies
         run: flutter pub get
       - name: Analyze Android playback and ad code
-        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_channel_resolver.dart lib/yacine_stream_renewal.dart lib/yacine_media_format.dart lib/yacine_media_headers.dart lib/yacine_provider_policy.dart lib/yacine_vlc_m3u.dart lib/yacine_stream_probe.dart lib/yacine_channel_groups.dart lib/egy_tv_sport_hub.dart lib/native_banner_ads.dart lib/egyshow_global_ads.dart lib/native_player.dart
+        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_channel_resolver.dart lib/yacine_stream_renewal.dart lib/yacine_media_format.dart lib/yacine_media_headers.dart lib/yacine_provider_policy.dart lib/yacine_vlc_m3u.dart lib/yacine_stream_probe.dart lib/yacine_channel_groups.dart lib/yacine_catalog_cache.dart lib/egy_tv_sport_hub.dart lib/native_banner_ads.dart lib/egyshow_global_ads.dart lib/native_player.dart
       - name: Test bounded temporary HLS segment validation
-        run: flutter test test/yacine_stream_probe_test.dart test/yacine_media_format_test.dart test/yacine_media_headers_test.dart test/yacine_provider_policy_test.dart test/yacine_vlc_m3u_test.dart test/yacine_channel_resolver_test.dart test/yacine_stream_renewal_test.dart test/yacine_channel_groups_test.dart
+        run: flutter test test/yacine_stream_probe_test.dart test/yacine_media_format_test.dart test/yacine_media_headers_test.dart test/yacine_provider_policy_test.dart test/yacine_vlc_m3u_test.dart test/yacine_channel_resolver_test.dart test/yacine_stream_renewal_test.dart test/yacine_channel_groups_test.dart test/yacine_catalog_cache_test.dart
       - name: Build APK
         run: flutter build apk --release
       - name: Validate CI candidate before private server signing

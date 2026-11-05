@@ -17,9 +17,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
-      SOURCE_RUN: "42027616145"
+      SOURCE_RUN: "42036255431"
       ARTIFACT: "EGYSHOW-CI-APK-REQUIRES-SERVER-SIGNING"
-      VERSION_TAG: "egyshow-android-v2.0.15-ci-preview"
+      VERSION_TAG: "egyshow-android-v2.0.16-ci-vlc-preview"
     steps:
       - name: Retrieve successfully built GitHub Actions APK
         run: |
@@ -31,15 +31,15 @@ jobs:
       - name: Publish clearly labeled testing-only APK
         run: |
           set -euo pipefail
-          cp artifact/app-release.apk artifact/EGYSHOW_Android_v2.0.15_CI_TEST_ONLY.apk
-          sha256sum artifact/EGYSHOW_Android_v2.0.15_CI_TEST_ONLY.apk
+          cp artifact/app-release.apk artifact/EGYSHOW_Android_v2.0.16_VLC_TEST_ONLY.apk
+          sha256sum artifact/EGYSHOW_Android_v2.0.16_VLC_TEST_ONLY.apk
           if gh release view "$VERSION_TAG" --repo "$REPO" >/dev/null 2>&1; then
             echo "Release already exists; uploading asset with clobber."
-            gh release upload "$VERSION_TAG" artifact/EGYSHOW_Android_v2.0.15_CI_TEST_ONLY.apk --repo "$REPO" --clobber
+            gh release upload "$VERSION_TAG" artifact/EGYSHOW_Android_v2.0.16_VLC_TEST_ONLY.apk --repo "$REPO" --clobber
           else
-            gh release create "$VERSION_TAG" artifact/EGYSHOW_Android_v2.0.15_CI_TEST_ONLY.apk \
+            gh release create "$VERSION_TAG" artifact/EGYSHOW_Android_v2.0.16_VLC_TEST_ONLY.apk \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease \
-              --title "EGYSHOW Android v2.0.15 - CI TEST ONLY (not official update)" \
-              --notes "Testing-only build of EGYSHOW Android v2.0.15 (versionCode 23). This APK is NOT signed with the original EGYSHOW production key, must NOT replace the official installed app, and has not been tested with all live TV sources on a physical Android device. Shared here only to provide an accessible download link outside ChatGPT. Install only in a separate test environment if Android accepts the APK."
+              --title "EGYSHOW Android v2.0.16 - VLC CI TEST ONLY (not official update)" \
+              --notes "Testing-only build of EGYSHOW Android v2.0.16 (versionCode 24) with on-device VLC playback. This APK is NOT signed with the original EGYSHOW production key, must NOT replace the official installed app, and has not been tested with all live TV sources on a physical Android device. Shared here only to provide an accessible download link outside ChatGPT. Install only in a separate test environment if Android accepts the APK."
           fi
           gh release view "$VERSION_TAG" --repo "$REPO" --json url,assets

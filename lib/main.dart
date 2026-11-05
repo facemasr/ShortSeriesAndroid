@@ -15,6 +15,7 @@ import 'in_app_updates.dart';
 import 'yacine_direct_player.dart';
 import 'egy_tv_sport_hub.dart';
 import 'yacine_catalog_cache.dart';
+import 'yacine_channel_groups.dart';
 import 'egyshow_global_ads.dart';
 
 void main() {
@@ -470,10 +471,59 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
             child: CircularProgressIndicator())),
       ]);
 
+  void _openLiveGroup(YacineQualityGroup group) {
+    if (group.variants.length == 1) {
+      final c = group.variants.single;
+      _play('channel', c.id, c.title(ar));
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: panel,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * .75),
+          child: ListView(shrinkWrap: true, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              child: Text(group.title(ar), style: const TextStyle(
+                fontSize: 18, fontWeight: FontWeight.w800))),
+            ListTile(
+              leading: const Icon(Icons.auto_awesome_rounded),
+              title: Text(tr(ar, 'جودة تلقائية (720p إن توفرت)',
+                  'Auto quality (720p when available)')),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                final c = group.preferred;
+                _play('channel', c.id, c.title(ar));
+              },
+            ),
+            for (final c in group.variants)
+              ListTile(
+                leading: const Icon(Icons.hd_outlined),
+                title: Text(yacineChannelQuality(c) == null
+                  ? tr(ar, 'جودة غير محددة', 'Unknown quality')
+                  : yacineChannelQuality(c).toString() + 'p'),
+                subtitle: Text(group.category),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _play('channel', c.id, c.title(ar));
+                },
+              ),
+          ]),
+        ),
+      ),
+    );
+  }
+
   Widget _live() {
+    final grouped = groupYacineChannels(channels);
     final search = channelQuery.trim().toLowerCase();
-    final filtered = search.isEmpty ? channels : channels.where((channel) =>
-        (channel.title(ar) + ' ' + channel.group)
+    final filtered = search.isEmpty ? grouped : grouped.where((group) =>
+        (group.title(ar) + ' ' + group.category)
             .toLowerCase().contains(search)).toList();
     return Column(children: [
       EgyshowBannerAd(api: api, placement: 'banner'),
@@ -507,9 +557,10 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
                 mainAxisSpacing: 10, crossAxisSpacing: 10),
               itemCount: filtered.length,
               itemBuilder: (_, i) {
-                final channel = filtered[i];
+                final group = filtered[i];
+                final channel = group.preferred;
                 return InkWell(
-                  onTap: () => _play('channel', channel.id, channel.title(ar)),
+                  onTap: () => _openLiveGroup(group),
                   child: Container(
                     decoration: BoxDecoration(color: panel,
                       borderRadius: BorderRadius.circular(12)),
@@ -517,10 +568,12 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
                     child: Column(children: [
                       Expanded(child: Art(channel.logo, fit: BoxFit.contain)),
                       const SizedBox(height: 6),
-                      Text(channel.title(ar), maxLines: 1,
+                      Text(group.title(ar), maxLines: 1,
                         overflow: TextOverflow.ellipsis),
-                      if (channel.group.isNotEmpty)
-                        Text(channel.group, maxLines: 1,
+                      if (group.category.isNotEmpty)
+                        Text(group.variants.length > 1
+                            ? group.qualities.map((q) => q.toString() + 'p').join(' · ')
+                            : group.category, maxLines: 1,
                           style: const TextStyle(
                             fontSize: 10, color: Colors.white54),
                           overflow: TextOverflow.ellipsis),

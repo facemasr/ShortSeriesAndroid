@@ -53,9 +53,15 @@ class _EgyTvSportHubState extends State<EgyTvSportHub> {
         (prefs.getStringList(key) ?? const <String>[]).toSet());
     } catch (_) {}
   }
-  Future<void> _toggleFavorite(LiveChannel c) async {
-    final id = channelKey(c);
-    setState(() { if (!favorites.add(id)) favorites.remove(id); });
+  Future<void> _toggleFavorite(YacineQualityGroup group) async {
+    final ids = group.variants.map(channelKey).toSet();
+    setState(() {
+      if (ids.any(favorites.contains)) {
+        favorites.removeAll(ids);
+      } else {
+        favorites.addAll(ids);
+      }
+    });
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(key, favorites.toList()..sort());
@@ -142,7 +148,7 @@ class _EgyTvSportHubState extends State<EgyTvSportHub> {
             const SizedBox(width: 4),
             const Expanded(child: Text('LIVE', style: TextStyle(
               color: teal, fontSize: 10, fontWeight: FontWeight.bold))),
-            GestureDetector(onTap: () => _toggleFavorite(c),
+            GestureDetector(onTap: () => _toggleFavorite(group),
               child: Icon(liked ? Icons.star_rounded : Icons.star_border_rounded,
                 size: 23, color: liked ? Colors.amber : Colors.white54)),
           ]),

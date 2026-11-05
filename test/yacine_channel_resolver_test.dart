@@ -18,7 +18,7 @@ void main() {
         {'url': 'http://media.example/$channel/index.m3u8?t=NOW&e=1999999999',
          'name': 'HD', 'url_type': 3, 'user_agent': agent,
          'referer': 'http://yacinneeee.live\u2060\u200D\u3164', 'drm': false}
-      ]}), 200);
+      ]}), 200, headers: {'content-type': 'application/json; charset=utf-8'});
     });
     final resolver = YacineChannelResolver(client);
     final first = (await resolver.resolve('4897977498791654610')).single;

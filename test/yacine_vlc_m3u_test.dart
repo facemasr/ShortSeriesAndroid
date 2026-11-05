@@ -18,7 +18,7 @@ void main() {
     expect(text, startsWith('#EXTM3U\n'));
     expect(text, contains('tvg-name="beIN SPORTS 1",beIN SPORTS 1'));
     expect(text, contains('#EXTVLCOPT:http-user-agent=Mozilla/5.0 Chrome/150.0.0.0'));
-    expect(text, contains('#EXTVLCOPT:http-referrer=http://yacinneeee.live\n'));
+    expect(text, contains('#EXTVLCOPT:http-referrer=http://yacinneeee.live%E2%81%A0%E2%80%8D%E3%85%A4\n'));
     expect(text, contains('index.m3u8?t=NEW&e=1999999999'));
     expect(text.contains('\u2060'), isFalse);
   });

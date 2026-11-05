@@ -28,7 +28,8 @@ void main() {
     expect(first.uri.path, contains('4897977498791654610'));
     expect(second.uri.path, contains('4897977498790841235'));
     expect(first.headers['User-Agent'], agent);
-    expect(second.headers['Referer'], 'http://yacinneeee.live');
+    expect(second.headers['Referer'],
+      'http://yacinneeee.live%E2%81%A0%E2%80%8D%E3%85%A4');
     expect(first.providerMode, 3);
     client.close();
   });

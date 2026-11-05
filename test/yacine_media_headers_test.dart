@@ -46,7 +46,7 @@ void main() {
     expect(result['User-Agent'], 'Playback/4');
   });
 
-  test('rejects header injection and does not forward secrets', () {
+  test('rejects header injection, forwards only safe provider session fields', () {
     final result = yacinePlaybackHeaders({
       'user_agent': 'Bad\r\nInjected: yes',
       'referer': 'javascript:alert(1)',
@@ -61,9 +61,24 @@ void main() {
     expect(result['User-Agent'], 'okhttp/4.12.0');
     expect(result['Origin'], 'https://valid.example');
     expect(result.containsKey('Referer'), isFalse);
-    expect(result.containsKey('Authorization'), isFalse);
-    expect(result.containsKey('Cookie'), isFalse);
+    expect(result['Authorization'], 'Bearer SECRET');
+    expect(result['Cookie'], 'private=session');
     expect(result.containsKey('Host'), isFalse);
+  });
+
+  test('session values are rejected if malformed and never invented', () {
+    final values = yacinePlaybackHeaders({
+      'Cookie': 'ignored-from-top-level',
+      'headers': {
+        'Cookie': 'bad\r\nX-Injection: 1',
+        'Authorization': 'Bearer valid-value',
+        'X-Auth-Token': 'token-value',
+      },
+    });
+    expect(values.containsKey('Cookie'), isFalse);
+    expect(values['Authorization'], 'Bearer valid-value');
+    expect(values['X-Auth-Token'], 'token-value');
+    expect(values.containsKey('Host'), isFalse);
   });
 
   test('uses native device or VLC identity when provider omitted agent', () {

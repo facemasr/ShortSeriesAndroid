@@ -33,13 +33,20 @@ jobs:
           set -euo pipefail
           cp artifact/app-release.apk artifact/EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.apk
           sha256sum artifact/EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.apk
-          if gh release view "$VERSION_TAG" --repo "$REPO" >/dev/null 2>&1; then
-            echo "Release already exists; uploading asset with clobber."
-            gh release upload "$VERSION_TAG" artifact/EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.apk --repo "$REPO" --clobber
-          else
-            gh release create "$VERSION_TAG" artifact/EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.apk \
+          (cd artifact && zip -9 -q EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.zip EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.apk)
+          ls -lh artifact/EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.zip
+          if ! gh release view "$VERSION_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$VERSION_TAG" \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease \
-              --title "EGYSHOW Android v2.0.17 - CI TEST ONLY (not official update)" \
-              --notes "Testing-only build of EGYSHOW Android v2.0.17 (versionCode 25), including live-channel playback diagnostics. This APK is NOT signed with the original EGYSHOW production key, must NOT replace the official installed app, and has not been tested with all live TV sources on a physical Android device. Shared here only to provide an accessible download link outside ChatGPT. Install only in a separate test environment if Android accepts the APK."
+              --title "EGYSHOW Android v2.0.17 - ZIP CI TEST ONLY (not official update)" \
+              --notes "Download ZIP, extract APK, and install only in a separate test environment if Android accepts it. v2.0.17 Build 25 is NOT production-signed and is not an update over the existing EGYSHOW install. Playback tests on an Android emulator have not fully passed."
           fi
+          for attempt in 1 2 3; do
+            if gh release upload "$VERSION_TAG" artifact/EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.zip --repo "$REPO" --clobber; then
+              echo "Preview ZIP published successfully."
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep 8
+          done
           gh release view "$VERSION_TAG" --repo "$REPO" --json url,assets

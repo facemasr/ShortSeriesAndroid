@@ -48,8 +48,8 @@ void main() {
     expect(sources, hasLength(1));
     expect(sources.single.uri.path, '/new.m3u8');
     expect(sources.single.headers['Referer'], 'https://media.example/player');
-    // No provider-supplied User-Agent: use the native device player's default.
-    expect(sources.single.headers.containsKey('User-Agent'), isFalse);
+    // Match the desktop fallback when no media-specific identity was declared.
+    expect(sources.single.headers['User-Agent'], 'okhttp/4.12.0');
     client.close();
   });
 

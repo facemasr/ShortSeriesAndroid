@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,8 +8,7 @@ import 'package:video_player/video_player.dart';
 import 'native_api.dart';
 import 'native_banner_ads.dart';
 import 'yacine_media_format.dart';
-import 'yacine_media_headers.dart';
-import 'yacine_provider_policy.dart';
+import 'yacine_channel_resolver.dart';
 import 'yacine_vlc_m3u.dart';
 import 'yacine_stream_probe.dart';
 
@@ -32,118 +29,10 @@ class DirectYacineChannelPlayer extends StatefulWidget {
       _DirectYacineChannelPlayerState();
 }
 
-class _YacineMediaSource {
-  const _YacineMediaSource(this.uri, this.headers, this.label, this.formatHint);
-  final Uri uri;
-  final Map<String, String> headers;
-  final String label;
-  final VideoFormat? formatHint;
-}
-
-class _ProviderMediaResolver {
-  const _ProviderMediaResolver(this.client);
-  final http.Client client;
-
-  static const String _apiUrl = 'https://def001.ycnapi.com/api/channel/';
-  static const String _apiAgent = 'okhttp/4.12.0';
-  // API identity and media identity are separate. This is a fallback only when
-  // the provider does not declare a media User-Agent for this stream.
-  static const String _keyPrefix = 'c!xZj+N9&G@Ev@vw';
-
-  static Map<String, dynamic> _decode(Uint8List bytes, String? stamp) {
-    final input = utf8.decode(bytes).trim();
-    if (input.startsWith('{')) return asMap(jsonDecode(input));
-    if (stamp == null || !RegExp(r'^[0-9]{1,16}$').hasMatch(stamp)) {
-      throw const ApiException('provider_data_invalid');
-    }
-    final encrypted = base64Decode(input);
-    if (encrypted.length > 4000000) {
-      throw const ApiException('provider_data_too_large');
-    }
-    final key = utf8.encode(_keyPrefix + stamp);
-    final decoded = Uint8List(encrypted.length);
-    for (var i = 0; i < encrypted.length; i++) {
-      decoded[i] = encrypted[i] ^ key[i % key.length];
-    }
-    return asMap(jsonDecode(utf8.decode(decoded)));
-  }
-
-  Future<List<_YacineMediaSource>> resolve(String providerId) async {
-    if (!RegExp(r'^\d{1,24}$').hasMatch(providerId)) {
-      throw const ApiException('provider_channel_invalid');
-    }
-    // Fetch current per-channel metadata, just as a two-stage channel/player
-    // flow does. A few API 404/5xx responses are temporary during rotation.
-    // Never reuse a cached signed media URL to work around an API failure.
-    http.Response? response;
-    for (var attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) {
-        await Future<void>.delayed(const Duration(milliseconds: 650));
-      }
-      try {
-        response = await client.get(
-          Uri.parse(_apiUrl + providerId),
-          headers: const {
-            'User-Agent': _apiAgent,
-            'Accept': 'application/json',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-          },
-        ).timeout(const Duration(seconds: 12));
-      } on Exception {
-        if (attempt == 1) rethrow;
-        continue;
-      }
-      if (response.statusCode == 200 ||
-          !yacineRetryableProviderStatus(response.statusCode)) break;
-    }
-    if (response == null || response.statusCode != 200) {
-      throw const ApiException('provider_api_unavailable');
-    }
-    final raw = _decode(response.bodyBytes, response.headers['t']);
-    final rows = asList(raw['data']);
-    final found = <_YacineMediaSource>[];
-    for (final item in rows.take(15)) {
-      final source = asMap(item);
-      if (source.isEmpty) continue;
-      final drm = source['drm'];
-      if (yacineDescriptorHasDrm(drm)) continue;
-
-      final url = Uri.tryParse(txt(source['url']));
-      if (url == null || !url.hasAuthority ||
-          url.userInfo.isNotEmpty ||
-          (url.scheme != 'https' && url.scheme != 'http')) continue;
-      // Support HLS, unprotected DASH, and native direct-media formats.
-      if (!yacineIsMediaSource(url, providerMode: source['url_type'])) continue;
-      // Tokens may use seconds or milliseconds. Reject short-lived URLs
-      // that have already expired, without persisting them.
-      final rawExpiry = int.tryParse(url.queryParameters['e'] ??
-          url.queryParameters['expires'] ??
-          url.queryParameters['exp'] ?? '');
-      final expires = rawExpiry != null && rawExpiry > 9999999999
-          ? rawExpiry ~/ 1000 : rawExpiry;
-      if (expires != null &&
-          expires > 1700000000 &&
-          expires <= DateTime.now().millisecondsSinceEpoch ~/ 1000 + 20) {
-        continue;
-      }
-
-      // Send one validated, provider-declared header map through native
-      // ExoPlayer for playlists, variants and media segments.
-      final headers = yacinePlaybackHeaders(source);
-      final quality = txt(source['name']).isNotEmpty ? txt(source['name'])
-          : txt(source['quality']).isNotEmpty ? txt(source['quality'])
-          : 'Server ' + (found.length + 1).toString();
-      found.add(_YacineMediaSource(url, headers, quality,
-          yacineMediaFormat(url, providerMode: source['url_type'])));
-    }
-    if (found.isEmpty) throw const ApiException('provider_stream_unavailable');
-    return found;
-  }
-}
-
 class _DirectYacineChannelPlayerState
     extends State<DirectYacineChannelPlayer> with WidgetsBindingObserver {
+  // Stream-resolution requests never use the EGYSHOW website API client.
+  final http.Client _channelClient = http.Client();
   VideoPlayerController? _video;
   Timer? _renewal;
   Timer? _retry;
@@ -161,7 +50,7 @@ class _DirectYacineChannelPlayerState
   DateTime? _lastSourceCheck;
   bool _lastBuffering = false;
   bool _lastPlaying = false;
-  List<_YacineMediaSource> _sources = const [];
+  List<YacinePlaybackSource> _sources = const [];
   int _selectedSource = 0;
   bool _busy = true;
   bool _connecting = false;
@@ -197,7 +86,7 @@ class _DirectYacineChannelPlayerState
     if (playing == null || !playing.value.isInitialized) return;
     _refreshingSources = true;
     try {
-      final fresh = await _ProviderMediaResolver(widget.api.client)
+      final fresh = await YacineChannelResolver(_channelClient)
           .resolve(widget.channel.providerId);
       if (!mounted || _disposed || !_foreground || _userPaused) return;
       _lastSourceCheck = DateTime.now();
@@ -251,7 +140,7 @@ class _DirectYacineChannelPlayerState
   /// Only a just-fetched in-memory response may be passed during a renewal.
   /// Signed playback URLs must never be persisted with the channel catalog.
   Future<void> _connect({bool userRetry = false, int preferredSource = 0,
-      List<_YacineMediaSource>? preloadedSources}) async {
+      List<YacinePlaybackSource>? preloadedSources}) async {
     if (_connecting || _disposed) return;
     _connecting = true;
     _retry?.cancel();
@@ -276,7 +165,7 @@ class _DirectYacineChannelPlayerState
     var connected = false;
     try {
       final sources = preloadedSources ??
-          await _ProviderMediaResolver(widget.api.client)
+          await YacineChannelResolver(_channelClient)
               .resolve(widget.channel.providerId);
       if (_disposed || !mounted) return;
       _lastSourceCheck = DateTime.now();
@@ -303,7 +192,7 @@ class _DirectYacineChannelPlayerState
           candidate = VideoPlayerController.networkUrl(
             source.uri,
             httpHeaders: source.headers,
-            formatHint: source.formatHint,
+            formatHint: yacineMediaFormat(source.uri, providerMode: source.providerMode),
           );
           await candidate.initialize().timeout(const Duration(seconds: 16));
           if (_disposed || !mounted) {
@@ -343,8 +232,8 @@ class _DirectYacineChannelPlayerState
           // it, and a 403 here reflects the upstream provider response.
           if (_lastProbeFailure == null && !_disposed) {
             try {
-              if (source.formatHint == VideoFormat.hls) {
-                final result = await YacineMediaProbe(widget.api.client)
+              if (yacineMediaFormat(source.uri, providerMode: source.providerMode) == VideoFormat.hls) {
+                final result = await YacineMediaProbe(_channelClient)
                     .verifyHls(source.uri, source.headers);
                 _lastProbeFailure = result == YacineMediaStatus.manifestOnly
                     ? 'manifest_only' : 'native_player_failed';
@@ -553,6 +442,7 @@ class _DirectYacineChannelPlayerState
     final video = _video;
     video?.removeListener(_onMediaChanged);
     unawaited(video?.dispose() ?? Future<void>.value());
+    _channelClient.close();
     super.dispose();
   }
 
@@ -561,7 +451,7 @@ class _DirectYacineChannelPlayerState
   Future<void> _copyCurrentChannelM3u() async {
     if (_connecting || _disposed) return;
     try {
-      final fresh = await _ProviderMediaResolver(widget.api.client)
+      final fresh = await YacineChannelResolver(_channelClient)
           .resolve(widget.channel.providerId);
       if (_disposed || !mounted || fresh.isEmpty) return;
       final preferred = fresh.indexWhere((s) => s.label == _activeLabel);

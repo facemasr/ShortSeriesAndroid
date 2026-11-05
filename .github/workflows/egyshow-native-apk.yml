@@ -83,9 +83,9 @@ jobs:
       - name: Dependencies
         run: flutter pub get
       - name: Analyze Android playback and ad code
-        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_media_format.dart lib/yacine_media_headers.dart lib/yacine_provider_policy.dart lib/yacine_vlc_m3u.dart lib/yacine_stream_probe.dart lib/native_banner_ads.dart lib/egyshow_global_ads.dart lib/native_player.dart
+        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_channel_resolver.dart lib/yacine_media_format.dart lib/yacine_media_headers.dart lib/yacine_provider_policy.dart lib/yacine_vlc_m3u.dart lib/yacine_stream_probe.dart lib/native_banner_ads.dart lib/egyshow_global_ads.dart lib/native_player.dart
       - name: Test bounded temporary HLS segment validation
-        run: flutter test test/yacine_stream_probe_test.dart test/yacine_media_format_test.dart test/yacine_media_headers_test.dart test/yacine_provider_policy_test.dart test/yacine_vlc_m3u_test.dart
+        run: flutter test test/yacine_stream_probe_test.dart test/yacine_media_format_test.dart test/yacine_media_headers_test.dart test/yacine_provider_policy_test.dart test/yacine_vlc_m3u_test.dart test/yacine_channel_resolver_test.dart
       - name: Build APK
         run: flutter build apk --release
       - name: Validate CI candidate before private server signing
@@ -96,7 +96,7 @@ jobs:
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='20' versionName='2.0.12'"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='21' versionName='2.0.13'"
           echo "CI candidate verified; NOT production-signed, NOT eligible for direct publication."
       - name: Upload CI APK candidate for private server signing
         uses: actions/upload-artifact@v4

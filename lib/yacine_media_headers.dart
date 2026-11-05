@@ -35,13 +35,32 @@ Map<String, String> yacinePlaybackHeaders(
   }
 
   String? urlHeader(Object? value) {
-    final cleaned = textHeader(value);
-    if (cleaned == null) return null;
-    final uri = Uri.tryParse(cleaned);
+    if (value is! String || value.isEmpty || value.length > 2048) return null;
+    final raw = value.trim();
+    if (raw.isEmpty ||
+        RegExp(r'[\x00-\x1F\x7F]').hasMatch(raw)) return null;
+    // Match EGY TV Sport Desktop: preserve the provider's Referer/Origin
+    // data by UTF-8 percent-encoding non-ASCII code points, NOT deleting
+    // invisible characters. The resulting HTTP header is ASCII-safe.
+    // Existing percent-escapes and URL separators are left untouched.
+    final output = StringBuffer();
+    for (final rune in raw.runes) {
+      if (rune >= 0x20 && rune <= 0x7E) {
+        output.writeCharCode(rune);
+      } else {
+        for (final byte in utf8.encode(String.fromCharCode(rune))) {
+          output.write('%');
+          output.write(byte.toRadixString(16).padLeft(2, '0').toUpperCase());
+        }
+      }
+    }
+    final encoded = output.toString();
+    if (encoded.length > 4096) return null;
+    final uri = Uri.tryParse(encoded);
     if (uri == null || !uri.hasAuthority || uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
         (uri.scheme != 'http' && uri.scheme != 'https')) return null;
-    return uri.toString();
+    return encoded;
   }
 
   String? pickText(List<String> aliases) =>

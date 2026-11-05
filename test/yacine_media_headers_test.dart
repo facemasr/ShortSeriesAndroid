@@ -6,7 +6,7 @@ void main() {
     'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36';
 
   for (final channel in ['beIN SPORTS 1', 'beIN SPORTS 2']) {
-    test('$channel: cleans invisible Referer and keeps provider User-Agent', () {
+    test('$channel: preserves percent-encoded provider Referer and User-Agent', () {
       final result = yacinePlaybackHeaders({
         'user_agent': declaredAgent,
         'referer': 'http://yacinneeee.live\u2060\u200D\u2060\u3164\u200C\u2060\u200D\u2060',
@@ -14,7 +14,9 @@ void main() {
       });
       expect(result, {
         'User-Agent': declaredAgent,
-        'Referer': 'http://yacinneeee.live',
+        'Referer': 'http://yacinneeee.live'
+            '%E2%81%A0%E2%80%8D%E2%81%A0%E3%85%A4'
+            '%E2%80%8C%E2%81%A0%E2%80%8D%E2%81%A0',
         'Accept': '*/*',
       });
     });

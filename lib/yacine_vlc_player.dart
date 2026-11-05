@@ -12,6 +12,7 @@ import 'yacine_direct_player.dart';
 import 'yacine_stream_renewal.dart';
 import 'yacine_vlc_m3u.dart';
 import 'yacine_vlc_options.dart';
+import 'yacine_stream_diagnostics.dart';
 
 /// Device-local VLC player for the same per-channel API and original HTTP
 /// media headers used by EGY TV Sport on Windows. No VPS proxy, DRM bypass,
@@ -54,6 +55,9 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   bool _fullscreen = false;
   bool _showControls = true;
   bool _hadPlayback = false;
+  bool _diagnosing = false;
+  bool _sourceDenied = false;
+  String? _diagnosticMessage;
   double _volume = 1.0;
   BoxFit _fit = BoxFit.cover;
   String? _notice;
@@ -94,27 +98,38 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       if (_controller == null) _loading = true;
       _notice = t('جارٍ طلب رابط القناة...', 'Resolving channel stream...');
     });
+    var failed = false;
     try {
       final sources = readySources ??
           await YacineChannelResolver(_http).resolve(widget.channel.providerId);
-      if (_disposed || !mounted || sources.isEmpty) return;
+      if (_disposed || !mounted) return;
+      if (sources.isEmpty) {
+        throw const YacineResolveException('provider_stream_unavailable');
+      }
       _sources = sources;
       final choice = preferred ?? _server;
       final index = choice >= 0 && choice < sources.length ? choice : 0;
       _startMedia(sources[index], index, force: force);
-    } catch (_) {
+    } catch (error) {
+      failed = true;
       if (mounted && !_disposed) {
         setState(() {
           _loading = false;
-          _notice = t(
-            'تعذر جلب رابط قابل للتشغيل من API للقناة المحددة.',
-            'No playable provider URL was returned for this channel.',
+          final reason = error is YacineResolveException
+              ? error.reason : 'connection_error';
+          _lastError = t(
+            'تعذر جلب رابط القناة من API ($reason).',
+            'Unable to resolve the channel from API ($reason).',
           );
+          _notice = null;
         });
-        _scheduleRetry();
       }
     } finally {
       _fetching = false;
+      // Previously retry scheduling was called while _fetching was still
+      // true; _scheduleRetry() therefore returned immediately and the
+      // first channel failure got stuck with no recovery.
+      if (failed && !_disposed) _scheduleRetry();
     }
   }
 
@@ -141,6 +156,8 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       _bufferingSince = null;
       _loading = true;
       _hadPlayback = false;
+      _sourceDenied = false;
+      _diagnosticMessage = null;
       _lastError = null;
       _notice = t('جاري بدء البث داخل VLC...', 'Opening stream in VLC...');
     });
@@ -214,12 +231,61 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
         setState(() {
           _loading = false;
           _lastError = t(
-            'تعذر بدء البث أو انقطع المصدر. جاري محاولة رابط جديد...',
-            'Stream failed. Requesting a fresh source...',
+            'تعذر بدء البث أو انقطع المصدر. أفحص استجابة خادم البث...',
+            'Stream failed. Checking the media server response...',
           );
         });
+        unawaited(_diagnoseCurrentSource());
       }
       _scheduleRetry();
+    }
+  }
+
+  Future<void> _diagnoseCurrentSource({bool manual = false}) async {
+    if (_disposed || !mounted || _diagnosing || _sources.isEmpty) return;
+    _diagnosing = true;
+    final source = _sources[_server.clamp(0, _sources.length - 1)];
+    if (manual) setState(() {
+      _diagnosticMessage = t(
+        'جارٍ فحص استجابة خادم الفيديو...',
+        'Checking the video server response...',
+      );
+    });
+    try {
+      final diagnostic = await checkYacineManifest(_http, source);
+      if (_disposed || !mounted) return;
+      if (diagnostic.denied) {
+        _sourceDenied = true;
+        _retry?.cancel();
+        _retry = null;
+        setState(() {
+          _loading = false;
+          _lastError = t(
+            'نجح API، لكن خادم الفيديو رفض تشغيل القناة '
+            '(HTTP ${diagnostic.httpStatus}). يلزم مصدر مرخّص يسمح بالوصول.',
+            'API succeeded, but the media server denied access '
+            '(HTTP ${diagnostic.httpStatus}). An authorized source is required.',
+          );
+          _diagnosticMessage = t(
+            'السبب: رفض من المصدر، وليس فشلًا في مشغل VLC.',
+            'Source access denied; not a VLC decoding error.',
+          );
+        });
+      } else {
+        setState(() {
+          _diagnosticMessage = diagnostic.accepted
+              ? t('خادم الفيديو استجاب HTTP ${diagnostic.httpStatus}؛ '
+                  'إذا لم تظهر الصورة فافحص مشغل VLC.',
+                  'Media HTTP ${diagnostic.httpStatus} accepted; '
+                  'the VLC player still needs inspection.')
+              : t('فحص المصدر: ${diagnostic.reason}'
+                    '${diagnostic.httpStatus == null ? "" : " (HTTP ${diagnostic.httpStatus})"}',
+                  'Media check: ${diagnostic.reason}'
+                    '${diagnostic.httpStatus == null ? "" : " (HTTP ${diagnostic.httpStatus})"}');
+        });
+      }
+    } finally {
+      _diagnosing = false;
     }
   }
 
@@ -248,9 +314,10 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   }
 
   void _scheduleRetry() {
-    if (_disposed || _retry != null || _fetching || _userPaused) return;
+    if (_disposed || _retry != null || _fetching || _userPaused ||
+        _sourceDenied || _failures >= 5) return;
     _failures++;
-    final delays = <int>[3, 6, 12, 20, 30, 60];
+    final delays = <int>[3, 6, 12, 20, 30];
     final seconds = delays[_failures > delays.length
         ? delays.length - 1 : _failures - 1];
     _retry = Timer(Duration(seconds: seconds), () {
@@ -263,6 +330,9 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   }
 
   Future<void> _restartCurrent() async {
+    _retry?.cancel();
+    _retry = null;
+    _sourceDenied = false;
     _failures = 0;
     await _resolveAndPlay(force: true, preferred: _server);
   }
@@ -436,6 +506,22 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
         ),
         if (_loading || c.value.isBuffering)
           const Center(child: CircularProgressIndicator(color: _teal)),
+        if (_diagnosticMessage != null && _showControls)
+          Positioned(
+            top: 54, left: 18, right: 18,
+            child: IgnorePointer(child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: const Color(0xDE121C2D),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Text(_diagnosticMessage!,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                  textAlign: TextAlign.center),
+              ),
+            )),
+          ),
         if (_lastError != null)
           Center(child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 28),
@@ -485,6 +571,13 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
                     onPressed: _fetching ? null
                         : () => unawaited(_restartCurrent()),
                     icon: const Icon(Icons.refresh_rounded,
+                      color: Colors.white),
+                  ),
+                  IconButton(
+                    tooltip: t('اختبار اتصال القناة', 'Test channel access'),
+                    onPressed: _diagnosing ? null
+                        : () => unawaited(_diagnoseCurrentSource(manual: true)),
+                    icon: const Icon(Icons.health_and_safety_outlined,
                       color: Colors.white),
                   ),
                   IconButton(

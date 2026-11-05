@@ -11,6 +11,7 @@ import 'yacine_media_format.dart';
 import 'yacine_channel_resolver.dart';
 import 'yacine_vlc_m3u.dart';
 import 'yacine_stream_probe.dart';
+import 'yacine_stream_renewal.dart';
 
 /// Direct, device-side playback for provider-authorized HLS channels.
 /// No EGYSHOW VPS media relay, DRM circumvention, stored signed URLs or
@@ -46,6 +47,8 @@ class _DirectYacineChannelPlayerState
   bool _refreshingSources = false;
   bool _foreground = true;
   Uri? _activeUri;
+  Map<String, String>? _activeHeaders;
+  DateTime? _activeSince;
   String? _activeLabel;
   DateTime? _lastSourceCheck;
   bool _lastBuffering = false;
@@ -97,30 +100,28 @@ class _DirectYacineChannelPlayerState
       _sources = fresh;
       // Metadata can change without a player restart. In particular, short
       // lived signed HLS URLs must not be kept as the permanent source.
-      final activeExpiry = _expirySeconds(_activeUri);
-      final secondsLeft = activeExpiry == null ? null
-          : activeExpiry - DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      if (secondsLeft != null && secondsLeft <= 90) {
-        if (replacement.uri != _activeUri) {
-          // Start the new player first; retain the current visible video until
-          // initialization succeeds (seamless renewal when the provider allows).
-          await _connect(preferredSource: preferred, preloadedSources: fresh);
-        } else {
-          // Provider returned the same short-lived token; do not break a
-          // healthy video just to try it again. Ask for a fresh one soon.
-          _renewal?.cancel();
-          _renewal = Timer(const Duration(seconds: 15),
-              () => unawaited(_refreshSources()));
-        }
+      final healthy = playing.value.isPlaying && !playing.value.hasError &&
+          !playing.value.isBuffering;
+      if (yacineHotSwapNeeded(
+          activeUri: _activeUri,
+          activeHeaders: _activeHeaders,
+          updatedUri: replacement.uri,
+          updatedHeaders: replacement.headers,
+          activeSince: _activeSince,
+          now: DateTime.now(),
+          healthy: healthy)) {
+        // Pre-initialize an updated player. The old video stays visible until
+        // the new session starts successfully. No player restart per poll.
+        await _connect(preferredSource: preferred, preloadedSources: fresh);
+      } else if (_activeUri != null && _expirySeconds(_activeUri) != null) {
+        _scheduleRenewal(_activeUri!);
       }
       if (mounted) setState(() {});
     } catch (_) {
       // A transient provider API error must not stop a playable channel.
-      if (_expirySeconds(_activeUri) != null) {
-        _renewal?.cancel();
-        _renewal = Timer(const Duration(seconds: 15),
-            () => unawaited(_refreshSources()));
-      }
+      _renewal?.cancel();
+      _renewal = Timer(const Duration(seconds: 15),
+          () => unawaited(_refreshSources()));
     } finally {
       _refreshingSources = false;
     }
@@ -145,7 +146,7 @@ class _DirectYacineChannelPlayerState
     _connecting = true;
     _retry?.cancel();
     _retry = null;
-    _renewal?.cancel();
+    // Keep the existing renewal deadline during replacement preparation.
     if (userRetry) _failures = 0;
     _lastProbeFailure = null;
     // Keep a healthy stream visible while a renewed source initializes.
@@ -208,6 +209,8 @@ class _DirectYacineChannelPlayerState
           _video = candidate;
           _selectedSource = index;
           _activeUri = source.uri;
+          _activeHeaders = source.headers;
+          _activeSince = DateTime.now();
           _activeLabel = source.label;
           _lastBuffering = candidate.value.isBuffering;
           _lastPlaying = candidate.value.isPlaying;
@@ -268,7 +271,20 @@ class _DirectYacineChannelPlayerState
       }
     } finally {
       _connecting = false;
-      if (!connected && mounted && !_disposed) _scheduleRetry();
+      if (!connected && mounted && !_disposed) {
+        final stillPlaying = _video?.value.isInitialized == true &&
+            _video?.value.isPlaying == true &&
+            _video?.value.hasError == false &&
+            _video?.value.isBuffering == false;
+        if (stillPlaying) {
+          // An unsuccessful replacement must not interrupt good playback.
+          _renewal?.cancel();
+          _renewal = Timer(const Duration(seconds: 15),
+              () => unawaited(_refreshSources()));
+        } else {
+          _scheduleRetry();
+        }
+      }
     }
   }
 
@@ -332,8 +348,7 @@ class _DirectYacineChannelPlayerState
     final remaining = expiry - DateTime.now().millisecondsSinceEpoch ~/ 1000;
     // Refresh the provider metadata up to 90 seconds before token expiry.
     // Do not restart the player solely because its URL has a deadline.
-    final delay = remaining > 100 ? remaining - 90
-        : remaining > 30 ? remaining - 25 : 5;
+    final delay = remaining > 135 ? remaining - 120 : 15;
     _renewal = Timer(Duration(seconds: delay), () {
       if (mounted && !_disposed) unawaited(_refreshSources());
     });
@@ -394,7 +409,14 @@ class _DirectYacineChannelPlayerState
     } else {
       _userPaused = false;
       _lastAdvance = DateTime.now();
-      unawaited(video.play());
+      final expiry = _expirySeconds(_activeUri);
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (expiry != null && expiry <= now + 120) {
+        unawaited(_connect(userRetry: true));
+      } else {
+        unawaited(video.play());
+        unawaited(_refreshSources());
+      }
     }
     _revealControls();
   }
@@ -411,7 +433,7 @@ class _DirectYacineChannelPlayerState
       if (!_userPaused) {
         final expiry = _expirySeconds(_activeUri);
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        if (expiry != null && expiry <= now + 45) {
+        if (expiry != null && expiry <= now + 120) {
           // A backgrounded player can hold an expired HLS token. Resolve a
           // fresh one on resume rather than reusing the old media URL.
           unawaited(_connect());

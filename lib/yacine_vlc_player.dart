@@ -13,6 +13,7 @@ import 'yacine_stream_renewal.dart';
 import 'yacine_vlc_m3u.dart';
 import 'yacine_vlc_options.dart';
 import 'yacine_stream_diagnostics.dart';
+import 'yacine_local_relay.dart';
 
 /// Device-local VLC player for the same per-channel API and original HTTP
 /// media headers used by EGY TV Sport on Windows. No VPS proxy, DRM bypass,
@@ -33,6 +34,8 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     with WidgetsBindingObserver {
   static const _teal = Color(0xFF21D9C6);
   final http.Client _http = http.Client();
+  final YacineLocalRelay _relay = YacineLocalRelay();
+  bool _usingRelay = false;
 
   VlcPlayerController? _controller;
   List<YacinePlaybackSource> _sources = const [];
@@ -109,7 +112,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       _sources = sources;
       final choice = preferred ?? _server;
       final index = choice >= 0 && choice < sources.length ? choice : 0;
-      _startMedia(sources[index], index, force: force);
+      await _startMedia(sources[index], index, force: force);
     } catch (error) {
       failed = true;
       if (mounted && !_disposed) {
@@ -133,21 +136,41 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     }
   }
 
-  void _startMedia(YacinePlaybackSource source, int index,
-      {bool force = false}) {
+  /// Like EGY TV Sport Desktop: use original API media URLs for simple
+  /// User-Agent/Referer streams; a local-only relay handles the additional
+  /// provider-supplied HTTP fields that VLC cannot consistently attach.
+  Future<void> _startMedia(YacinePlaybackSource source, int index,
+      {bool force = false}) async {
     if (_disposed || !mounted) return;
     if (!force && source.uri == _activeUri && _controller != null) return;
+    final needsRelay = YacineLocalRelay.needsRelay(source);
+    Uri playback = source.uri;
+    Map<String, String> vlcHeaders = source.headers;
+    if (needsRelay) {
+      await _relay.start();
+      if (_disposed || !mounted) return;
+      _relay.setSource(source);
+      final path = source.uri.path.toLowerCase();
+      final isHls = path.endsWith('.m3u8') ||
+          source.providerMode?.toString() == '3';
+      playback = isHls ? _relay.playlistUri : _relay.directUri;
+      // Real provider headers are consumed by the local relay. VLC sees
+      // a loopback media URL, never a Cookie or bearer token.
+      vlcHeaders = const {};
+    }
+    if (_disposed || !mounted) return;
     final fresh = VlcPlayerController.network(
-      source.uri.toString(),
+      playback.toString(),
       hwAcc: HwAcc.auto,
       autoPlay: true,
-      options: yacineVlcOptions(source.headers),
+      options: yacineVlcOptions(vlcHeaders),
     );
     final previous = _controller;
     previous?.removeListener(_onPlayerChanged);
     fresh.addListener(_onPlayerChanged);
     setState(() {
       _controller = fresh;
+      _usingRelay = needsRelay;
       _activeUri = source.uri;
       _activeHeaders = source.headers;
       _activeSince = DateTime.now();
@@ -188,13 +211,21 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       final value = _controller?.value;
       final healthy = value != null && value.isPlaying &&
           !value.hasError && !value.isBuffering;
-      if (yacineHotSwapNeeded(
+      if (_usingRelay && _relay.isRunning && index == _server) {
+        // Stable localhost URL: adopt freshly signed stream data on the
+        // SAME device without resetting a healthy VLC session.
+        _relay.setSource(updated);
+        _activeUri = updated.uri;
+        _activeHeaders = updated.headers;
+        _activeSince = DateTime.now();
+      } else if (yacineHotSwapNeeded(
         activeUri: _activeUri, activeHeaders: _activeHeaders,
         updatedUri: updated.uri, updatedHeaders: updated.headers,
         activeSince: _activeSince,
         now: DateTime.now(), healthy: healthy,
-      ) && updated.uri != _activeUri) {
-        _startMedia(updated, index, force: true);
+      ) && (updated.uri != _activeUri ||
+          updated.headers.toString() != _activeHeaders.toString())) {
+        await _startMedia(updated, index, force: true);
       }
       if (mounted) setState(() {});
     } catch (_) {
@@ -644,6 +675,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     c?.removeListener(_onPlayerChanged);
     if (c != null) unawaited(c.dispose());
     _http.close();
+    unawaited(_relay.close());
     if (_fullscreen) {
       unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
       unawaited(SystemChrome.setPreferredOrientations(const [

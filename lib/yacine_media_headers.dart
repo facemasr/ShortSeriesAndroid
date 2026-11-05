@@ -63,6 +63,18 @@ Map<String, String> yacinePlaybackHeaders(
     return encoded;
   }
 
+  // In the Windows player these provider-declared session headers are sent
+  // only by the on-device relay. Never include them in M3U exports or logs.
+  String? sessionHeader(Object? value) {
+    if (value is! String || value.isEmpty || value.length > 4096 ||
+        RegExp(r'[\x00-\x1F\x7F]').hasMatch(value) ||
+        value.runes.any((r) => r > 0x7E)) return null;
+    return value;
+  }
+
+  String? pickSession(List<String> aliases) =>
+      sessionHeader(field(nested, aliases));
+
   String? pickText(List<String> aliases) =>
       textHeader(field(descriptor, aliases)) ??
       textHeader(field(nested, aliases));
@@ -80,6 +92,9 @@ Map<String, String> yacinePlaybackHeaders(
   final accept = pickText(['accept']);
   final acceptLanguage = pickText(['accept-language', 'accept_language']);
   final cacheControl = pickText(['cache-control', 'cache_control']);
+  final cookie = pickSession(['cookie']);
+  final authorization = pickSession(['authorization']);
+  final authToken = pickSession(['x-auth-token']);
 
   return {
     if (agent != null) 'User-Agent': agent,
@@ -88,6 +103,9 @@ Map<String, String> yacinePlaybackHeaders(
     if (accept != null) 'Accept': accept,
     if (acceptLanguage != null) 'Accept-Language': acceptLanguage,
     if (cacheControl != null) 'Cache-Control': cacheControl,
+    if (cookie != null) 'Cookie': cookie,
+    if (authorization != null) 'Authorization': authorization,
+    if (authToken != null) 'X-Auth-Token': authToken,
   };
 }
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'native_api.dart';
+import 'yacine_channel_groups.dart';
 import 'egy_tv_sport_ads.dart';
 import 'egyshow_global_ads.dart';
 
@@ -82,11 +83,59 @@ class _EgyTvSportHubState extends State<EgyTvSportHub> {
         onSelected: (_) => setState(() { mode = id; package = ''; })));
   }
 
-  Widget _card(LiveChannel c) {
-    final liked = favorites.contains(channelKey(c));
+  void _openGroup(YacineQualityGroup group) {
+    if (group.variants.length == 1) {
+      widget.onOpen(group.variants.single);
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context, backgroundColor: surface, showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * .75),
+          child: ListView(shrinkWrap: true, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 5, 20, 12),
+              child: Text(group.title(widget.ar),
+                style: const TextStyle(fontSize: 18,
+                  fontWeight: FontWeight.w800))),
+            ListTile(
+              leading: const Icon(Icons.auto_awesome_rounded, color: teal),
+              title: Text(t('تلقائي (720p إن توفرت)', 'Auto (720p when available)')),
+              subtitle: Text(t('اختيار جودة مناسبة للبدء',
+                  'Choose a moderate initial quality')),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                widget.onOpen(group.preferred);
+              },
+            ),
+            for (final variant in group.variants)
+              ListTile(
+                leading: const Icon(Icons.hd_outlined, color: teal),
+                title: Text(yacineChannelQuality(variant) == null
+                    ? t('جودة غير محددة', 'Unknown quality')
+                    : yacineChannelQuality(variant).toString() + 'p'),
+                subtitle: Text(group.category),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  widget.onOpen(variant);
+                },
+              ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _card(YacineQualityGroup group) {
+    final c = group.preferred;
+    final liked = group.variants.any(
+      (v) => favorites.contains(channelKey(v)));
     return Material(color: surface, borderRadius: BorderRadius.circular(15),
       clipBehavior: Clip.antiAlias, child: InkWell(
-        onTap: () => widget.onOpen(c),
+        onTap: () => _openGroup(group),
         child: Padding(padding: const EdgeInsets.all(8), child: Column(children: [
           Row(children: [
             const Icon(Icons.circle, size: 7, color: teal),
@@ -103,10 +152,12 @@ class _EgyTvSportHubState extends State<EgyTvSportHub> {
                   errorBuilder: (_, __, ___) => const Icon(
                     Icons.live_tv_outlined, color: Colors.white38, size: 42))
               : const Icon(Icons.live_tv_outlined, color: Colors.white38, size: 42))),
-          Text(c.title(widget.ar), maxLines: 1, overflow: TextOverflow.ellipsis,
+          Text(group.title(widget.ar), maxLines: 1, overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
           const SizedBox(height: 3),
-          Text(c.group.isEmpty ? t('قناة مباشرة','Live channel') : c.group,
+          Text(group.variants.length > 1
+              ? group.qualities.map((q) => q.toString() + 'p').join(' · ')
+              : (group.category.isEmpty ? t('قناة مباشرة','Live channel') : group.category),
             maxLines: 1, overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Colors.white54, fontSize: 10)),
           const SizedBox(height: 8),
@@ -124,18 +175,21 @@ class _EgyTvSportHubState extends State<EgyTvSportHub> {
 
   @override
   Widget build(BuildContext context) {
-    final categories = widget.channels.map((c) => c.group)
+    final grouped = groupYacineChannels(widget.channels);
+    final categories = grouped.map((g) => g.category)
       .where((c) => c.isNotEmpty).toSet().toList()..sort();
     final q = search.text.trim().toLowerCase();
-    final results = widget.channels.where((c) {
+    bool liked(YacineQualityGroup g) => g.variants.any(
+      (v) => favorites.contains(channelKey(v)));
+    final results = grouped.where((g) {
+      final c = g.preferred;
       if (mode == 'sports' && !isSport(c)) return false;
-      if (mode == 'favorites' && !favorites.contains(channelKey(c))) return false;
-      if (package.isNotEmpty && c.group != package) return false;
+      if (mode == 'favorites' && !liked(g)) return false;
+      if (package.isNotEmpty && g.category != package) return false;
       return q.isEmpty ||
-        (c.title(widget.ar) + ' ' + c.group).toLowerCase().contains(q);
+        (g.title(widget.ar) + ' ' + g.category).toLowerCase().contains(q);
     }).toList()..sort((a,b) {
-      final fav = (favorites.contains(channelKey(b)) ? 1 : 0)
-        .compareTo(favorites.contains(channelKey(a)) ? 1 : 0);
+      final fav = (liked(b) ? 1 : 0).compareTo(liked(a) ? 1 : 0);
       return fav != 0 ? fav : a.title(widget.ar).compareTo(b.title(widget.ar));
     });
 
@@ -169,7 +223,7 @@ class _EgyTvSportHubState extends State<EgyTvSportHub> {
                   style: const TextStyle(color: Colors.white70)),
                 const SizedBox(height: 13),
                 Row(children: [
-                  Text(widget.channels.length.toString() + ' ' +
+                  Text(grouped.length.toString() + ' ' +
                       t('قناة في الفهرس','channels in catalog'),
                     style: const TextStyle(color: teal, fontWeight: FontWeight.w800)),
                   const Spacer(),

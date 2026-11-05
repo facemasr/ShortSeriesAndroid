@@ -39,7 +39,7 @@ void main() {
       updatedHeaders: headers, activeSince: now, now: now,
       healthy: false), isTrue);
   });
-  test('unknown-expiry sources rotate only after running three minutes', () {
+  test('healthy unknown-expiry sources are not restarted by time alone', () {
     final a = Uri.parse('https://media.example/live.m3u8?t=A');
     final b = Uri.parse('https://media.example/live.m3u8?t=B');
     expect(yacineHotSwapNeeded(activeUri: a, activeHeaders: headers,
@@ -49,6 +49,6 @@ void main() {
     expect(yacineHotSwapNeeded(activeUri: a, activeHeaders: headers,
       updatedUri: b, updatedHeaders: headers,
       activeSince: now.subtract(const Duration(minutes: 4)),
-      now: now, healthy: true), isTrue);
+      now: now, healthy: true), isFalse);
   });
 }

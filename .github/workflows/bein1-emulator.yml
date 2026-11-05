@@ -56,6 +56,10 @@ jobs:
           """)
           PY
           flutter pub get
+      - name: Install media-generation tools for synthetic control clip
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
       - name: Generate original licensed-free control MP4
         run: |
           mkdir -p /tmp/egyshow_android

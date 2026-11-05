@@ -20,7 +20,8 @@ void main() {
       request.response.headers.contentType = ContentType.text;
       if (path.endsWith('/master.m3u8')) {
         request.response.write('#EXTM3U\n'
-            '#EXT-X-STREAM-INF:BANDWIDTH=800000\nchild/index.m3u8\n');
+            '#EXT-X-STREAM-INF:BANDWIDTH=800000\nchild/index.m3u8?version=' +
+            (request.uri.queryParameters['version'] ?? '1') + '\n');
       } else if (path.endsWith('/child/index.m3u8')) {
         final n = request.uri.queryParameters['version'] ?? '1';
         request.response.write('#EXTM3U\n'

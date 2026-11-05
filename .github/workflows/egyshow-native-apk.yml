@@ -66,7 +66,7 @@ jobs:
           if 'android:networkSecurityConfig=' not in source:
               source = source.replace('<application', '<application android:networkSecurityConfig="@xml/egyshow_network_security"', 1)
           manifest.write_text(source)
-          hosts = ["ar.ycncdn.online","re.varie-redirect.com","vod.ortas.sy","htvpalsat.mada.ps","flusonic-1.platinum-tv.com","m.live.net.sa","82.212.74.2","cdn.catiacast.video","ns8.indexforce.com","95.216.180.111","tv.mondeduloisir.fr","hls.tmacaraibes.com","contact-lh.akamaihd.net","fashiontv-fashiontv-loriginal-fr.samsung.wurl.com","cdn.webtv4.cdnfr.orange.fr","canli.haber365.com.tr","mtulqxgomrllive.mediatriple.net","akittv-live.ercdn.net","stream.yol.tv","57.bangiroua.xyz","142.44.214.231","82.212.74.100","foofootv.com","dminnvll.cdn.mangomolo.com","htvmada.mada.ps","live.alqudstoday.tv","htvajyal.mada.ps","vstream3.hadara.ps","htvint.mada.ps","ar116.ab-cdn.com","185.105.4.151","istream.binarywaves.com","vod.alikhbaria.net","51.255.84.28","nettvstreampaid.flashmediacast.com","streaming.aletejahtv.iq","38.96.175.40","137.74.205.201","jmc-live.ercdn.net"]
+          hosts = ["127.0.0.1","ar.ycncdn.online","re.varie-redirect.com","vod.ortas.sy","htvpalsat.mada.ps","flusonic-1.platinum-tv.com","m.live.net.sa","82.212.74.2","cdn.catiacast.video","ns8.indexforce.com","95.216.180.111","tv.mondeduloisir.fr","hls.tmacaraibes.com","contact-lh.akamaihd.net","fashiontv-fashiontv-loriginal-fr.samsung.wurl.com","cdn.webtv4.cdnfr.orange.fr","canli.haber365.com.tr","mtulqxgomrllive.mediatriple.net","akittv-live.ercdn.net","stream.yol.tv","57.bangiroua.xyz","142.44.214.231","82.212.74.100","foofootv.com","dminnvll.cdn.mangomolo.com","htvmada.mada.ps","live.alqudstoday.tv","htvajyal.mada.ps","vstream3.hadara.ps","htvint.mada.ps","ar116.ab-cdn.com","185.105.4.151","istream.binarywaves.com","vod.alikhbaria.net","51.255.84.28","nettvstreampaid.flashmediacast.com","streaming.aletejahtv.iq","38.96.175.40","137.74.205.201","jmc-live.ercdn.net"]
           dom = ''.join('    <domain includeSubdomains="true">'+escape(host)+'</domain>\n' for host in hosts)
           config = ('<?xml version="1.0" encoding="utf-8"?>\n'
               '<network-security-config>\n'
@@ -83,9 +83,9 @@ jobs:
       - name: Dependencies
         run: flutter pub get
       - name: Analyze Android playback and ad code
-        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_channel_resolver.dart lib/yacine_stream_renewal.dart lib/yacine_media_format.dart lib/yacine_media_headers.dart lib/yacine_provider_policy.dart lib/yacine_vlc_m3u.dart lib/yacine_stream_probe.dart lib/yacine_channel_groups.dart lib/yacine_catalog_cache.dart lib/yacine_vlc_options.dart lib/yacine_stream_diagnostics.dart lib/yacine_vlc_player.dart lib/egy_tv_sport_hub.dart lib/native_banner_ads.dart lib/egyshow_global_ads.dart lib/native_player.dart
+        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_channel_resolver.dart lib/yacine_stream_renewal.dart lib/yacine_media_format.dart lib/yacine_media_headers.dart lib/yacine_provider_policy.dart lib/yacine_vlc_m3u.dart lib/yacine_stream_probe.dart lib/yacine_channel_groups.dart lib/yacine_catalog_cache.dart lib/yacine_vlc_options.dart lib/yacine_stream_diagnostics.dart lib/yacine_vlc_player.dart lib/yacine_local_relay.dart lib/egy_tv_sport_hub.dart lib/native_banner_ads.dart lib/egyshow_global_ads.dart lib/native_player.dart
       - name: Test bounded temporary HLS segment validation
-        run: flutter test test/yacine_stream_probe_test.dart test/yacine_media_format_test.dart test/yacine_media_headers_test.dart test/yacine_provider_policy_test.dart test/yacine_vlc_m3u_test.dart test/yacine_channel_resolver_test.dart test/yacine_stream_renewal_test.dart test/yacine_channel_groups_test.dart test/yacine_catalog_cache_test.dart test/yacine_vlc_options_test.dart test/yacine_bein1_pipeline_test.dart
+        run: flutter test test/yacine_stream_probe_test.dart test/yacine_media_format_test.dart test/yacine_media_headers_test.dart test/yacine_provider_policy_test.dart test/yacine_vlc_m3u_test.dart test/yacine_channel_resolver_test.dart test/yacine_stream_renewal_test.dart test/yacine_channel_groups_test.dart test/yacine_catalog_cache_test.dart test/yacine_vlc_options_test.dart test/yacine_bein1_pipeline_test.dart test/yacine_local_relay_test.dart
       - name: Build APK
         run: flutter build apk --release
       - name: Validate CI candidate before private server signing
@@ -96,7 +96,7 @@ jobs:
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='25' versionName='2.0.17'"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='26' versionName='2.0.18'"
           echo "CI candidate verified; NOT production-signed, NOT eligible for direct publication."
       - name: Upload CI APK candidate for private server signing
         uses: actions/upload-artifact@v4

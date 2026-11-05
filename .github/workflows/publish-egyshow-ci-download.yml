@@ -49,4 +49,5 @@ jobs:
             if [ "$attempt" -eq 3 ]; then exit 1; fi
             sleep 8
           done
+          gh release edit "$VERSION_TAG" --repo "$REPO" --draft=false --prerelease
           gh release view "$VERSION_TAG" --repo "$REPO" --json url,assets

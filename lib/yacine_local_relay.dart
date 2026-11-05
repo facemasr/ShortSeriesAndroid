@@ -41,9 +41,17 @@ class YacineLocalRelay {
   /// VLC supports only HTTP UA/Referer options reliably on all Android builds.
   /// Other provider-declared headers must be attached on the device to EVERY
   /// HLS manifest, segment and byte-range request.
-  static bool needsRelay(YacinePlaybackSource source) =>
-      source.headers.keys.any((k) => !const {'User-Agent', 'Referer'}
-          .contains(k));
+  static bool needsRelay(YacinePlaybackSource source) {
+    final path = source.uri.path.toLowerCase();
+    final isHls = path.endsWith('.m3u8') ||
+        source.providerMode?.toString() == '3';
+    // Android VLC does not always apply its Referer to nested HLS
+    // playlists/segments; on-device HTTP preserves the provider declaration.
+    // For progressive sources VLC's ordinary UA/Referer options remain direct.
+    return source.headers.keys.any((k) =>
+        !const {'User-Agent', 'Referer'}.contains(k)) ||
+        (isHls && source.headers.containsKey('Referer'));
+  }
 
   Future<void> start() async {
     if (_server != null) return;

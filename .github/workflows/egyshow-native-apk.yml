@@ -105,3 +105,34 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 30
+  preview-download:
+    name: Publish testing-only ZIP after successful APK checks
+    needs: android-apk
+    if: github.ref == 'refs/heads/feature/egyshow-direct-yacine-channels-20261104'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the tested APK from this build
+        uses: actions/download-artifact@v4
+        with:
+          name: EGYSHOW-CI-APK-REQUIRES-SERVER-SIGNING
+          path: preview
+      - name: Publish clearly labeled testing-only ZIP to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -s preview/app-release.apk
+          cp preview/app-release.apk preview/EGYSHOW_Android_v2.0.18_TEST_ONLY.apk
+          (cd preview && zip -q -9 EGYSHOW_Android_v2.0.18_TEST_ONLY.zip EGYSHOW_Android_v2.0.18_TEST_ONLY.apk)
+          TAG=egyshow-android-v2.0.18-ci-preview
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --target "$SHA" \
+              --prerelease \
+              --title "EGYSHOW Android 2.0.18 - test build, not an official update" \
+              --notes "This ZIP contains a CI-built APK with on-device API headers and an HLS local relay modeled on EGY TV Sport Windows. This is NOT signed with the original production key, NOT an in-place update, and NOT proof of successful real-channel playback on a physical Android device."
+          fi
+          gh release upload "$TAG" preview/EGYSHOW_Android_v2.0.18_TEST_ONLY.zip --repo "$REPO" --clobber

@@ -53,6 +53,14 @@ void main() {
     client.close();
   });
 
+  test('a rotated provider ID returns explicit 404 for catalog re-discovery', () async {
+    final client = MockClient((_) async => http.Response('Not found', 404));
+    await expectLater(YacineChannelResolver(client).resolve('1424'),
+        throwsA(isA<YacineResolveException>().having(
+            (e) => e.reason, 'reason', 'provider_api_http_404')));
+    client.close();
+  });
+
   test('invalid channel identifier cannot trigger a network request', () async {
     var called = false;
     final client = MockClient((request) async {

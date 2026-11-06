@@ -22,7 +22,12 @@ Future<YacineManifestDiagnostic> checkYacineManifest(
     ..followRedirects = true
     ..maxRedirects = 3;
   request.headers.addAll(source.headers);
-  request.headers['Range'] = 'bytes=0-1023';
+  // Match the desktop playlist GET: some live HLS servers reject Range
+  // requests even when the same manifest plays with HTTP 200. An incorrect
+  // 403 probe would permanently stop VLC recovery.
+  final isHls = source.uri.path.toLowerCase().endsWith('.m3u8') ||
+      source.providerMode?.toString() == '3';
+  if (!isHls) request.headers['Range'] = 'bytes=0-1023';
   try {
     final result = await client.send(request)
         .timeout(const Duration(seconds: 9));

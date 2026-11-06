@@ -99,6 +99,12 @@ class YacineChannelResolver {
       if (response.statusCode == 200 ||
           !yacineRetryableProviderStatus(response.statusCode)) break;
     }
+    if (response?.statusCode == 404) {
+      // The provider rotates channel IDs along with its category catalog.
+      // A 404 must trigger ID re-discovery; retrying the same numeric ID
+      // would never produce a playable signed media URL.
+      throw const YacineResolveException('provider_api_http_404');
+    }
     if (response == null || response.statusCode != 200) {
       throw const YacineResolveException('provider_api_unavailable');
     }

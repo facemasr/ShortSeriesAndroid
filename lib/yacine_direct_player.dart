@@ -15,6 +15,8 @@ import 'yacine_stream_renewal.dart';
 import 'yacine_android_channel_service.dart';
 import 'yacine_vlc_player.dart';
 import 'yacine_channel_groups.dart';
+import 'yacine_external_player.dart';
+import 'yacine_playback_settings.dart';
 
 /// Direct, device-side playback for provider-authorized HLS channels.
 /// No EGYSHOW VPS media relay, DRM circumvention, stored signed URLs or
@@ -49,6 +51,8 @@ class _DirectYacineChannelPlayerState
   Timer? _controlsTimer;
   bool _showControls = true;
   double _volume = 1.0;
+  double _speed = 1.0;
+  bool _externalOpening = false;
   BoxFit _videoFit = BoxFit.contain;
   bool _landscapeLeft = true;
   bool _refreshingSources = false;
@@ -238,6 +242,13 @@ class _DirectYacineChannelPlayerState
             return;
           }
           await candidate.play();
+          if (_speed != 1.0) {
+            try {
+              await candidate.setPlaybackSpeed(_speed);
+            } catch (_) {
+              // A live stream may not permit playback-rate changes.
+            }
+          }
           if (_disposed || !mounted) {
             await candidate.dispose();
             return;
@@ -544,7 +555,7 @@ class _DirectYacineChannelPlayerState
     super.dispose();
   }
 
-  /// Fresh user-requested playlist for the active channel only.
+()=>methods+anchor
   /// Never save signed tokens or long-lived media links to the catalog.
   Future<void> _copyCurrentChannelM3u() async {
     if (_connecting || _disposed) return;
@@ -733,6 +744,11 @@ class _DirectYacineChannelPlayerState
                       _qualityMenu(),
                       _aspectMenu(),
                       IconButton(
+                        tooltip: label('إعدادات المشغّل', 'Player settings'),
+                        onPressed: _showPlaybackSettings,
+                        icon: const Icon(Icons.settings_rounded,
+                          color: Colors.white)),
+                      IconButton(
                         tooltip: label('ملء الشاشة', 'Fullscreen'),
                         onPressed: () => _setFullscreen(!_fullScreen),
                         icon: Icon(_fullScreen
@@ -823,6 +839,17 @@ class _DirectYacineChannelPlayerState
                   child: Text(label('جرّب VLC الداخلي',
                       'Try native VLC instead'))),
               ],
+            ),
+            IconButton(
+              tooltip: label('تشغيل في مشغّل خارجي', 'Open external player'),
+              onPressed: () =>
+                  unawaited(_openExternal(YacineExternalTarget.choose)),
+              icon: const Icon(Icons.open_in_new_rounded),
+            ),
+            IconButton(
+              tooltip: label('إعدادات المشغّل', 'Player settings'),
+              onPressed: _showPlaybackSettings,
+              icon: const Icon(Icons.settings_rounded),
             ),
             IconButton(
               tooltip: label('نسخ رابط القناة بصيغة M3U', 'Copy current channel M3U'),

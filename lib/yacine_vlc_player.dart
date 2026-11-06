@@ -549,7 +549,114 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     ],
   );
 
-()=>methods+anchor
+  Future<void> _openExternal(YacineExternalTarget target) async {
+    if (_disposed || _externalOpening) return;
+    _externalOpening = true;
+    try {
+      final sources = await _withCurrentChannel(
+          (id) => YacineChannelResolver(_http).resolve(id));
+      if (_disposed || !mounted || sources.isEmpty) return;
+      final currentLabel = _server >= 0 && _server < _sources.length
+          ? _sources[_server].label : '';
+      final matching = sources.indexWhere((s) => s.label == currentLabel);
+      final index = matching >= 0 ? matching
+          : _server < sources.length ? _server : 0;
+      await YacineExternalPlayer.open(
+        sources[index],
+        title: widget.channel.title(widget.ar),
+        target: target,
+        chooserTitle: t('تشغيل القناة باستخدام', 'Open channel with'),
+      );
+      if (!mounted || _disposed) return;
+      _userPaused = true;
+      unawaited(_controller?.pause() ?? Future<void>.value());
+    } on YacineExternalPlaybackException catch (e) {
+      if (!mounted) return;
+      final message = e.reason == 'session_headers_require_internal_player'
+          ? t('القناة تحتاج بيانات جلسة؛ استخدم المشغّل الداخلي.',
+              'This stream requires the in-app player session.')
+          : t('لا يوجد مشغّل خارجي متاح. ثبّت VLC أو مشغّل HLS.',
+              'No external video player found. Install VLC or an HLS player.');
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          t('تعذر تحديث الرابط أو فتح المشغّل الخارجي.',
+              'Unable to refresh the stream or launch the external player.'))));
+      }
+    } finally {
+      _externalOpening = false;
+    }
+  }
+
+  void _switchToExo() {
+    if (!mounted || _disposed) return;
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => DirectYacineChannelPlayer(
+        channel: LiveChannel({...widget.channel.raw,
+          'provider_id': _currentProviderId}),
+        qualityVariants: widget.qualityVariants,
+        api: widget.api, ar: widget.ar,
+      ),
+    ));
+  }
+
+  void _selectQuality(LiveChannel quality) {
+    if (quality.providerId == _currentProviderId || !mounted) return;
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => YacineVlcChannelPlayer(
+        channel: quality,
+        qualityVariants: widget.qualityVariants,
+        api: widget.api, ar: widget.ar,
+      ),
+    ));
+  }
+
+  void _showPlaybackSettings() {
+    if (!mounted || _disposed) return;
+    final player = _controller;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF101925),
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => YacinePlaybackSettings(
+        ar: widget.ar,
+        engineName: 'VLC',
+        fit: _fit,
+        speed: _speed,
+        sources: _sources,
+        sourceIndex: _server,
+        qualityVariants: widget.qualityVariants,
+        currentProviderId: _currentProviderId,
+        onQualityVariant: _selectQuality,
+        onFit: (fit) { if (mounted) setState(() => _fit = fit); },
+        onSpeed: (rate) {
+          _speed = rate;
+          if (player != null) unawaited(player.setPlaybackSpeed(rate));
+        },
+        onSource: (index) =>
+            unawaited(_resolveAndPlay(force: true, preferred: index)),
+        onExternal: () =>
+            unawaited(_openExternal(YacineExternalTarget.choose)),
+        onVlcExternal: () =>
+            unawaited(_openExternal(YacineExternalTarget.vlc)),
+        onOtherEngine: _switchToExo,
+        onReconnect: () => unawaited(_restartCurrent()),
+        audioTracks: player == null || !player.value.isInitialized
+            ? null : () => player.getAudioTracks(),
+        subtitleTracks: player == null || !player.value.isInitialized
+            ? null : () => player.getSpuTracks(),
+        onAudioTrack: player == null
+            ? null : (id) => unawaited(player.setAudioTrack(id)),
+        onSubtitleTrack: player == null
+            ? null : (id) => unawaited(player.setSpuTrack(id)),
+      ),
+    );
+  }
+
+  Future<void> _copyM3u() async {
     try {
       final sources = await _withCurrentChannel(
           (id) => YacineChannelResolver(_http).resolve(id));

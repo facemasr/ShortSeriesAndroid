@@ -87,8 +87,13 @@ void main() {
         Uri.parse('https://cdn.example/video.mp4'),
         {'User-Agent': 'Playback/3', 'Referer': 'https://site.example/'},
         'HD', 1);
-    expect(YacineLocalRelay.needsRelay(hls), isTrue);
+    // Direct libVLC handles ordinary Referer exactly as on Windows.
+    expect(YacineLocalRelay.needsRelay(hls), isFalse);
     expect(YacineLocalRelay.needsRelay(mp4), isFalse);
+    expect(YacineLocalRelay.needsRelay(YacinePlaybackSource(
+      hls.uri, {...hls.headers, 'Authorization': 'Bearer provider'},
+      'HD', 3,
+    )), isTrue);
   });
 
   test('provider-encrypted HLS is rejected by the local relay', () async {

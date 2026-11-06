@@ -14,6 +14,7 @@ import 'yacine_stream_probe.dart';
 import 'yacine_stream_renewal.dart';
 import 'yacine_android_channel_service.dart';
 import 'yacine_vlc_player.dart';
+import 'yacine_channel_groups.dart';
 
 /// Direct, device-side playback for provider-authorized HLS channels.
 /// No EGYSHOW VPS media relay, DRM circumvention, stored signed URLs or
@@ -21,9 +22,13 @@ import 'yacine_vlc_player.dart';
 class DirectYacineChannelPlayer extends StatefulWidget {
   const DirectYacineChannelPlayer({
     super.key, required this.channel, required this.api, required this.ar,
+    this.qualityVariants = const [], this.attemptedVariants = const [],
   });
 
   final LiveChannel channel;
+  /// Every original provider ID in the quality group, as on EGY TV Sport.
+  final List<LiveChannel> qualityVariants;
+  final List<String> attemptedVariants;
   final EgyApi api;
   final bool ar;
 
@@ -65,6 +70,7 @@ class _DirectYacineChannelPlayerState
   String? _lastProbeFailure;
   int _failures = 0;
   bool _disposed = false;
+  bool _switchingVariant = false;
   Duration? _lastPosition;
   DateTime _lastAdvance = DateTime.now();
 
@@ -295,15 +301,54 @@ class _DirectYacineChannelPlayerState
           _renewal?.cancel();
           _renewal = Timer(const Duration(seconds: 15),
               () => unawaited(_refreshSources()));
-        } else {
+        } else if (!_tryNextQualityVariant()) {
           _scheduleRetry();
         }
       }
     }
   }
 
+  /// EGY TV Sport's fall-through to another quality source when the
+  /// currently chosen provider channel has no playable server.
+  /// Each original provider channel is attempted once: never loop forever.
+  bool _tryNextQualityVariant() {
+    if (_switchingVariant || widget.qualityVariants.length < 2) return false;
+    final tried = {...widget.attemptedVariants, widget.channel.providerId};
+    final ordered = widget.qualityVariants.toList()
+      ..sort((a, b) => (yacineChannelQuality(a) ?? 0)
+          .compareTo(yacineChannelQuality(b) ?? 0));
+    final currentQuality = yacineChannelQuality(widget.channel) ?? 1080;
+    LiveChannel? target;
+    for (final item in ordered.reversed) {
+      if (tried.contains(item.providerId)) continue;
+      final quality = yacineChannelQuality(item) ?? 0;
+      if (quality <= currentQuality) {
+        target = item;
+        break;
+      }
+    }
+    target ??= ordered.where((item) =>
+        !tried.contains(item.providerId)).firstOrNull;
+    if (target == null) return false;
+    _switchingVariant = true;
+    final candidate = target;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _disposed) return;
+      Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+        builder: (_) => DirectYacineChannelPlayer(
+          channel: candidate,
+          qualityVariants: widget.qualityVariants,
+          attemptedVariants: tried.toList(),
+          api: widget.api,
+          ar: widget.ar,
+        ),
+      ));
+    });
+    return true;
+  }
+
   void _scheduleRetry() {
-    if (_disposed || _retry != null || _connecting) return;
+    if (_disposed || _retry != null || _connecting || _switchingVariant) return;
     _failures++;
     final seconds = [3, 6, 12, 20, 30, 60][_failures > 6 ? 5 : _failures - 1];
     _retry = Timer(Duration(seconds: seconds), () {
@@ -700,6 +745,36 @@ class _DirectYacineChannelPlayerState
           title: Text(widget.channel.title(widget.ar),
             maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
+            if (widget.qualityVariants.length > 1)
+              PopupMenuButton<String>(
+                tooltip: label('جودة القناة', 'Channel quality'),
+                icon: const Icon(Icons.hd_rounded),
+                onSelected: (providerId) {
+                  final matches = widget.qualityVariants.where((variant) =>
+                      variant.providerId == providerId);
+                  if (matches.isEmpty ||
+                      providerId == widget.channel.providerId) return;
+                  Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+                    builder: (_) => DirectYacineChannelPlayer(
+                      channel: matches.first,
+                      qualityVariants: widget.qualityVariants,
+                      api: widget.api, ar: widget.ar,
+                    ),
+                  ));
+                },
+                itemBuilder: (_) => [
+                  for (final variant in widget.qualityVariants)
+                    PopupMenuItem<String>(
+                      value: variant.providerId,
+                      child: Text(
+                        variant.title(widget.ar) + ' · ' +
+                        (yacineChannelQuality(variant)?.toString() ?? '-') +
+                        'p' + (variant.providerId ==
+                            widget.channel.providerId ? ' ✓' : ''),
+                      ),
+                    ),
+                ],
+              ),
             if (_sources.length > 1)
               PopupMenuButton<int>(
                 tooltip: label('السيرفر والجودة', 'Server and quality'),
@@ -721,7 +796,9 @@ class _DirectYacineChannelPlayerState
                 Navigator.of(context).pushReplacement(
                   MaterialPageRoute<void>(
                     builder: (_) => YacineVlcChannelPlayer(
-                      channel: widget.channel, api: widget.api, ar: widget.ar),
+                      channel: widget.channel,
+                      qualityVariants: widget.qualityVariants,
+                      api: widget.api, ar: widget.ar),
                   ));
               },
               itemBuilder: (_) => [

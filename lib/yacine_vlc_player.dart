@@ -16,6 +16,8 @@ import 'yacine_stream_diagnostics.dart';
 import 'yacine_local_relay.dart';
 import 'yacine_android_channel_service.dart';
 import 'yacine_channel_groups.dart';
+import 'yacine_external_player.dart';
+import 'yacine_playback_settings.dart';
 
 /// Device-local VLC player for the same per-channel API and original HTTP
 /// media headers used by EGY TV Sport on Windows. No VPS proxy, DRM bypass,
@@ -73,6 +75,8 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
           .toLowerCase().contains('bein sports');
   String? _diagnosticMessage;
   double _volume = 1.0;
+  double _speed = 1.0;
+  bool _externalOpening = false;
   BoxFit _fit = BoxFit.cover;
   String? _notice;
   String? _lastError;
@@ -545,7 +549,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     ],
   );
 
-  Future<void> _copyM3u() async {
+()=>methods+anchor
     try {
       final sources = await _withCurrentChannel(
           (id) => YacineChannelResolver(_http).resolve(id));
@@ -706,6 +710,12 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
                   _serversMenu(),
                   _ratioMenu(),
                   IconButton(
+                    tooltip: t('إعدادات المشغّل', 'Player settings'),
+                    onPressed: _showPlaybackSettings,
+                    icon: const Icon(Icons.settings_rounded,
+                      color: Colors.white),
+                  ),
+                  IconButton(
                     tooltip: t('ملء الشاشة', 'Fullscreen'),
                     icon: Icon(_fullscreen
                         ? Icons.fullscreen_exit_rounded
@@ -811,6 +821,17 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
                     ),
                 ],
               ),
+            IconButton(
+              tooltip: t('تشغيل في مشغّل خارجي', 'Open external player'),
+              icon: const Icon(Icons.open_in_new_rounded),
+              onPressed: () =>
+                  unawaited(_openExternal(YacineExternalTarget.choose)),
+            ),
+            IconButton(
+              tooltip: t('إعدادات المشغّل', 'Player settings'),
+              icon: const Icon(Icons.settings_rounded),
+              onPressed: _showPlaybackSettings,
+            ),
             IconButton(
               tooltip: t('نسخ ملف M3U', 'Copy M3U'),
               onPressed: _copyM3u,

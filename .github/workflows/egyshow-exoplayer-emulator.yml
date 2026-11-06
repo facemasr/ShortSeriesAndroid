@@ -1,0 +1,87 @@
+name: EGYSHOW Android real decoder HLS smoke test
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/egyshow-direct-yacine-channels-20261104
+    paths:
+      - .github/workflows/egyshow-exoplayer-emulator.yml
+      - lib/yacine_direct_player.dart
+      - lib/yacine_android_channel_service.dart
+      - integration_test/egyshow_android_exoplayer_test.dart
+      - test_tools/android_hls_fixture.py
+
+permissions:
+  contents: read
+
+jobs:
+  android-native-hls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Android emulator KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Prepare EGYSHOW Android application and media network access
+        run: |
+          flutter create --platforms=android --org com.egyshow --project-name egyshow_mobile .
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('android/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          if 'android.permission.INTERNET' not in s:
+              s=s.replace('<application','<uses-permission android:name="android.permission.INTERNET" />\n    <application',1)
+          s=s.replace('<application','<application android:networkSecurityConfig="@xml/egyshow_test_network_security"',1)
+          p.write_text(s)
+          root=Path('android/app/src/main/res/xml')
+          root.mkdir(parents=True,exist_ok=True)
+          (root/'egyshow_test_network_security.xml').write_text("""<?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+            <base-config cleartextTrafficPermitted="false" />
+            <domain-config cleartextTrafficPermitted="true">
+              <domain>10.0.2.2</domain>
+              <domain>127.0.0.1</domain>
+            </domain-config>
+          </network-security-config>
+          """)
+          PY
+          flutter pub get
+      - name: Generate original copyright-free HLS stream
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          mkdir -p /tmp/egyshow_hls
+          ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc=size=480x270:rate=12' -t 15 -vf format=yuv420p -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 24 -keyint_min 24 -sc_threshold 0 -f hls -hls_time 2 -hls_list_size 0 -hls_playlist_type vod -hls_segment_filename /tmp/egyshow_hls/seg_%03d.ts -y /tmp/egyshow_hls/control.m3u8
+          test -s /tmp/egyshow_hls/control.m3u8
+          test -s /tmp/egyshow_hls/seg_000.ts
+      - name: Native Android Media3 decodes HLS with source UA and Referer
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          disable-animations: true
+          script: |
+            python3 test_tools/android_hls_fixture.py --root /tmp/egyshow_hls --port 8765 >/tmp/egyshow_hls_fixture.log 2>&1 &
+            sleep 2
+            curl --fail -Is -H 'User-Agent: EGYSHOW-Android-Control/1.0' -H 'Referer: https://provider.example/player' http://127.0.0.1:8765/control.m3u8 | head -n 1
+            flutter test integration_test/egyshow_android_exoplayer_test.dart -d emulator-5554 --reporter expanded
+      - name: Show only synthetic HLS request outcomes
+        if: always()
+        run: |
+          grep 'HLS_FIXTURE:' /tmp/egyshow_hls_fixture.log | tail -n 30 || true

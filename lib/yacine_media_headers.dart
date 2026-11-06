@@ -5,8 +5,8 @@ import 'dart:convert';
 /// Provider metadata may put fields in the descriptor or nested "headers".
 /// Signed URLs remain in memory only. Do not derive authentication credentials,
 /// cookies, DRM keys, or artificial Origin/Referer values.
-/// No User-Agent is forced when the provider does not supply one: ExoPlayer,
-/// VLC and browsers can then use their own platform identity.
+/// When no media-specific User-Agent is declared, the caller may provide the
+/// Windows EGY TV Sport fallback. Source-provided identity always wins.
 Map<String, String> yacinePlaybackHeaders(
   Map<String, dynamic> descriptor, {
   String? fallbackUserAgent,
@@ -83,8 +83,8 @@ Map<String, String> yacinePlaybackHeaders(
       urlHeader(field(descriptor, aliases)) ??
       urlHeader(field(nested, aliases));
 
-  // Provider media identity wins. When not declared, allow the active native
-  // device, VLC, or browser to send its own real User-Agent.
+  // Provider media identity wins. Caller supplies the desktop-compatible
+  // media fallback only if no source identity was declared.
   final agent = pickText(['user_agent', 'user-agent', 'useragent']) ??
       textHeader(fallbackUserAgent);
   final referer = pickUrl(['referer', 'referrer']);

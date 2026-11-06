@@ -10,13 +10,14 @@ import 'egyshow_global_ads.dart';
 class EgyTvSportHub extends StatefulWidget {
   const EgyTvSportHub({super.key, required this.api, required this.ar,
     required this.channels, required this.loading, required this.onRefresh,
-    required this.onOpen});
+    required this.onOpen, required this.onOpenExternal});
   final EgyApi api;
   final bool ar;
   final List<LiveChannel> channels;
   final bool loading;
   final Future<void> Function() onRefresh;
   final void Function(LiveChannel channel) onOpen;
+  final void Function(LiveChannel channel) onOpenExternal;
   @override
   State<EgyTvSportHub> createState() => _EgyTvSportHubState();
 }
@@ -142,12 +143,21 @@ class _EgyTvSportHubState extends State<EgyTvSportHub> {
     return Material(color: surface, borderRadius: BorderRadius.circular(15),
       clipBehavior: Clip.antiAlias, child: InkWell(
         onTap: () => _openGroup(group),
+        onLongPress: () => widget.onOpenExternal(group.preferred),
         child: Padding(padding: const EdgeInsets.all(8), child: Column(children: [
           Row(children: [
             const Icon(Icons.circle, size: 7, color: teal),
             const SizedBox(width: 4),
             const Expanded(child: Text('LIVE', style: TextStyle(
               color: teal, fontSize: 10, fontWeight: FontWeight.bold))),
+            GestureDetector(
+              onTap: () => widget.onOpenExternal(group.preferred),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 5),
+                child: Icon(Icons.open_in_new_rounded,
+                    size: 21, color: teal),
+              ),
+            ),
             GestureDetector(onTap: () => _toggleFavorite(group),
               child: Icon(liked ? Icons.star_rounded : Icons.star_border_rounded,
                 size: 23, color: liked ? Colors.amber : Colors.white54)),

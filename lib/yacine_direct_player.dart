@@ -579,8 +579,13 @@ class _DirectYacineChannelPlayerState
       final message = e.reason == 'session_headers_require_internal_player'
           ? label('تحتاج هذه القناة بيانات جلسة؛ استخدم المشغّل الداخلي.',
               'This stream needs private in-app session headers.')
-          : label('تعذر فتح المشغّل الخارجي. ثبّت VLC أو مشغّل HLS.',
-              'No external player found. Install VLC or an HLS player.');
+          : e.reason == 'ytv_pro_not_installed_or_view_unsupported'
+              ? label('تعذر فتح YTV Player Pro. قد لا يكون مثبتًا أو لا يدعم '
+                  'استقبال الروابط مباشرة. جرّب مشغّلًا آخر.',
+                  'YTV Player Pro may be missing or may not handle video '
+                  'ACTION_VIEW. Try another player.')
+              : label('تعذر فتح المشغّل الخارجي. ثبّت VLC أو مشغّل HLS.',
+                  'No external player found. Install VLC or an HLS player.');
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)));
     } catch (_) {
@@ -653,6 +658,8 @@ class _DirectYacineChannelPlayerState
             unawaited(_openExternal(YacineExternalTarget.choose)),
         onVlcExternal: () =>
             unawaited(_openExternal(YacineExternalTarget.vlc)),
+        onYtvProExternal: () =>
+            unawaited(_openExternal(YacineExternalTarget.ytvPro)),
         onOtherEngine: _switchToVlc,
         onReconnect: () => unawaited(_connect(userRetry: true)),
       ),

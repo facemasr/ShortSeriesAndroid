@@ -220,8 +220,6 @@ class _YacineDirectCatalog {
           headers: const {
             'User-Agent': _agent,
             'Accept': 'application/json',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
           }).timeout(const Duration(seconds: 18));
         if (response.statusCode == 200) return _decode(response);
         final retryable = response.statusCode == 429 ||

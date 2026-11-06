@@ -15,6 +15,7 @@ import 'yacine_vlc_options.dart';
 import 'yacine_stream_diagnostics.dart';
 import 'yacine_local_relay.dart';
 import 'yacine_android_channel_service.dart';
+import 'yacine_channel_groups.dart';
 
 /// Device-local VLC player for the same per-channel API and original HTTP
 /// media headers used by EGY TV Sport on Windows. No VPS proxy, DRM bypass,
@@ -22,8 +23,10 @@ import 'yacine_android_channel_service.dart';
 class YacineVlcChannelPlayer extends StatefulWidget {
   const YacineVlcChannelPlayer({
     super.key, required this.channel, required this.api, required this.ar,
+    this.qualityVariants = const [],
   });
   final LiveChannel channel;
+  final List<LiveChannel> qualityVariants;
   final EgyApi api;
   final bool ar;
 
@@ -712,6 +715,34 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
           title: Text(widget.channel.title(widget.ar),
             maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
+            if (widget.qualityVariants.length > 1)
+              PopupMenuButton<String>(
+                tooltip: t('جودة القناة', 'Channel quality'),
+                icon: const Icon(Icons.hd_rounded),
+                onSelected: (id) {
+                  final matches = widget.qualityVariants.where(
+                      (channel) => channel.providerId == id);
+                  if (matches.isEmpty ||
+                      id == widget.channel.providerId) return;
+                  Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+                    builder: (_) => YacineVlcChannelPlayer(
+                      channel: matches.first,
+                      qualityVariants: widget.qualityVariants,
+                      api: widget.api, ar: widget.ar,
+                    ),
+                  ));
+                },
+                itemBuilder: (_) => [
+                  for (final variant in widget.qualityVariants)
+                    PopupMenuItem<String>(
+                      value: variant.providerId,
+                      child: Text(variant.title(widget.ar) + ' · ' +
+                        (yacineChannelQuality(variant)?.toString() ?? '-') +
+                        'p' + (variant.providerId ==
+                            widget.channel.providerId ? ' ✓' : '')),
+                    ),
+                ],
+              ),
             IconButton(
               tooltip: t('نسخ ملف M3U', 'Copy M3U'),
               onPressed: _copyM3u,
@@ -723,7 +754,9 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
                 if (mode != 'exo') return;
                 Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
                   builder: (_) => DirectYacineChannelPlayer(
-                    channel: widget.channel, api: widget.api, ar: widget.ar,
+                    channel: widget.channel,
+                    qualityVariants: widget.qualityVariants,
+                    api: widget.api, ar: widget.ar,
                   ),
                 ));
               },

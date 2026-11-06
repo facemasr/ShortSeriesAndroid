@@ -131,6 +131,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   final Map<String, int> pages = {};
   static const String _liveCatalogKey = 'egyshow_live_catalog_metadata_v1';
   List<LiveChannel> channels = [];
+  DateTime? _catalogLastUpdated;
   String channelQuery = '';
   List<Media> searchResults = [];
   String query = '';
@@ -215,7 +216,9 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     if (next >= 1 && next <= 3) {
       final t = ['movie', 'series', 'short_series'][next - 1];
       if (!catalogs.containsKey(t)) await _loadCatalog(t, fresh: true);
-    } else if ((next == 4 || next == 9) && channels.isEmpty) {
+    } else if (next == 4 || next == 9) {
+      // EGY TV Sport Windows refreshes its provider catalogue. Never
+      // trust an indefinitely cached channel ID after provider rotations.
       await _loadLive();
     }
   }
@@ -239,14 +242,23 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   Future<void> _loadLive({bool force = false}) async {
     // Preserve the locally cached catalog until the user requests a refresh.
     // Actual playback sessions continue to resolve each channel on demand.
-    if (!force && channels.isNotEmpty) return;
+    // Cache is only a fast initial display. Every visit after 10 minutes
+    // resolves a fresh provider catalogue, preserving saved favourites.
+    if (!force && channels.isNotEmpty && _catalogLastUpdated != null &&
+        DateTime.now().difference(_catalogLastUpdated!) <
+            const Duration(minutes: 10)) return;
     if (listBusy) return;
     if (mounted) setState(() { listBusy = true; error = ''; });
     try {
       final items = await api.live();
       if (items.isEmpty) throw const ApiException('provider_catalog_empty');
       if (!mounted) return;
-      setState(() { channels = items; listBusy = false; error = ''; });
+      setState(() {
+        channels = items;
+        _catalogLastUpdated = DateTime.now();
+        listBusy = false;
+        error = '';
+      });
       try {
         await prefs?.setString(_liveCatalogKey, encodeYacineCatalog(items));
       } catch (_) {

@@ -14,6 +14,7 @@ import 'yacine_vlc_m3u.dart';
 import 'yacine_vlc_options.dart';
 import 'yacine_stream_diagnostics.dart';
 import 'yacine_local_relay.dart';
+import 'yacine_android_channel_service.dart';
 
 /// Device-local VLC player for the same per-channel API and original HTTP
 /// media headers used by EGY TV Sport on Windows. No VPS proxy, DRM bypass,
@@ -103,15 +104,22 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     });
     var failed = false;
     try {
-      final sources = readySources ??
-          await YacineChannelResolver(_http).resolve(widget.channel.providerId);
+      final selected = readySources == null
+          ? await EgyTvAndroidChannelService(_http).choose(
+              widget.channel.providerId,
+              preferredIndex: preferred ?? _server,
+              quickCheck: _controller == null)
+          : null;
+      final sources = readySources ?? selected!.sources;
       if (_disposed || !mounted) return;
       if (sources.isEmpty) {
         throw const YacineResolveException('provider_stream_unavailable');
       }
       _sources = sources;
-      final choice = preferred ?? _server;
-      final index = choice >= 0 && choice < sources.length ? choice : 0;
+      final preferredChoice = preferred ?? _server;
+      final index = selected?.index ??
+          (preferredChoice >= 0 && preferredChoice < sources.length
+              ? preferredChoice : 0);
       await _startMedia(sources[index], index, force: force);
     } catch (error) {
       failed = true;
@@ -197,15 +205,16 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     if (_controller == null) return;
     _fetching = true;
     try {
-      final sources = await YacineChannelResolver(_http)
-          .resolve(widget.channel.providerId);
-      if (_disposed || !mounted || !_foreground || sources.isEmpty) return;
       final label = _server >= 0 && _server < _sources.length
           ? _sources[_server].label : null;
-      final match = label == null
-          ? -1 : sources.indexWhere((s) => s.label == label);
-      final index = match >= 0 ? match
-          : _server < sources.length ? _server : 0;
+      final refreshed = await EgyTvAndroidChannelService(_http).refresh(
+        widget.channel.providerId,
+        currentLabel: label,
+        currentIndex: _server,
+      );
+      final sources = refreshed.sources;
+      if (_disposed || !mounted || !_foreground || sources.isEmpty) return;
+      final index = refreshed.index;
       final updated = sources[index];
       _sources = sources;
       final value = _controller?.value;

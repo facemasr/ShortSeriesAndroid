@@ -90,8 +90,6 @@ class YacineChannelResolver {
           headers: const {
             'User-Agent': _apiAgent,
             'Accept': 'application/json',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
           },
         ).timeout(const Duration(seconds: 12));
       } on Exception {

@@ -83,9 +83,9 @@ jobs:
       - name: Dependencies
         run: flutter pub get
       - name: Analyze Android playback and ad code
-        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_channel_resolver.dart lib/yacine_stream_renewal.dart lib/yacine_media_format.dart lib/yacine_media_headers.dart lib/yacine_provider_policy.dart lib/yacine_vlc_m3u.dart lib/yacine_stream_probe.dart lib/yacine_channel_groups.dart lib/yacine_catalog_cache.dart lib/yacine_vlc_options.dart lib/yacine_stream_diagnostics.dart lib/yacine_vlc_player.dart lib/yacine_local_relay.dart lib/egy_tv_sport_hub.dart lib/native_banner_ads.dart lib/egyshow_global_ads.dart lib/native_player.dart
+        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_channel_resolver.dart lib/yacine_stream_renewal.dart lib/yacine_media_format.dart lib/yacine_media_headers.dart lib/yacine_provider_policy.dart lib/yacine_vlc_m3u.dart lib/yacine_stream_probe.dart lib/yacine_channel_groups.dart lib/yacine_catalog_cache.dart lib/yacine_vlc_options.dart lib/yacine_stream_diagnostics.dart lib/yacine_vlc_player.dart lib/yacine_local_relay.dart lib/yacine_android_channel_service.dart lib/egy_tv_sport_hub.dart lib/native_banner_ads.dart lib/egyshow_global_ads.dart lib/native_player.dart
       - name: Test bounded temporary HLS segment validation
-        run: flutter test test/yacine_stream_probe_test.dart test/yacine_media_format_test.dart test/yacine_media_headers_test.dart test/yacine_provider_policy_test.dart test/yacine_vlc_m3u_test.dart test/yacine_channel_resolver_test.dart test/yacine_stream_renewal_test.dart test/yacine_channel_groups_test.dart test/yacine_catalog_cache_test.dart test/yacine_vlc_options_test.dart test/yacine_bein1_pipeline_test.dart test/yacine_local_relay_test.dart
+        run: flutter test test/yacine_stream_probe_test.dart test/yacine_media_format_test.dart test/yacine_media_headers_test.dart test/yacine_provider_policy_test.dart test/yacine_vlc_m3u_test.dart test/yacine_channel_resolver_test.dart test/yacine_stream_renewal_test.dart test/yacine_channel_groups_test.dart test/yacine_catalog_cache_test.dart test/yacine_vlc_options_test.dart test/yacine_bein1_pipeline_test.dart test/yacine_local_relay_test.dart test/yacine_android_channel_service_test.dart
       - name: Build APK
         run: flutter build apk --release
       - name: Validate CI candidate before private server signing
@@ -96,7 +96,7 @@ jobs:
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='26' versionName='2.0.18'"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='27' versionName='2.0.19'"
           echo "CI candidate verified; NOT production-signed, NOT eligible for direct publication."
       - name: Upload CI APK candidate for private server signing
         uses: actions/upload-artifact@v4
@@ -126,13 +126,13 @@ jobs:
         run: |
           set -euo pipefail
           test -s preview/app-release.apk
-          cp preview/app-release.apk preview/EGYSHOW_Android_v2.0.18_TEST_ONLY.apk
-          (cd preview && zip -q -9 EGYSHOW_Android_v2.0.18_TEST_ONLY.zip EGYSHOW_Android_v2.0.18_TEST_ONLY.apk)
-          TAG=egyshow-android-v2.0.18-ci-preview
+          cp preview/app-release.apk preview/EGYSHOW_Android_v2.0.19_TEST_ONLY.apk
+          (cd preview && zip -q -9 EGYSHOW_Android_v2.0.19_TEST_ONLY.zip EGYSHOW_Android_v2.0.19_TEST_ONLY.apk)
+          TAG=egyshow-android-v2.0.19-ci-preview
           if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "$REPO" --target "$SHA" \
               --prerelease \
-              --title "EGYSHOW Android 2.0.18 - test build, not an official update" \
+              --title "EGYSHOW Android 2.0.19 - test build, not an official update" \
               --notes "This ZIP contains a CI-built APK with on-device API headers and an HLS local relay modeled on EGY TV Sport Windows. This is NOT signed with the original production key, NOT an in-place update, and NOT proof of successful real-channel playback on a physical Android device."
           fi
-          gh release upload "$TAG" preview/EGYSHOW_Android_v2.0.18_TEST_ONLY.zip --repo "$REPO" --clobber
+          gh release upload "$TAG" preview/EGYSHOW_Android_v2.0.19_TEST_ONLY.zip --repo "$REPO" --clobber

@@ -336,8 +336,19 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       }
       final directChannel = match;
       if (directChannel != null && directChannel.providerId.isNotEmpty) {
+        final groups = groupYacineChannels(channels);
+        final variants = <LiveChannel>[];
+        for (final group in groups) {
+          if (group.variants.any((v) =>
+              v.providerId == directChannel.providerId)) {
+            variants.addAll(group.variants);
+            break;
+          }
+        }
         Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
-          DirectYacineChannelPlayer(channel: directChannel, api: api, ar: ar)));
+          DirectYacineChannelPlayer(
+            channel: directChannel, qualityVariants: variants,
+            api: api, ar: ar)));
         return;
       }
     }

@@ -320,7 +320,10 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       if (_disposed || !mounted) return;
       Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
         builder: (_) => DirectYacineChannelPlayer(
-          channel: widget.channel,
+          channel: LiveChannel({
+            ...widget.channel.raw,
+            'provider_id': _currentProviderId,
+          }),
           qualityVariants: widget.qualityVariants,
           api: widget.api, ar: widget.ar,
         ),

@@ -16,6 +16,8 @@ import 'yacine_direct_player.dart';
 import 'egy_tv_sport_hub.dart';
 import 'yacine_catalog_cache.dart';
 import 'yacine_channel_groups.dart';
+import 'yacine_channel_resolver.dart';
+import 'yacine_external_player.dart';
 import 'egyshow_global_ads.dart';
 
 void main() {
@@ -360,7 +362,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     )));
   }
 
-  Future<void> _signIn(bool register, String email, String password, String name) async {
+()=>method+anchor
     final result = await api.authenticate(email, password,
         displayName: register ? name : null, language: ar ? 'ar' : 'en');
     final token = txt(result['token']);
@@ -709,7 +711,8 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     else if (tab == 9) body = EgyTvSportHub(
       api: api, ar: ar, channels: channels, loading: listBusy,
       onRefresh: () => _loadLive(force: true),
-      onOpen: (channel) => _play('channel', channel.id, channel.title(ar)));
+      onOpen: (channel) => _play('channel', channel.id, channel.title(ar)),
+      onOpenExternal: (channel) => unawaited(_openLiveExternal(channel)));
     else if (tab == 5 || tab == 6) body = WebsiteSection(
       key: ValueKey('section-' + tab.toString() + (ar ? '-ar' : '-en')),
       kind: tab == 5 ? 'matches' : 'youtube', ar: ar, api: api);

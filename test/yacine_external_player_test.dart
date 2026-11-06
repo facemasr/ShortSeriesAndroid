@@ -7,6 +7,16 @@ YacinePlaybackSource source(String url,
     YacinePlaybackSource(Uri.parse(url), headers, 'HD', mode);
 
 void main() {
+  test('target explicit package IDs remain correct and chooser is unforced', () {
+    expect(YacineExternalPlayer.targetPackage(YacineExternalTarget.ytvPro),
+        'com.ytv.pronew');
+    expect(YacineExternalPlayer.targetPackage(YacineExternalTarget.vlc),
+        'org.videolan.vlc');
+    expect(YacineExternalPlayer.targetPackage(YacineExternalTarget.choose),
+        isNull);
+  });
+
+
   test('Android chooser recognizes HLS, DASH and progressive sources', () {
     expect(YacineExternalPlayer.mediaMimeType(
         source('https://example.org/live/index.m3u8')),

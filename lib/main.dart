@@ -362,7 +362,48 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     )));
   }
 
-()=>method+anchor
+  /// Open the active channel directly from the native channel list in an
+  /// installed Android video app, using only freshly resolved source metadata.
+  Future<void> _openLiveExternal(LiveChannel channel) async {
+    try {
+      var id = channel.providerId;
+      List<YacinePlaybackSource> sources;
+      try {
+        sources = await YacineChannelResolver(api.client).resolve(id);
+      } on YacineResolveException catch (error) {
+        if (error.reason != 'provider_api_http_404') rethrow;
+        final current = await api.refreshProviderChannel(channel);
+        if (current == null || current.providerId == id) rethrow;
+        id = current.providerId;
+        sources = await YacineChannelResolver(api.client).resolve(id);
+      }
+      if (!mounted || sources.isEmpty) return;
+      await YacineExternalPlayer.open(
+        sources.first,
+        title: channel.title(ar),
+        target: YacineExternalTarget.choose,
+        chooserTitle: ar ? 'اختر مشغّل القناة' : 'Choose a video player',
+      );
+    } on YacineExternalPlaybackException catch (error) {
+      if (!mounted) return;
+      final message = error.reason == 'session_headers_require_internal_player'
+          ? (ar ? 'القناة تحتاج بيانات جلسة؛ استخدم المشغّل الداخلي.'
+              : 'This channel requires private in-app session headers.')
+          : (ar ? 'لا يوجد مشغّل خارجي مناسب. ثبّت VLC أو مشغّل HLS.'
+              : 'No compatible external player. Install VLC or an HLS app.');
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          ar ? 'تعذر تحديث رابط القناة أو فتح المشغّل الخارجي.'
+             : 'Could not refresh the stream URL or launch an external player.',
+        )));
+      }
+    }
+  }
+
+  Future<void> _signIn(bool register, String email, String password, String name) async {
     final result = await api.authenticate(email, password,
         displayName: register ? name : null, language: ar ? 'ar' : 'en');
     final token = txt(result['token']);

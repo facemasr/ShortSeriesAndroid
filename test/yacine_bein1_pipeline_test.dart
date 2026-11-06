@@ -48,7 +48,8 @@ void main() {
     final client=MockClient((request) async {
       expect(request.url.path, '/live/1424/index.m3u8');
       expect(request.headers['Referer'], encodedReferer);
-      expect(request.headers['Range'], 'bytes=0-1023');
+      // Match desktop HLS playlist GET: no byte range on the manifest.
+      expect(request.headers.containsKey('Range'), isFalse);
       return http.Response('Access forbidden',403);
     });
     final result=await checkYacineManifest(client,source);

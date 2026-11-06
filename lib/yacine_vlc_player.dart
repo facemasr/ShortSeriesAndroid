@@ -347,22 +347,26 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       final diagnostic = await checkYacineManifest(_http, source);
       if (_disposed || !mounted) return;
       if (diagnostic.denied) {
-        _sourceDenied = true;
-        _retry?.cancel();
-        _retry = null;
+        // A separate Dart HTTP probe is NOT the native player response.
+        // The Windows collector itself can report HTTP 403 while desktop
+        // libVLC plays the same user-authorized source successfully. Never
+        // permanently disable playback or suppress retries based on a probe.
         setState(() {
           _loading = false;
           _lastError = t(
-            'نجح API، لكن خادم الفيديو رفض تشغيل القناة '
-            '(HTTP ${diagnostic.httpStatus}). يلزم مصدر مرخّص يسمح بالوصول.',
-            'API succeeded, but the media server denied access '
-            '(HTTP ${diagnostic.httpStatus}). An authorized source is required.',
+            'فحص HTTP المستقل أعاد ${diagnostic.httpStatus}؛ '
+            'سنجرب المشغّل المناسب مع بيانات المصدر نفسها.',
+            'Independent HTTP check returned ${diagnostic.httpStatus}; '
+            'trying the native decoder with the same provider headers.',
           );
           _diagnosticMessage = t(
-            'السبب: رفض من المصدر، وليس فشلًا في مشغل VLC.',
-            'Source access denied; not a VLC decoding error.',
+            'قد يتطلب المصدر صلاحية مشاهدة؛ الفحص وحده لا يثبت '
+            'أن VLC رُفض.',
+            'The source may require viewing permission; a probe alone '
+            'does not establish VLC denial.',
           );
         });
+        if (!_hadPlayback && !manual) _tryNativeBeinFallback();
       } else {
         if (diagnostic.accepted && !_hadPlayback && !manual) {
           // Manifest is accessible but native VLC still could not decode.

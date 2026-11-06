@@ -40,6 +40,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   final http.Client _http = http.Client();
   final YacineLocalRelay _relay = YacineLocalRelay();
   bool _usingRelay = false;
+  late String _currentProviderId;
 
   VlcPlayerController? _controller;
   List<YacinePlaybackSource> _sources = const [];
@@ -76,6 +77,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _currentProviderId = widget.channel.providerId;
     _poll = Timer.periodic(const Duration(seconds: 20),
         (_) => unawaited(_refreshActiveChannel()));
     _watchdog = Timer.periodic(const Duration(seconds: 7),
@@ -90,6 +92,24 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     final parsed = int.tryParse(value ?? '');
     if (parsed == null || parsed < 1700000000) return null;
     return parsed > 9999999999 ? parsed ~/ 1000 : parsed;
+  }
+
+  /// Recover a rotated provider ID once by looking up this exact station
+  /// in its current quality package, then repeat the original operation.
+  /// Playback headers and temporary video URLs are still resolved on-device.
+  Future<T> _withCurrentChannel<T>(
+      Future<T> Function(String id) operation) async {
+    try {
+      return await operation(_currentProviderId);
+    } on YacineResolveException catch (error) {
+      if (error.reason != 'provider_api_http_404') rethrow;
+      final refreshed = await widget.api.refreshProviderChannel(widget.channel);
+      if (refreshed == null ||
+          refreshed.providerId.isEmpty ||
+          refreshed.providerId == _currentProviderId) rethrow;
+      _currentProviderId = refreshed.providerId;
+      return operation(_currentProviderId);
+    }
   }
 
   Future<void> _resolveAndPlay({
@@ -108,10 +128,10 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     var failed = false;
     try {
       final selected = readySources == null
-          ? await EgyTvAndroidChannelService(_http).choose(
-              widget.channel.providerId,
-              preferredIndex: preferred ?? _server,
-              quickCheck: _controller == null)
+          ? await _withCurrentChannel((id) =>
+              EgyTvAndroidChannelService(_http).choose(
+                id, preferredIndex: preferred ?? _server,
+                quickCheck: _controller == null))
           : null;
       final sources = readySources ?? selected!.sources;
       if (_disposed || !mounted) return;
@@ -210,11 +230,9 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     try {
       final label = _server >= 0 && _server < _sources.length
           ? _sources[_server].label : null;
-      final refreshed = await EgyTvAndroidChannelService(_http).refresh(
-        widget.channel.providerId,
-        currentLabel: label,
-        currentIndex: _server,
-      );
+      final refreshed = await _withCurrentChannel((id) =>
+          EgyTvAndroidChannelService(_http).refresh(
+            id, currentLabel: label, currentIndex: _server));
       final sources = refreshed.sources;
       if (_disposed || !mounted || !_foreground || sources.isEmpty) return;
       final index = refreshed.index;
@@ -479,14 +497,14 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
 
   Future<void> _copyM3u() async {
     try {
-      final sources = await YacineChannelResolver(_http)
-          .resolve(widget.channel.providerId);
+      final sources = await _withCurrentChannel(
+          (id) => YacineChannelResolver(_http).resolve(id));
       if (!mounted || _disposed || sources.isEmpty) return;
       final source = sources[_server < sources.length ? _server : 0];
       final text = yacineVlcM3u(
         stream: source.uri,
         channelName: widget.channel.title(widget.ar),
-        tvgId: widget.channel.providerId,
+        tvgId: _currentProviderId,
         groupTitle: widget.channel.group,
         headers: source.headers,
       );

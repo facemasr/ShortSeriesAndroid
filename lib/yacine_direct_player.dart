@@ -71,6 +71,7 @@ class _DirectYacineChannelPlayerState
   int _failures = 0;
   bool _disposed = false;
   bool _switchingVariant = false;
+  late String _currentProviderId;
   Duration? _lastPosition;
   DateTime _lastAdvance = DateTime.now();
 
@@ -80,12 +81,28 @@ class _DirectYacineChannelPlayerState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _currentProviderId = widget.channel.providerId;
     _watchdog = Timer.periodic(const Duration(seconds: 6), (_) => _checkPlayback());
     // Refresh only the actively viewed channel; polling 675 channels would
     // overload the provider and invalidate good streams unnecessarily.
     _sourceRefresh = Timer.periodic(const Duration(seconds: 60),
         (_) => unawaited(_refreshSources()));
     unawaited(_connect());
+  }
+
+  /// A 404 means this provider station ID may have rotated; re-discover
+  /// the exact station in the matching quality package and retry once.
+  Future<T> _withCurrentChannel<T>(
+      Future<T> Function(String id) operation) async {
+    try {
+      return await operation(_currentProviderId);
+    } on YacineResolveException catch (error) {
+      if (error.reason != 'provider_api_http_404') rethrow;
+      final updated = await widget.api.refreshProviderChannel(widget.channel);
+      if (updated == null || updated.providerId == _currentProviderId) rethrow;
+      _currentProviderId = updated.providerId;
+      return operation(_currentProviderId);
+    }
   }
 
   /// Resolve updated server metadata without interrupting a healthy stream.
@@ -97,9 +114,9 @@ class _DirectYacineChannelPlayerState
     if (playing == null || !playing.value.isInitialized) return;
     _refreshingSources = true;
     try {
-      final refreshed = await EgyTvAndroidChannelService(_channelClient)
-          .refresh(widget.channel.providerId,
-            currentLabel: _activeLabel, currentIndex: _selectedSource);
+      final refreshed = await _withCurrentChannel((id) =>
+          EgyTvAndroidChannelService(_channelClient).refresh(id,
+              currentLabel: _activeLabel, currentIndex: _selectedSource));
       final fresh = refreshed.sources;
       if (!mounted || _disposed || !_foreground || _userPaused) return;
       _lastSourceCheck = DateTime.now();
@@ -176,10 +193,10 @@ class _DirectYacineChannelPlayerState
     var connected = false;
     try {
       final choice = preloadedSources == null
-          ? await EgyTvAndroidChannelService(_channelClient).choose(
-              widget.channel.providerId,
-              preferredIndex: preferredSource,
-              quickCheck: previous == null)
+          ? await _withCurrentChannel((id) =>
+              EgyTvAndroidChannelService(_channelClient).choose(
+                  id, preferredIndex: preferredSource,
+                  quickCheck: previous == null))
           : null;
       final sources = preloadedSources ?? choice!.sources;
       // Start with the best reachable server just as Windows' choose()
@@ -532,15 +549,15 @@ class _DirectYacineChannelPlayerState
   Future<void> _copyCurrentChannelM3u() async {
     if (_connecting || _disposed) return;
     try {
-      final fresh = await YacineChannelResolver(_channelClient)
-          .resolve(widget.channel.providerId);
+      final fresh = await _withCurrentChannel(
+          (id) => YacineChannelResolver(_channelClient).resolve(id));
       if (_disposed || !mounted || fresh.isEmpty) return;
       final preferred = fresh.indexWhere((s) => s.label == _activeLabel);
       final source = fresh[preferred >= 0 ? preferred : 0];
       final playlist = yacineVlcM3u(
         stream: source.uri,
         channelName: widget.channel.title(widget.ar),
-        tvgId: widget.channel.providerId,
+        tvgId: _currentProviderId,
         groupTitle: widget.channel.group,
         headers: source.headers,
       );

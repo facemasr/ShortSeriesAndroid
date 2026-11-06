@@ -12,6 +12,8 @@ import 'yacine_channel_resolver.dart';
 import 'yacine_vlc_m3u.dart';
 import 'yacine_stream_probe.dart';
 import 'yacine_stream_renewal.dart';
+import 'yacine_android_channel_service.dart';
+import 'yacine_vlc_player.dart';
 
 /// Direct, device-side playback for provider-authorized HLS channels.
 /// No EGYSHOW VPS media relay, DRM circumvention, stored signed URLs or
@@ -89,8 +91,10 @@ class _DirectYacineChannelPlayerState
     if (playing == null || !playing.value.isInitialized) return;
     _refreshingSources = true;
     try {
-      final fresh = await YacineChannelResolver(_channelClient)
-          .resolve(widget.channel.providerId);
+      final refreshed = await EgyTvAndroidChannelService(_channelClient)
+          .refresh(widget.channel.providerId,
+            currentLabel: _activeLabel, currentIndex: _selectedSource);
+      final fresh = refreshed.sources;
       if (!mounted || _disposed || !_foreground || _userPaused) return;
       _lastSourceCheck = DateTime.now();
       final sameLabel = fresh.indexWhere((s) => s.label == _activeLabel);
@@ -165,9 +169,19 @@ class _DirectYacineChannelPlayerState
     if (mounted) setState(() { _busy = !retainCurrent; _failure = null; });
     var connected = false;
     try {
-      final sources = preloadedSources ??
-          await YacineChannelResolver(_channelClient)
-              .resolve(widget.channel.providerId);
+      final choice = preloadedSources == null
+          ? await EgyTvAndroidChannelService(_channelClient).choose(
+              widget.channel.providerId,
+              preferredIndex: preferredSource,
+              quickCheck: previous == null)
+          : null;
+      final sources = preloadedSources ?? choice!.sources;
+      // Start with the best reachable server just as Windows' choose()
+      // does, then try the remaining provider sources if the native
+      // Android decoder rejects the initial source.
+      if (choice != null && previous == null) {
+        preferredSource = choice.index;
+      }
       if (_disposed || !mounted) return;
       _lastSourceCheck = DateTime.now();
       _sources = sources;
@@ -699,6 +713,23 @@ class _DirectYacineChannelPlayerState
                       child: Text(_sources[i].label +
                         (i == _selectedSource ? ' ✓' : ''))),
                 ]),
+            PopupMenuButton<String>(
+              tooltip: label('محرك التشغيل', 'Playback engine'),
+              icon: const Icon(Icons.settings_input_component_rounded),
+              onSelected: (mode) {
+                if (mode != 'vlc') return;
+                Navigator.of(context).pushReplacement(
+                  MaterialPageRoute<void>(
+                    builder: (_) => YacineVlcChannelPlayer(
+                      channel: widget.channel, api: widget.api, ar: widget.ar),
+                  ));
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem<String>(value: 'vlc',
+                  child: Text(label('جرّب VLC الداخلي',
+                      'Try native VLC instead'))),
+              ],
+            ),
             IconButton(
               tooltip: label('نسخ رابط القناة بصيغة M3U', 'Copy current channel M3U'),
               onPressed: _connecting ? null : _copyCurrentChannelM3u,

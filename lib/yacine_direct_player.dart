@@ -555,7 +555,111 @@ class _DirectYacineChannelPlayerState
     super.dispose();
   }
 
-()=>methods+anchor
+  Future<void> _openExternal(YacineExternalTarget target) async {
+    if (_disposed || _externalOpening) return;
+    _externalOpening = true;
+    try {
+      final sources = await _withCurrentChannel(
+          (id) => YacineChannelResolver(_channelClient).resolve(id));
+      if (!mounted || _disposed || sources.isEmpty) return;
+      final index = sources.indexWhere((s) => s.label == _activeLabel);
+      final preferred = index >= 0 ? index
+          : _selectedSource < sources.length ? _selectedSource : 0;
+      await YacineExternalPlayer.open(
+        sources[preferred],
+        title: widget.channel.title(widget.ar),
+        target: target,
+        chooserTitle: label('تشغيل القناة باستخدام', 'Open channel with'),
+      );
+      if (_disposed || !mounted) return;
+      _userPaused = true;
+      await _video?.pause();
+    } on YacineExternalPlaybackException catch (e) {
+      if (!mounted) return;
+      final message = e.reason == 'session_headers_require_internal_player'
+          ? label('تحتاج هذه القناة بيانات جلسة؛ استخدم المشغّل الداخلي.',
+              'This stream needs private in-app session headers.')
+          : label('تعذر فتح المشغّل الخارجي. ثبّت VLC أو مشغّل HLS.',
+              'No external player found. Install VLC or an HLS player.');
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          label('تعذر جلب الرابط أو فتح المشغّل الخارجي.',
+              'Unable to resolve a fresh URL or open an external player.'))));
+      }
+    } finally {
+      _externalOpening = false;
+    }
+  }
+
+  void _switchToVlc() {
+    if (!mounted || _disposed) return;
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => YacineVlcChannelPlayer(
+        channel: LiveChannel({...widget.channel.raw,
+          'provider_id': _currentProviderId}),
+        qualityVariants: widget.qualityVariants,
+        api: widget.api, ar: widget.ar,
+      ),
+    ));
+  }
+
+  void _selectQuality(LiveChannel quality) {
+    if (!mounted || quality.providerId == _currentProviderId) return;
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => DirectYacineChannelPlayer(
+        channel: quality,
+        qualityVariants: widget.qualityVariants,
+        api: widget.api, ar: widget.ar,
+      ),
+    ));
+  }
+
+  Future<void> _changeSpeed(double rate) async {
+    _speed = rate;
+    final video = _video;
+    if (video == null || !video.value.isInitialized) return;
+    try {
+      await video.setPlaybackSpeed(rate);
+    } catch (_) {
+      // Live broadcasts may not support all playback speeds.
+    }
+  }
+
+  void _showPlaybackSettings() {
+    if (!mounted || _disposed) return;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF101925),
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => YacinePlaybackSettings(
+        ar: widget.ar,
+        engineName: 'ExoPlayer',
+        fit: _videoFit,
+        speed: _speed,
+        sources: _sources,
+        sourceIndex: _selectedSource,
+        qualityVariants: widget.qualityVariants,
+        currentProviderId: _currentProviderId,
+        onQualityVariant: _selectQuality,
+        onFit: (fit) { if (mounted) setState(() => _videoFit = fit); },
+        onSpeed: (rate) => unawaited(_changeSpeed(rate)),
+        onSource: (index) =>
+            unawaited(_connect(userRetry: true, preferredSource: index)),
+        onExternal: () =>
+            unawaited(_openExternal(YacineExternalTarget.choose)),
+        onVlcExternal: () =>
+            unawaited(_openExternal(YacineExternalTarget.vlc)),
+        onOtherEngine: _switchToVlc,
+        onReconnect: () => unawaited(_connect(userRetry: true)),
+      ),
+    );
+  }
+
+  /// Fresh user-requested playlist for the active channel only.
   /// Never save signed tokens or long-lived media links to the catalog.
   Future<void> _copyCurrentChannelM3u() async {
     if (_connecting || _disposed) return;

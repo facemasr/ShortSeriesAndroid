@@ -66,6 +66,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   bool _diagnosing = false;
   bool _sourceDenied = false;
   bool _triedNativeFallback = false;
+  bool _stallDiagnosed = false;
 
   bool get _isBeinSports =>
       (widget.channel.group + ' ' + widget.channel.title(false))
@@ -216,6 +217,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       _loading = true;
       _hadPlayback = false;
       _sourceDenied = false;
+      _stallDiagnosed = false;
       _diagnosticMessage = null;
       _lastError = null;
       _notice = t('جاري بدء البث داخل VLC...', 'Opening stream in VLC...');
@@ -398,12 +400,22 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     if (_bufferingSince != null &&
         DateTime.now().difference(_bufferingSince!).inSeconds >= 28) {
       _bufferingSince = DateTime.now();
+      if (_isBeinSports && !_hadPlayback && !_stallDiagnosed) {
+        _stallDiagnosed = true;
+        unawaited(_diagnoseCurrentSource());
+      }
       _scheduleRetry();
       return;
     }
     final elapsed = DateTime.now().difference(_lastSwitch);
-    // Only treat sustained inactivity as failure. No restart on API polling.
+    // Stalled HLS can remain in "opening" without ever emitting VLC.hasError.
+    // Diagnose this one source and try native Media3 only if its manifest
+    // is reachable, rather than looping forever on a black screen.
     if (!value.isPlaying && elapsed.inSeconds > 23 && _retry == null) {
+      if (_isBeinSports && !_hadPlayback && !_stallDiagnosed) {
+        _stallDiagnosed = true;
+        unawaited(_diagnoseCurrentSource());
+      }
       _scheduleRetry();
     }
   }

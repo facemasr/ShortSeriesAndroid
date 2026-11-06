@@ -8,12 +8,27 @@ import 'yacine_channel_resolver.dart';
 /// This starts an Android ACTION_VIEW intent; it does not download media,
 /// bypass access checks or claim to control the target player's decoding.
 /// External players may ignore optional source User-Agent/Referer extras.
-enum YacineExternalTarget { choose, vlc }
+enum YacineExternalTarget { choose, vlc, ytvPro }
 
 class YacineExternalPlayer {
   const YacineExternalPlayer._();
 
   static const String vlcPackage = 'org.videolan.vlc';
+  static const String ytvProPackage = 'com.ytv.pronew';
+
+  /// An explicit package chooses the app, not an undocumented entry point.
+  /// YTV Player Pro's ACTION_VIEW support is not verified by the user's
+  /// separate YacineTV APK; failed dispatch must remain a clear result.
+  static String? targetPackage(YacineExternalTarget target) {
+    switch (target) {
+      case YacineExternalTarget.choose:
+        return null;
+      case YacineExternalTarget.vlc:
+        return vlcPackage;
+      case YacineExternalTarget.ytvPro:
+        return ytvProPackage;
+    }
+  }
 
   static bool isExternalCompatible(YacinePlaybackSource source) {
     // Do not export provider session credentials to arbitrary external apps.
@@ -59,7 +74,7 @@ class YacineExternalPlayer {
       action: 'android.intent.action.VIEW',
       data: source.uri.toString(),
       type: mediaMimeType(source),
-      package: target == YacineExternalTarget.vlc ? vlcPackage : null,
+      package: targetPackage(target),
       arguments: <String, dynamic>{
         'title': title,
         'android.intent.extra.TITLE': title,
@@ -70,12 +85,16 @@ class YacineExternalPlayer {
       },
     );
     try {
-      if (target == YacineExternalTarget.vlc) {
+      if (target != YacineExternalTarget.choose) {
         await intent.launch();
       } else {
         await intent.launchChooser(chooserTitle);
       }
     } catch (_) {
+      if (target == YacineExternalTarget.ytvPro) {
+        throw const YacineExternalPlaybackException(
+            'ytv_pro_not_installed_or_view_unsupported');
+      }
       throw const YacineExternalPlaybackException('no_external_player');
     }
   }

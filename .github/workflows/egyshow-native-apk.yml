@@ -55,30 +55,30 @@ jobs:
             <path android:fillColor="#FFFFFF" android:pathData="M39,28L39,80L82,54z"/>
           </vector>""")
           PY
-      - name: Allow HTTP only for identified legacy live-stream hosts
+      - name: Allow provider-declared dynamic plain HTTP media streams
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          from xml.sax.saxutils import escape
           import xml.etree.ElementTree as ET
+          # EGY TV Sport Windows opens public HTTP stream URLs from dynamic
+          # provider hosts. Android Media3/VLC otherwise rejects every new
+          # host outside a hard-coded allowlist even when API resolution works.
+          # The catalog/API/auth endpoints themselves stay HTTPS. No DRM,
+          # authentication, token or region bypass is performed.
           manifest = Path('android/app/src/main/AndroidManifest.xml')
           source = manifest.read_text()
           if 'android:networkSecurityConfig=' not in source:
               source = source.replace('<application', '<application android:networkSecurityConfig="@xml/egyshow_network_security"', 1)
           manifest.write_text(source)
-          hosts = ["127.0.0.1","ar.ycncdn.online","re.varie-redirect.com","vod.ortas.sy","htvpalsat.mada.ps","flusonic-1.platinum-tv.com","m.live.net.sa","82.212.74.2","cdn.catiacast.video","ns8.indexforce.com","95.216.180.111","tv.mondeduloisir.fr","hls.tmacaraibes.com","contact-lh.akamaihd.net","fashiontv-fashiontv-loriginal-fr.samsung.wurl.com","cdn.webtv4.cdnfr.orange.fr","canli.haber365.com.tr","mtulqxgomrllive.mediatriple.net","akittv-live.ercdn.net","stream.yol.tv","57.bangiroua.xyz","142.44.214.231","82.212.74.100","foofootv.com","dminnvll.cdn.mangomolo.com","htvmada.mada.ps","live.alqudstoday.tv","htvajyal.mada.ps","vstream3.hadara.ps","htvint.mada.ps","ar116.ab-cdn.com","185.105.4.151","istream.binarywaves.com","vod.alikhbaria.net","51.255.84.28","nettvstreampaid.flashmediacast.com","streaming.aletejahtv.iq","38.96.175.40","137.74.205.201","jmc-live.ercdn.net"]
-          dom = ''.join('    <domain includeSubdomains="true">'+escape(host)+'</domain>\n' for host in hosts)
-          config = ('<?xml version="1.0" encoding="utf-8"?>\n'
-              '<network-security-config>\n'
-              '  <base-config cleartextTrafficPermitted="false" />\n'
-              '  <domain-config cleartextTrafficPermitted="true">\n'
-              + dom + '  </domain-config>\n'
-              '</network-security-config>\n')
           output = Path('android/app/src/main/res/xml/egyshow_network_security.xml')
-          output.parent.mkdir(parents=True,exist_ok=True)
-          output.write_text(config)
-          ET.parse(output)
-          print('Native Android cleartext allowlist configured for',len(hosts),'HLS hosts')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text('<?xml version="1.0" encoding="utf-8"?>\n'
+                            '<network-security-config>\n'
+                            '  <base-config cleartextTrafficPermitted="true" />\n'
+                            '</network-security-config>\n')
+          root = ET.parse(output).getroot()
+          assert root.find('base-config').attrib['cleartextTrafficPermitted'] == 'true'
+          print('Android native players may now open dynamic provider HTTP media hosts')
           PY
       - name: Dependencies
         run: flutter pub get

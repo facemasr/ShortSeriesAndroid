@@ -13,6 +13,7 @@ import 'native_home_sections.dart';
 import 'native_visit_analytics.dart';
 import 'in_app_updates.dart';
 import 'yacine_vlc_player.dart';
+import 'yacine_direct_player.dart';
 import 'egy_tv_sport_hub.dart';
 import 'yacine_catalog_cache.dart';
 import 'yacine_channel_groups.dart';
@@ -336,7 +337,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       final directChannel = match;
       if (directChannel != null && directChannel.providerId.isNotEmpty) {
         Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
-          YacineVlcChannelPlayer(channel: directChannel, api: api, ar: ar)));
+          DirectYacineChannelPlayer(channel: directChannel, api: api, ar: ar)));
         return;
       }
     }

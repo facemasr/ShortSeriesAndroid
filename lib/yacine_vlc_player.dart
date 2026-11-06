@@ -65,6 +65,11 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   bool _hadPlayback = false;
   bool _diagnosing = false;
   bool _sourceDenied = false;
+  bool _triedNativeFallback = false;
+
+  bool get _isBeinSports =>
+      (widget.channel.group + ' ' + widget.channel.title(false))
+          .toLowerCase().contains('bein sports');
   String? _diagnosticMessage;
   double _volume = 1.0;
   BoxFit _fit = BoxFit.cover;
@@ -302,6 +307,27 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     }
   }
 
+  /// On Android only: if libVLC fails while a provider HLS manifest is
+  /// reachable, try Media3/ExoPlayer with the SAME fresh provider headers.
+  /// Never use this to bypass HTTP 401/403, subscriptions or DRM.
+  void _tryNativeBeinFallback() {
+    if (_disposed || !mounted || _sourceDenied || _hadPlayback ||
+        _triedNativeFallback || !_isBeinSports) return;
+    _triedNativeFallback = true;
+    _retry?.cancel();
+    _retry = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted) return;
+      Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+        builder: (_) => DirectYacineChannelPlayer(
+          channel: widget.channel,
+          qualityVariants: widget.qualityVariants,
+          api: widget.api, ar: widget.ar,
+        ),
+      ));
+    });
+  }
+
   Future<void> _diagnoseCurrentSource({bool manual = false}) async {
     if (_disposed || !mounted || _diagnosing || _sources.isEmpty) return;
     _diagnosing = true;
@@ -333,6 +359,11 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
           );
         });
       } else {
+        if (diagnostic.accepted && !_hadPlayback && !manual) {
+          // Manifest is accessible but native VLC still could not decode.
+          // A different decoder is appropriate; a new identity is not.
+          _tryNativeBeinFallback();
+        }
         setState(() {
           _diagnosticMessage = diagnostic.accepted
               ? t('خادم الفيديو استجاب HTTP ${diagnostic.httpStatus}؛ '

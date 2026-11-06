@@ -20,6 +20,7 @@ class YacinePlaybackSettings extends StatefulWidget {
     required this.onSource,
     required this.onExternal,
     required this.onVlcExternal,
+    required this.onYtvProExternal,
     required this.onOtherEngine,
     required this.onReconnect,
     this.qualityVariants = const [],
@@ -42,6 +43,7 @@ class YacinePlaybackSettings extends StatefulWidget {
   final ValueChanged<int> onSource;
   final VoidCallback onExternal;
   final VoidCallback onVlcExternal;
+  final VoidCallback onYtvProExternal;
   final VoidCallback onOtherEngine;
   final VoidCallback onReconnect;
   final List<LiveChannel> qualityVariants;
@@ -161,6 +163,13 @@ class _YacinePlaybackSettingsState extends State<YacinePlaybackSettings> {
               subtitle: Text(t('فتح القناة مباشرة في VLC الخارجي',
                   'Hand off the current channel to the VLC app')),
               onTap: () => choose(widget.onVlcExternal),
+            ),
+            ListTile(
+              leading: const Icon(Icons.live_tv_outlined),
+              title: const Text('YTV Player Pro'),
+              subtitle: Text(t('تجربة فتح الرابط في المشغّل الذي أرسلته',
+                  'Try opening this channel in the referenced video player')),
+              onTap: () => choose(widget.onYtvProExternal),
             ),
             ListTile(
               leading: const Icon(Icons.swap_horizontal_circle_outlined),

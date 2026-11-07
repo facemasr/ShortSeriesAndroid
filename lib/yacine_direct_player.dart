@@ -17,6 +17,7 @@ import 'yacine_android_channel_service.dart';
 import 'yacine_vlc_player.dart';
 import 'yacine_decoder_fallback.dart';
 import 'yacine_live_station_sync.dart';
+import 'yacine_live_source_service.dart';
 import 'yacine_channel_groups.dart';
 import 'yacine_external_player.dart';
 import 'yacine_playback_settings.dart';
@@ -30,12 +31,16 @@ class DirectYacineChannelPlayer extends StatefulWidget {
   const DirectYacineChannelPlayer({
     super.key, required this.channel, required this.api, required this.ar,
     this.qualityVariants = const [], this.attemptedVariants = const [],
+    this.initialSources, this.initialProviderId,
   });
 
   final LiveChannel channel;
   /// Every original provider ID in the quality group, as on EGY TV Sport.
   final List<LiveChannel> qualityVariants;
   final List<String> attemptedVariants;
+  /// Fresh, memory-only metadata from the catalog/controller handoff.
+  final List<YacinePlaybackSource>? initialSources;
+  final String? initialProviderId;
   final EgyApi api;
   final bool ar;
 
@@ -101,7 +106,7 @@ class _DirectYacineChannelPlayerState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _currentProviderId = widget.channel.providerId;
+    _currentProviderId = widget.initialProviderId ?? widget.channel.providerId;
     _watchdog = Timer.periodic(const Duration(seconds: 6), (_) => _checkPlayback());
     // Refresh only the actively viewed channel; polling 675 channels would
     // overload the provider and invalidate good streams unnecessarily.
@@ -124,7 +129,10 @@ class _DirectYacineChannelPlayerState
     } catch (_) {
       // Playback still works if local user settings are unavailable.
     }
-    if (!_disposed && mounted) unawaited(_connect());
+    if (!_disposed && mounted) {
+      unawaited(_connect(preloadedSources:
+          _manualLink == null ? widget.initialSources : null));
+    }
   }
 
   void _setVideoFit(BoxFit fit) {
@@ -387,18 +395,21 @@ class _DirectYacineChannelPlayerState
     var shouldRefreshLiveQualities = false;
     try {
       final manual = _manualLink;
-      if (manual == null && preloadedSources == null && !retainCurrent) {
-        await _syncLiveStationBeforePlay();
-        if (_disposed || !mounted) return;
-      }
-      final choice = manual == null && preloadedSources == null
-          ? await _withCurrentChannel((id) =>
-              EgyTvAndroidChannelService(_channelClient).choose(
-                  id, preferredIndex: preferredSource,
-                  quickCheck: false))
+      // Read the current exact station from the LIVE provider catalog, then
+      // request its media descriptor. Only hand proven sources to the player.
+      final stationResult = manual == null && preloadedSources == null
+          ? await YacineLiveSourceService(widget.api, _channelClient)
+              .resolve(widget.channel,
+                  preferredProviderId: _currentProviderId,
+                  preferredSourceIndex: preferredSource)
           : null;
+      if (stationResult != null) {
+        _currentProviderId = stationResult.channel.providerId;
+        _catalogRecovery = stationResult.recovery;
+        preferredSource = stationResult.sourceIndex;
+      }
       final sources = manual == null
-          ? (preloadedSources ?? choice!.sources)
+          ? (preloadedSources ?? stationResult!.sources)
           : <YacinePlaybackSource>[
               YacinePlaybackSource(
                 manual.url, manual.headers,
@@ -409,8 +420,8 @@ class _DirectYacineChannelPlayerState
       // Start with the best reachable server just as Windows' choose()
       // does, then try the remaining provider sources if the native
       // Android decoder rejects the initial source.
-      if (choice != null && previous == null) {
-        preferredSource = choice.index;
+      if (stationResult != null && previous == null) {
+        preferredSource = stationResult.sourceIndex;
       }
       if (_disposed || !mounted) return;
       _resolutionStage = 'source_list_received';

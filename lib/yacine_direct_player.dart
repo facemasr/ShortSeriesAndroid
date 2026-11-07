@@ -384,6 +384,7 @@ class _DirectYacineChannelPlayerState
     if (mounted) setState(() { _busy = !retainCurrent; _failure = null; });
     var connected = false;
     var media3Attempted = false;
+    var shouldRefreshLiveQualities = false;
     try {
       final manual = _manualLink;
       if (manual == null && preloadedSources == null && !retainCurrent) {
@@ -516,6 +517,11 @@ class _DirectYacineChannelPlayerState
       }
       throw const ApiException('all_sources_unavailable');
     } catch (error) {
+      // A missing provider descriptor is NOT a decoder problem. Search the
+      // CURRENT live quality packages, not yesterday's cached IDs.
+      shouldRefreshLiveQualities = error is YacineResolveException &&
+          (yacineShouldRefreshCatalogFor(error.reason) ||
+           error.reason == 'provider_404_station_not_found_in_catalog');
       _resolutionStage = 'channel_open_failed';
       _playerErrorCode ??= _classifyPlaybackError(error);
       _lastCompletedFailure = _playerErrorCode;
@@ -568,11 +574,67 @@ class _DirectYacineChannelPlayerState
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && !_disposed) _switchToVlc(automatic: true);
           });
+        } else if (shouldRefreshLiveQualities &&
+            await _tryNextLiveQualityVariant()) {
+          // Navigation to the new matching live station was scheduled.
         } else if (!_tryNextQualityVariant()) {
           _scheduleRetry();
         }
       }
     }
+  }
+
+  /// A provider ID can rotate while a user is watching. On a 404 or empty
+  /// descriptor, retrieve ONLY the same station's current quality-package
+  /// entries and attempt the next live provider ID once.
+  Future<bool> _tryNextLiveQualityVariant() async {
+    if (_switchingVariant || _disposed || !mounted || _manualLink != null ||
+        widget.attemptedVariants.length >= 8) return false;
+    _resolutionStage = 'searching_fresh_quality_sources';
+    List<LiveChannel> fresh;
+    try {
+      fresh = await widget.api.refreshLiveQualityVariants(widget.channel)
+          .timeout(const Duration(seconds: 20));
+    } catch (_) {
+      _catalogRecovery = 'fresh_quality_catalog_unavailable';
+      return false;
+    }
+    if (_disposed || !mounted) return false;
+    final tried = <String>{
+      ...widget.attemptedVariants,
+      widget.channel.providerId,
+      _currentProviderId,
+    };
+    final available = fresh.where((channel) =>
+        !tried.contains(channel.providerId)).toList();
+    if (available.isEmpty) {
+      _catalogRecovery = 'no_new_station_quality_source';
+      return false;
+    }
+    final originalQuality = yacineChannelQuality(widget.channel) ?? 720;
+    // Prefer a lower or equal quality, then a higher-quality last resort.
+    int rank(LiveChannel channel) {
+      final q = yacineChannelQuality(channel) ?? 720;
+      return q <= originalQuality ? originalQuality - q
+          : 10000 + q - originalQuality;
+    }
+    available.sort((a, b) => rank(a).compareTo(rank(b)));
+    final candidate = available.first;
+    _switchingVariant = true;
+    _catalogRecovery = 'new_live_quality_id';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _disposed) return;
+      Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+        builder: (_) => DirectYacineChannelPlayer(
+          channel: candidate,
+          qualityVariants: fresh,
+          attemptedVariants: tried.toList(),
+          api: widget.api,
+          ar: widget.ar,
+        ),
+      ));
+    });
+    return true;
   }
 
   /// EGY TV Sport's fall-through to another quality source when the

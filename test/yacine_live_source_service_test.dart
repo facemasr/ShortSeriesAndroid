@@ -55,7 +55,7 @@ MockClient provider({
       return list([
         {'id': sdId, 'name': 'beIN SPORTS 1'},
       ]);
-    case '/api/channel/' + currentId:
+    case '/api/channel/8385833572085990112':
       if (fullHdEmpty) return list([]);
       return list([
         if (protected)
@@ -65,7 +65,7 @@ MockClient provider({
           descriptor(),
         if (!protected) descriptor('Backup'),
       ]);
-    case '/api/channel/' + sdId:
+    case '/api/channel/8385833573281469359':
       return list(sdAvailable ? [descriptor('720P')] : []);
     default:
       return http.Response('not found', 404);

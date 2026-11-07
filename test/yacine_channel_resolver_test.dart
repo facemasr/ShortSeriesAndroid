@@ -45,7 +45,7 @@ void main() {
       'Referer': 'https://example.com/safe',
     };
     expect(yacineDesktopVlcHeaders({
-      'referer': 'https://example.com/attack\\r\\nX-Injected: 1',
+      'referer': 'https://example.com/attack\r\nX-Injected: 1',
     }, safe)['Referer'], 'https://example.com/safe');
     expect(yacineDesktopVlcHeaders({
       'referer': 'javascript:alert(1)',

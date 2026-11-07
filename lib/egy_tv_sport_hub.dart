@@ -10,7 +10,8 @@ import 'egyshow_global_ads.dart';
 class EgyTvSportHub extends StatefulWidget {
   const EgyTvSportHub({super.key, required this.api, required this.ar,
     required this.channels, required this.loading, required this.onRefresh,
-    required this.onOpen, required this.onOpenExternal});
+    required this.onOpen, required this.onOpenExternal,
+    required this.preferYtvPro, required this.onPreferYtvProChanged});
   final EgyApi api;
   final bool ar;
   final List<LiveChannel> channels;
@@ -18,6 +19,8 @@ class EgyTvSportHub extends StatefulWidget {
   final Future<void> Function() onRefresh;
   final void Function(LiveChannel channel) onOpen;
   final void Function(LiveChannel channel) onOpenExternal;
+  final bool preferYtvPro;
+  final ValueChanged<bool> onPreferYtvProChanged;
   @override
   State<EgyTvSportHub> createState() => _EgyTvSportHubState();
 }
@@ -251,6 +254,27 @@ class _EgyTvSportHubState extends State<EgyTvSportHub> {
                       : const Icon(Icons.refresh_rounded)),
                 ]),
               ]),
+            ),
+          )),
+          SliverToBoxAdapter(child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF24414C))),
+              child: SwitchListTile.adaptive(
+                value: widget.preferYtvPro,
+                onChanged: widget.onPreferYtvProChanged,
+                activeColor: teal,
+                title: Text(t('التشغيل تلقائيًا بواسطة YTV Pro',
+                    'Auto-play using YTV Pro'),
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text(t(
+                    'إن كان مثبتًا والرابط متوافقًا؛ وإلا يُفتح مشغّل EGYSHOW.',
+                    'Use when installed and compatible; otherwise play inside EGYSHOW.')),
+                secondary: const Icon(Icons.live_tv_outlined, color: teal),
+              ),
             ),
           )),
           SliverToBoxAdapter(child: Padding(

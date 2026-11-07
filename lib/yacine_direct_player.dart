@@ -177,6 +177,7 @@ class _DirectYacineChannelPlayerState
           : player?.value.isPlaying == true ? 'playing' : 'stopped'),
       'Error: ' + (_playerErrorCode ?? _lastProbeFailure ??
           (_resolutionStage == 'playing' ? 'none' : 'not_reported_yet')),
+      'Media probe: ' + (_lastProbeFailure ?? 'not_run'),
       'Manual source: ' + (_manualLink == null ? 'no' : 'yes'),
       'HTTP User-Agent: ' + ((_activeHeaders ??
           (_sources.isNotEmpty ? _sources.first.headers :
@@ -203,21 +204,31 @@ class _DirectYacineChannelPlayerState
     ));
   }
 
-  /// A 404 means this provider station ID may have rotated; re-discover
-  /// the exact station in the matching quality package and retry once.
+  /// When the station returns HTTP 404 OR has no playable source, do one
+  /// exact-title, exact-package catalog lookup and resolve the replacement.
+  /// A station that has moved must not be silently replaced by another.
   Future<T> _withCurrentChannel<T>(
       Future<T> Function(String id) operation) async {
     try {
       return await operation(_currentProviderId);
     } on YacineResolveException catch (error) {
-      if (error.reason != 'provider_api_http_404') rethrow;
-      _resolutionStage = 'recovering_rotated_provider_id';
+      if (!yacineShouldRefreshCatalogFor(error.reason)) rethrow;
+      _resolutionStage = 'checking_live_channel_catalog';
       _catalogRecovery = 'searching_exact_station';
       final updated = await widget.api.refreshProviderChannel(widget.channel);
-      if (updated == null || updated.providerId == _currentProviderId) {
+      if (updated == null) {
         _catalogRecovery = 'station_not_found_in_live_catalog';
-        throw const YacineResolveException(
-            'provider_404_station_not_found_in_catalog');
+        if (error.reason == 'provider_api_http_404') {
+          throw const YacineResolveException(
+              'provider_404_station_not_found_in_catalog');
+        }
+        rethrow;
+      }
+      if (updated.providerId == _currentProviderId) {
+        // 200 with no stream is a provider-side issue; changing players or
+        // retrying an identical channel ID cannot invent a playable source.
+        _catalogRecovery = 'same_id_no_playable_source';
+        rethrow;
       }
       _currentProviderId = updated.providerId;
       _catalogRecovery = 'updated_provider_id';

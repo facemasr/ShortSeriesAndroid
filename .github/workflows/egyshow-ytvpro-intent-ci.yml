@@ -1,0 +1,41 @@
+name: Verify YTV PRO Android Intent compatibility
+
+on:
+  push:
+    branches:
+      - fix/egyshow-ytvpro-explicit-intent-20261107
+    paths:
+      - lib/yacine_external_player.dart
+      - lib/yacine_direct_player.dart
+      - lib/yacine_vlc_player.dart
+      - test/yacine_external_player_test.dart
+      - .github/workflows/egyshow-ytvpro-intent-ci.yml
+  pull_request:
+    branches:
+      - feature/egyshow-direct-yacine-channels-20261104
+    paths:
+      - lib/yacine_external_player.dart
+      - lib/yacine_direct_player.dart
+      - lib/yacine_vlc_player.dart
+      - test/yacine_external_player_test.dart
+      - .github/workflows/egyshow-ytvpro-intent-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ytv-intent-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Analyze external handoff
+        run: flutter analyze --no-fatal-infos lib/yacine_external_player.dart
+      - name: Test Android intent and source protections
+        run: flutter test test/yacine_external_player_test.dart

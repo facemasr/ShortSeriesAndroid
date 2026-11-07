@@ -682,8 +682,8 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     } on YacineExternalPlaybackException catch (e) {
       if (!mounted) return;
       final message = e.reason == 'session_headers_require_internal_player'
-          ? t('القناة تحتاج بيانات جلسة؛ استخدم المشغّل الداخلي.',
-              'This stream requires the in-app player session.')
+          ? t('رابط القناة يحتاج ترويسات لا يدعمها فتح YTV المباشر؛ استخدم المشغّل الداخلي.',
+              'This URL needs headers YTV direct mode cannot accept; use the internal player.')
           : e.reason == 'ytv_pro_not_installed_or_view_unsupported'
               ? t('تعذر فتح YTV Player Pro. قد لا يكون مثبتًا، أو لا يدعم '
                   'إرسال الرابط إليه مباشرة. جرّب اختيار مشغّل آخر.',

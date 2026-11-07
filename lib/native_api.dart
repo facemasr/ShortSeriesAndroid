@@ -138,8 +138,6 @@ class EgyApi {
   Future<LiveChannel?> refreshProviderChannel(LiveChannel stale) =>
       _YacineDirectCatalog(client).refreshOne(stale);
 
-  /// Discover the same station's fresh IDs in nearby provider quality groups.
-  /// Read station metadata only; signed media stays on the selected device.
   Future<List<LiveChannel>> refreshLiveQualityVariants(LiveChannel stale) =>
       _YacineDirectCatalog(client).refreshQualityVariants(stale);
 
@@ -312,175 +310,19 @@ class _YacineDirectCatalog {
   }
 
   static final RegExp _qualitySuffix = RegExp(
-    r'\s*(?:\(\s*|\[\s*)?(?:2160|1440|1080|720|576|480|360|320|288|270|244|240|144)\s*p?\s*(?:\)|\])?\s*
-    var id = int.tryParse(providerId);
-    if (id == null || id < 1 || id > 9223372036854775807) {
-      id = 17;
-      for (final unit in providerId.codeUnits) {
-        id = ((id! * 131) + unit) & 0x7fffffff;
-      }
-      if (id == 0) id = 1;
-    }
-    while (!taken.add(id!)) {
-      id = (id + 1) & 0x7fffffff;
-      if (id == 0) id = 1;
-    }
-    return id;
-  }
-
-  Future<List<LiveChannel>> load() async {
-    final top = await _request('categories');
-    final queue = <Map<String, dynamic>>[];
-    for (final item in top) {
-      final row = asMap(item);
-      queue.add({'item': row, 'path': txt(row['name']).trim()});
-    }
-    final visited = <String>{}, seenChannels = <String>{};
-    final takenIds = <int>{};
-    final channels = <LiveChannel>[];
-    var head = 0;
-    while (head < queue.length) {
-      if (head >= 160) {
-        throw const ApiException('provider_category_limit');
-      }
-      final current = queue[head++];
-      final item = asMap(current['item']);
-      final providerCategoryId = txt(item['id']);
-      if (!RegExp(r'^\d{1,24}$').hasMatch(providerCategoryId) ||
-          !visited.add(providerCategoryId)) continue;
-      final group = txt(current['path']);
-      if (numId(item['child_count']) > 0) {
-        final children = await _request('categories/' + providerCategoryId);
-        for (final child in children) {
-          final row = asMap(child);
-          final title = txt(row['name']).trim();
-          queue.add({'item': row,
-            'path': group.isEmpty ? title : group + ' / ' + title});
-        }
-        continue;
-      }
-      final rows = await _request('categories/' + providerCategoryId + '/channels');
-      for (final entry in rows) {
-        final channel = asMap(entry);
-        final id = txt(channel['id']);
-        final name = txt(channel['name']).trim();
-        if (!RegExp(r'^\d{1,24}$').hasMatch(id) ||
-            name.isEmpty || !seenChannels.add(id)) continue;
-        final logo = Uri.tryParse(txt(channel['logo']));
-        final safeLogo = logo != null &&
-            (logo.scheme == 'https' || logo.scheme == 'http') &&
-            logo.hasAuthority && logo.userInfo.isEmpty
-            ? logo.toString() : '';
-        channels.add(LiveChannel({
-          'id': _stableId(id, takenIds),
-          'provider_id': id,
-          'name_ar': name,
-          'name_en': name,
-          'package_name': group,
-          'logo_url': safeLogo,
-        }));
-        if (channels.length >= 2500) {
-          throw const ApiException('provider_channel_limit');
-        }
-      }
-    }
-    if (channels.length < 25) {
-      throw const ApiException('provider_catalog_incomplete');
-    }
-    return channels;
-  }
-}
-
-    r'|\s*(?:\(\s*|\[\s*)?(?:4k|uhd|fhd|full[\s_-]*hd|hd|sd)\s*(?:\)|\])?\s*
-    var id = int.tryParse(providerId);
-    if (id == null || id < 1 || id > 9223372036854775807) {
-      id = 17;
-      for (final unit in providerId.codeUnits) {
-        id = ((id! * 131) + unit) & 0x7fffffff;
-      }
-      if (id == 0) id = 1;
-    }
-    while (!taken.add(id!)) {
-      id = (id + 1) & 0x7fffffff;
-      if (id == 0) id = 1;
-    }
-    return id;
-  }
-
-  Future<List<LiveChannel>> load() async {
-    final top = await _request('categories');
-    final queue = <Map<String, dynamic>>[];
-    for (final item in top) {
-      final row = asMap(item);
-      queue.add({'item': row, 'path': txt(row['name']).trim()});
-    }
-    final visited = <String>{}, seenChannels = <String>{};
-    final takenIds = <int>{};
-    final channels = <LiveChannel>[];
-    var head = 0;
-    while (head < queue.length) {
-      if (head >= 160) {
-        throw const ApiException('provider_category_limit');
-      }
-      final current = queue[head++];
-      final item = asMap(current['item']);
-      final providerCategoryId = txt(item['id']);
-      if (!RegExp(r'^\d{1,24}$').hasMatch(providerCategoryId) ||
-          !visited.add(providerCategoryId)) continue;
-      final group = txt(current['path']);
-      if (numId(item['child_count']) > 0) {
-        final children = await _request('categories/' + providerCategoryId);
-        for (final child in children) {
-          final row = asMap(child);
-          final title = txt(row['name']).trim();
-          queue.add({'item': row,
-            'path': group.isEmpty ? title : group + ' / ' + title});
-        }
-        continue;
-      }
-      final rows = await _request('categories/' + providerCategoryId + '/channels');
-      for (final entry in rows) {
-        final channel = asMap(entry);
-        final id = txt(channel['id']);
-        final name = txt(channel['name']).trim();
-        if (!RegExp(r'^\d{1,24}$').hasMatch(id) ||
-            name.isEmpty || !seenChannels.add(id)) continue;
-        final logo = Uri.tryParse(txt(channel['logo']));
-        final safeLogo = logo != null &&
-            (logo.scheme == 'https' || logo.scheme == 'http') &&
-            logo.hasAuthority && logo.userInfo.isEmpty
-            ? logo.toString() : '';
-        channels.add(LiveChannel({
-          'id': _stableId(id, takenIds),
-          'provider_id': id,
-          'name_ar': name,
-          'name_en': name,
-          'package_name': group,
-          'logo_url': safeLogo,
-        }));
-        if (channels.length >= 2500) {
-          throw const ApiException('provider_channel_limit');
-        }
-      }
-    }
-    if (channels.length < 25) {
-      throw const ApiException('provider_catalog_incomplete');
-    }
-    return channels;
-  }
-}
-,
+    r'\s*(?:\(\s*|\[\s*)?(?:2160|1440|1080|720|576|480|360|320|288|270|244|240|144)\s*p?\s*(?:\)|\])?\s*$'
+    r'|\s*(?:\(\s*|\[\s*)?(?:4k|uhd|fhd|full[\s_-]*hd|hd|sd)\s*(?:\)|\])?\s*$',
     caseSensitive: false,
   );
 
-  static String _qualityPackageBase(String value) =>
-      value.replaceAll(_qualitySuffix, '').trim().toLowerCase();
+  static String _baseQualityPackage(String name) =>
+      name.replaceAll(_qualitySuffix, '').trim().toLowerCase();
 
-  /// Find only CURRENT quality siblings with the SAME station name and
-  /// category path. Never choose a similarly named, unrelated station.
+  /// Find the exact station in the CURRENT provider's sibling quality
+  /// categories, without using stale IDs or querying other stations' media.
   Future<List<LiveChannel>> refreshQualityVariants(LiveChannel stale) async {
-    final parts = stale.group.split(' / ').map((value) => value.trim())
-        .where((value) => value.isNotEmpty).toList();
+    final parts = stale.group.split(' / ').map((v) => v.trim())
+        .where((v) => v.isNotEmpty).toList();
     final stationName = stale.title(false).trim().toLowerCase();
     if (parts.isEmpty || stationName.isEmpty) return <LiveChannel>[];
 
@@ -488,11 +330,11 @@ class _YacineDirectCatalog {
     var prefix = '';
     for (final part in parts.take(parts.length - 1)) {
       Map<String, dynamic>? parent;
-      for (final entry in categories) {
-        final category = asMap(entry);
-        if (txt(category['name']).trim().toLowerCase() ==
+      for (final row in categories) {
+        final current = asMap(row);
+        if (txt(current['name']).trim().toLowerCase() ==
             part.toLowerCase()) {
-          parent = category;
+          parent = current;
           break;
         }
       }
@@ -500,288 +342,53 @@ class _YacineDirectCatalog {
         return <LiveChannel>[];
       }
       final parentId = txt(parent['id']);
-      if (!RegExp(r'^\d{1,24}
-    var id = int.tryParse(providerId);
-    if (id == null || id < 1 || id > 9223372036854775807) {
-      id = 17;
-      for (final unit in providerId.codeUnits) {
-        id = ((id! * 131) + unit) & 0x7fffffff;
-      }
-      if (id == 0) id = 1;
-    }
-    while (!taken.add(id!)) {
-      id = (id + 1) & 0x7fffffff;
-      if (id == 0) id = 1;
-    }
-    return id;
-  }
-
-  Future<List<LiveChannel>> load() async {
-    final top = await _request('categories');
-    final queue = <Map<String, dynamic>>[];
-    for (final item in top) {
-      final row = asMap(item);
-      queue.add({'item': row, 'path': txt(row['name']).trim()});
-    }
-    final visited = <String>{}, seenChannels = <String>{};
-    final takenIds = <int>{};
-    final channels = <LiveChannel>[];
-    var head = 0;
-    while (head < queue.length) {
-      if (head >= 160) {
-        throw const ApiException('provider_category_limit');
-      }
-      final current = queue[head++];
-      final item = asMap(current['item']);
-      final providerCategoryId = txt(item['id']);
-      if (!RegExp(r'^\d{1,24}$').hasMatch(providerCategoryId) ||
-          !visited.add(providerCategoryId)) continue;
-      final group = txt(current['path']);
-      if (numId(item['child_count']) > 0) {
-        final children = await _request('categories/' + providerCategoryId);
-        for (final child in children) {
-          final row = asMap(child);
-          final title = txt(row['name']).trim();
-          queue.add({'item': row,
-            'path': group.isEmpty ? title : group + ' / ' + title});
-        }
-        continue;
-      }
-      final rows = await _request('categories/' + providerCategoryId + '/channels');
-      for (final entry in rows) {
-        final channel = asMap(entry);
-        final id = txt(channel['id']);
-        final name = txt(channel['name']).trim();
-        if (!RegExp(r'^\d{1,24}$').hasMatch(id) ||
-            name.isEmpty || !seenChannels.add(id)) continue;
-        final logo = Uri.tryParse(txt(channel['logo']));
-        final safeLogo = logo != null &&
-            (logo.scheme == 'https' || logo.scheme == 'http') &&
-            logo.hasAuthority && logo.userInfo.isEmpty
-            ? logo.toString() : '';
-        channels.add(LiveChannel({
-          'id': _stableId(id, takenIds),
-          'provider_id': id,
-          'name_ar': name,
-          'name_en': name,
-          'package_name': group,
-          'logo_url': safeLogo,
-        }));
-        if (channels.length >= 2500) {
-          throw const ApiException('provider_channel_limit');
-        }
-      }
-    }
-    if (channels.length < 25) {
-      throw const ApiException('provider_catalog_incomplete');
-    }
-    return channels;
-  }
-}
-).hasMatch(parentId)) {
+      if (!RegExp(r'^\d{1,24}$').hasMatch(parentId)) {
         return <LiveChannel>[];
       }
       categories = await _request('categories/' + parentId);
       prefix = prefix.isEmpty ? part : prefix + ' / ' + part;
     }
 
-    final wanted = _qualityPackageBase(parts.last);
-    final possible = <Map<String, dynamic>>[];
-    for (final entry in categories) {
-      final category = asMap(entry);
-      final id = txt(category['id']);
-      if (numId(category['child_count']) > 0 ||
-          !RegExp(r'^\d{1,24}
-    var id = int.tryParse(providerId);
-    if (id == null || id < 1 || id > 9223372036854775807) {
-      id = 17;
-      for (final unit in providerId.codeUnits) {
-        id = ((id! * 131) + unit) & 0x7fffffff;
-      }
-      if (id == 0) id = 1;
-    }
-    while (!taken.add(id!)) {
-      id = (id + 1) & 0x7fffffff;
-      if (id == 0) id = 1;
-    }
-    return id;
-  }
-
-  Future<List<LiveChannel>> load() async {
-    final top = await _request('categories');
-    final queue = <Map<String, dynamic>>[];
-    for (final item in top) {
-      final row = asMap(item);
-      queue.add({'item': row, 'path': txt(row['name']).trim()});
-    }
-    final visited = <String>{}, seenChannels = <String>{};
-    final takenIds = <int>{};
-    final channels = <LiveChannel>[];
-    var head = 0;
-    while (head < queue.length) {
-      if (head >= 160) {
-        throw const ApiException('provider_category_limit');
-      }
-      final current = queue[head++];
-      final item = asMap(current['item']);
-      final providerCategoryId = txt(item['id']);
-      if (!RegExp(r'^\d{1,24}$').hasMatch(providerCategoryId) ||
-          !visited.add(providerCategoryId)) continue;
-      final group = txt(current['path']);
-      if (numId(item['child_count']) > 0) {
-        final children = await _request('categories/' + providerCategoryId);
-        for (final child in children) {
-          final row = asMap(child);
-          final title = txt(row['name']).trim();
-          queue.add({'item': row,
-            'path': group.isEmpty ? title : group + ' / ' + title});
-        }
+    final wanted = _baseQualityPackage(parts.last);
+    final candidateGroups = <Map<String, dynamic>>[];
+    for (final row in categories) {
+      final group = asMap(row);
+      final id = txt(group['id']);
+      if (numId(group['child_count']) > 0 ||
+          !RegExp(r'^\d{1,24}$').hasMatch(id) ||
+          _baseQualityPackage(txt(group['name'])) != wanted) {
         continue;
       }
-      final rows = await _request('categories/' + providerCategoryId + '/channels');
-      for (final entry in rows) {
-        final channel = asMap(entry);
-        final id = txt(channel['id']);
-        final name = txt(channel['name']).trim();
-        if (!RegExp(r'^\d{1,24}$').hasMatch(id) ||
-            name.isEmpty || !seenChannels.add(id)) continue;
-        final logo = Uri.tryParse(txt(channel['logo']));
-        final safeLogo = logo != null &&
-            (logo.scheme == 'https' || logo.scheme == 'http') &&
-            logo.hasAuthority && logo.userInfo.isEmpty
-            ? logo.toString() : '';
-        channels.add(LiveChannel({
-          'id': _stableId(id, takenIds),
-          'provider_id': id,
-          'name_ar': name,
-          'name_en': name,
-          'package_name': group,
-          'logo_url': safeLogo,
-        }));
-        if (channels.length >= 2500) {
-          throw const ApiException('provider_channel_limit');
-        }
-      }
+      candidateGroups.add(group);
     }
-    if (channels.length < 25) {
-      throw const ApiException('provider_catalog_incomplete');
-    }
-    return channels;
-  }
-}
-).hasMatch(id) ||
-          _qualityPackageBase(txt(category['name'])) != wanted) {
-        continue;
-      }
-      possible.add(category);
-    }
-    if (possible.length > 8) {
+    if (candidateGroups.length > 8) {
       throw const ApiException('provider_quality_category_limit');
     }
 
-    final found = <LiveChannel>[];
+    final results = <LiveChannel>[];
     final seen = <String>{};
     final taken = <int>{};
-    for (final category in possible) {
-      final categoryId = txt(category['id']);
-      final name = txt(category['name']).trim();
+    for (final group in candidateGroups) {
+      final id = txt(group['id']);
+      final name = txt(group['name']).trim();
       final path = prefix.isEmpty ? name : prefix + ' / ' + name;
-      final rows = await _request('categories/' + categoryId + '/channels');
+      final rows = await _request('categories/' + id + '/channels');
       for (final entry in rows) {
         final row = asMap(entry);
         if (txt(row['name']).trim().toLowerCase() != stationName) {
           continue;
         }
-        final id = txt(row['id']);
-        if (!RegExp(r'^\d{1,24}
-    var id = int.tryParse(providerId);
-    if (id == null || id < 1 || id > 9223372036854775807) {
-      id = 17;
-      for (final unit in providerId.codeUnits) {
-        id = ((id! * 131) + unit) & 0x7fffffff;
-      }
-      if (id == 0) id = 1;
-    }
-    while (!taken.add(id!)) {
-      id = (id + 1) & 0x7fffffff;
-      if (id == 0) id = 1;
-    }
-    return id;
-  }
-
-  Future<List<LiveChannel>> load() async {
-    final top = await _request('categories');
-    final queue = <Map<String, dynamic>>[];
-    for (final item in top) {
-      final row = asMap(item);
-      queue.add({'item': row, 'path': txt(row['name']).trim()});
-    }
-    final visited = <String>{}, seenChannels = <String>{};
-    final takenIds = <int>{};
-    final channels = <LiveChannel>[];
-    var head = 0;
-    while (head < queue.length) {
-      if (head >= 160) {
-        throw const ApiException('provider_category_limit');
-      }
-      final current = queue[head++];
-      final item = asMap(current['item']);
-      final providerCategoryId = txt(item['id']);
-      if (!RegExp(r'^\d{1,24}$').hasMatch(providerCategoryId) ||
-          !visited.add(providerCategoryId)) continue;
-      final group = txt(current['path']);
-      if (numId(item['child_count']) > 0) {
-        final children = await _request('categories/' + providerCategoryId);
-        for (final child in children) {
-          final row = asMap(child);
-          final title = txt(row['name']).trim();
-          queue.add({'item': row,
-            'path': group.isEmpty ? title : group + ' / ' + title});
-        }
-        continue;
-      }
-      final rows = await _request('categories/' + providerCategoryId + '/channels');
-      for (final entry in rows) {
-        final channel = asMap(entry);
-        final id = txt(channel['id']);
-        final name = txt(channel['name']).trim();
-        if (!RegExp(r'^\d{1,24}$').hasMatch(id) ||
-            name.isEmpty || !seenChannels.add(id)) continue;
-        final logo = Uri.tryParse(txt(channel['logo']));
-        final safeLogo = logo != null &&
-            (logo.scheme == 'https' || logo.scheme == 'http') &&
-            logo.hasAuthority && logo.userInfo.isEmpty
-            ? logo.toString() : '';
-        channels.add(LiveChannel({
-          'id': _stableId(id, takenIds),
-          'provider_id': id,
-          'name_ar': name,
-          'name_en': name,
-          'package_name': group,
-          'logo_url': safeLogo,
-        }));
-        if (channels.length >= 2500) {
-          throw const ApiException('provider_channel_limit');
-        }
-      }
-    }
-    if (channels.length < 25) {
-      throw const ApiException('provider_catalog_incomplete');
-    }
-    return channels;
-  }
-}
-).hasMatch(id) || !seen.add(id)) {
-          continue;
-        }
+        final providerId = txt(row['id']);
+        if (!RegExp(r'^\d{1,24}$').hasMatch(providerId) ||
+            !seen.add(providerId)) continue;
         final logo = Uri.tryParse(txt(row['logo']));
         final safeLogo = logo != null &&
             (logo.scheme == 'https' || logo.scheme == 'http') &&
             logo.hasAuthority && logo.userInfo.isEmpty
                 ? logo.toString() : '';
-        found.add(LiveChannel({
-          'id': _stableId(id, taken),
-          'provider_id': id,
+        results.add(LiveChannel({
+          'id': _stableId(providerId, taken),
+          'provider_id': providerId,
           'name_ar': txt(row['name']).trim(),
           'name_en': txt(row['name']).trim(),
           'package_name': path,
@@ -789,7 +396,7 @@ class _YacineDirectCatalog {
         }));
       }
     }
-    return found;
+    return results;
   }
 
   int _stableId(String providerId, Set<int> taken) {

@@ -30,6 +30,8 @@ class YacinePlaybackSettings extends StatefulWidget {
     this.subtitleTracks,
     this.onAudioTrack,
     this.onSubtitleTrack,
+    this.onEditSource,
+    this.onDiagnostics,
   });
 
   final bool ar;
@@ -53,6 +55,8 @@ class YacinePlaybackSettings extends StatefulWidget {
   final Future<Map<int, String>> Function()? subtitleTracks;
   final ValueChanged<int>? onAudioTrack;
   final ValueChanged<int>? onSubtitleTrack;
+  final VoidCallback? onEditSource;
+  final VoidCallback? onDiagnostics;
 
   @override
   State<YacinePlaybackSettings> createState() =>
@@ -143,6 +147,28 @@ class _YacinePlaybackSettingsState extends State<YacinePlaybackSettings> {
             ]),
             Text('EGYSHOW · ' + widget.engineName,
               style: const TextStyle(color: Colors.white60)),
+            if (widget.onEditSource != null) ...[
+              heading(t('روابط الفيديو', 'Video links')),
+              ListTile(
+                tileColor: const Color(0xFF1B3038),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+                leading: const Icon(Icons.link_rounded,
+                  color: Color(0xFF34DBC9)),
+                title: Text(t('تشغيل أو تحرير رابط فيديو',
+                  'Open or edit a video URL')),
+                subtitle: Text(t('رابط الفيديو وUser-Agent وReferer',
+                  'Video URL, User-Agent and Referer')),
+                onTap: () => choose(widget.onEditSource!),
+              ),
+            ],
+            if (widget.onDiagnostics != null)
+              ListTile(
+                leading: const Icon(Icons.info_outline_rounded),
+                title: Text(t('تشخيص حالة تشغيل القناة',
+                  'Channel playback diagnostics')),
+                onTap: () => choose(widget.onDiagnostics!),
+              ),
             heading(t('طريقة التشغيل', 'Playback engine')),
             ListTile(
               shape: RoundedRectangleBorder(

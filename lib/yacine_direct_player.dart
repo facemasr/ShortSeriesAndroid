@@ -895,13 +895,11 @@ class _DirectYacineChannelPlayerState
     } on YacineExternalPlaybackException catch (e) {
       if (!mounted) return;
       final message = e.reason == 'session_headers_require_internal_player'
-          ? label('تحتاج هذه القناة بيانات جلسة؛ استخدم المشغّل الداخلي.',
-              'This stream needs private in-app session headers.')
+          ? label('رابط القناة يحتاج ترويسات لا يدعمها فتح YTV المباشر؛ استخدم المشغّل الداخلي.',
+              'This URL needs headers that YTV direct mode cannot accept; use the internal player.')
           : e.reason == 'ytv_pro_not_installed_or_view_unsupported'
-              ? label('تعذر فتح YTV Player Pro. قد لا يكون مثبتًا أو لا يدعم '
-                  'استقبال الروابط مباشرة. جرّب مشغّلًا آخر.',
-                  'YTV Player Pro may be missing or may not handle video '
-                  'ACTION_VIEW. Try another player.')
+              ? label('تعذر فتح نشاط تشغيل YTV PRO. تحقق من تثبيت الإصدار 15.0 أو استخدم مشغّلًا آخر.',
+                  'Could not open the YTV PRO player activity. Verify version 15.0 or use another player.')
               : label('تعذر فتح المشغّل الخارجي. ثبّت VLC أو مشغّل HLS.',
                   'No external player found. Install VLC or an HLS player.');
       ScaffoldMessenger.of(context).showSnackBar(

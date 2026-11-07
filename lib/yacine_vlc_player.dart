@@ -19,6 +19,7 @@ import 'yacine_channel_groups.dart';
 import 'yacine_external_player.dart';
 import 'yacine_playback_settings.dart';
 import 'yacine_live_station_sync.dart';
+import 'yacine_live_source_service.dart';
 
 /// Device-local VLC player for the same per-channel API and original HTTP
 /// media headers used by EGY TV Sport on Windows. No VPS proxy, DRM bypass,
@@ -231,17 +232,16 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     });
     var failed = false;
     try {
-      if (readySources == null && _controller == null) {
-        await _syncLiveStationBeforePlay();
-        if (_disposed || !mounted) return;
-      }
-      final selected = readySources == null
-          ? await _withCurrentChannel((id) =>
-              EgyTvAndroidChannelService(_http).choose(
-                id, preferredIndex: preferred ?? _server,
-                quickCheck: false))
+      final stationResult = readySources == null
+          ? await YacineLiveSourceService(widget.api, _http)
+              .resolve(widget.channel,
+                  preferredProviderId: _currentProviderId,
+                  preferredSourceIndex: preferred ?? _server)
           : null;
-      final sources = readySources ?? selected!.sources;
+      if (stationResult != null) {
+        _currentProviderId = stationResult.channel.providerId;
+      }
+      final sources = readySources ?? stationResult!.sources;
       if (_disposed || !mounted) return;
       if (sources.isEmpty) {
         throw const YacineResolveException('provider_stream_unavailable');
@@ -249,7 +249,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       _sources = sources;
       _resolutionStage = 'sources_received';
       final preferredChoice = preferred ?? _server;
-      final index = selected?.index ??
+      final index = stationResult?.sourceIndex ??
           (preferredChoice >= 0 && preferredChoice < sources.length
               ? preferredChoice : 0);
       await _startMedia(sources[index], index, force: force);

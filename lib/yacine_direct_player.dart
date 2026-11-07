@@ -15,6 +15,7 @@ import 'yacine_stream_probe.dart';
 import 'yacine_stream_renewal.dart';
 import 'yacine_android_channel_service.dart';
 import 'yacine_vlc_player.dart';
+import 'yacine_decoder_fallback.dart';
 import 'yacine_channel_groups.dart';
 import 'yacine_external_player.dart';
 import 'yacine_playback_settings.dart';
@@ -357,6 +358,7 @@ class _DirectYacineChannelPlayerState
     }
     if (mounted) setState(() { _busy = !retainCurrent; _failure = null; });
     var connected = false;
+    var media3Attempted = false;
     try {
       final manual = _manualLink;
       final choice = manual == null && preloadedSources == null
@@ -405,6 +407,7 @@ class _DirectYacineChannelPlayerState
         VideoPlayerController? candidate;
         try {
           _resolutionStage = 'initializing_media3';
+          media3Attempted = true;
           candidate = VideoPlayerController.networkUrl(
             source.uri,
             httpHeaders: source.headers,
@@ -457,10 +460,11 @@ class _DirectYacineChannelPlayerState
         } catch (error) {
           _resolutionStage = 'media3_failed';
           _playerErrorCode = _classifyPlaybackError(error);
-          // Diagnose only the first native playback failure, on the device.
-          // A reachable manifest/segment is not proof that ExoPlayer can decode
-          // it, and a 403 here reflects the upstream provider response.
-          if (_lastProbeFailure == null && !_disposed) {
+          // The desktop collector's separate HTTP probe may report 403 even
+          // when libVLC can play the same source. Do NOT delay VLC handoff for
+          // that probe; retain it only for explicitly provided manual links.
+          if (_lastProbeFailure == null && !_disposed &&
+              _manualLink != null) {
             try {
               if (yacineMediaFormat(source.uri, providerMode: source.providerMode) == VideoFormat.hls) {
                 final result = await YacineMediaProbe(_channelClient)
@@ -521,6 +525,20 @@ class _DirectYacineChannelPlayerState
           _renewal?.cancel();
           _renewal = Timer(const Duration(seconds: 15),
               () => unawaited(_refreshSources()));
+        } else if (yacineShouldUseDesktopVlc(
+          sourceCount: _sources.length,
+          media3Attempted: media3Attempted,
+          manualSource: _manualLink != null,
+          healthyPlayer: stillPlaying,
+        ) && !_switchingVariant) {
+          // The provider delivered media, but this decoder could not open it.
+          // Match EGY TV Sport Windows: try embedded VLC with the ORIGINAL
+          // provider URI and headers before requesting additional variants.
+          _switchingVariant = true;
+          _resolutionStage = 'switching_to_embedded_vlc';
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && !_disposed) _switchToVlc(automatic: true);
+          });
         } else if (!_tryNextQualityVariant()) {
           _scheduleRetry();
         }
@@ -791,13 +809,20 @@ class _DirectYacineChannelPlayerState
     }
   }
 
-  void _switchToVlc() {
+  void _switchToVlc({bool automatic = false}) {
     if (!mounted || _disposed) return;
+    // Only hand over CURRENT RAM metadata. Never write signed URLs to disk.
+    // Automatic fallback is one-way to prevent a native decoder loop.
+    final freshSources = automatic
+        ? List<YacinePlaybackSource>.unmodifiable(_sources) : null;
     Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
       builder: (_) => YacineVlcChannelPlayer(
         channel: LiveChannel({...widget.channel.raw,
           'provider_id': _currentProviderId}),
         qualityVariants: widget.qualityVariants,
+        initialProviderId: _currentProviderId,
+        initialSources: freshSources,
+        disableNativeFallback: automatic,
         api: widget.api, ar: widget.ar,
       ),
     ));
@@ -854,7 +879,7 @@ class _DirectYacineChannelPlayerState
             unawaited(_openExternal(YacineExternalTarget.vlc)),
         onYtvProExternal: () =>
             unawaited(_openExternal(YacineExternalTarget.ytvPro)),
-        onOtherEngine: _switchToVlc,
+        onOtherEngine: () => _switchToVlc(),
         onEditSource: _editYtvVideoUrl,
         onDiagnostics: _showYtvDiagnostics,
         onReconnect: () => unawaited(_connect(userRetry: true)),

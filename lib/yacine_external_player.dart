@@ -33,6 +33,21 @@ class YacineExternalPlayer {
       source.headers.keys.every((name) =>
           name.toLowerCase() == 'user-agent');
 
+  /// Choose the first source that YTV Pro's verified direct-video Intent
+  /// can actually play without losing provider-specific HTTP headers.
+  /// Other sources remain supported by the internal EGYSHOW Media3 player.
+  static YacinePlaybackSource? pickYtvDirectSource(
+      Iterable<YacinePlaybackSource> sources) {
+    for (final source in sources) {
+      if (isYtvDirectCompatible(source) &&
+          const {'http', 'https'}.contains(source.uri.scheme.toLowerCase()) &&
+          source.uri.hasAuthority && source.uri.userInfo.isEmpty) {
+        return source;
+      }
+    }
+    return null;
+  }
+
   /// Builds a testable explicit Intent. Actual playback remains subject to
   /// Android device integration and the URL's legitimate access requirements.
   static AndroidIntent ytvDirectIntent(YacinePlaybackSource source) {

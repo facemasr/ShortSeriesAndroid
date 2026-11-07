@@ -1,0 +1,42 @@
+name: EGYSHOW provider source resolver tests
+
+on:
+  push:
+    branches:
+      - fix/egyshow-provider-source-envelopes-20261107
+    paths:
+      - lib/yacine_channel_resolver.dart
+      - test/yacine_provider_envelopes_test.dart
+      - .github/workflows/egyshow-provider-resolver-ci.yml
+  pull_request:
+    branches:
+      - feature/egyshow-direct-yacine-channels-20261104
+    paths:
+      - lib/yacine_channel_resolver.dart
+      - test/yacine_provider_envelopes_test.dart
+      - .github/workflows/egyshow-provider-resolver-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  resolver-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        run: flutter pub get
+      - name: Analyze resolver
+        run: flutter analyze --no-fatal-infos lib/yacine_channel_resolver.dart
+      - name: Run relevant unit tests
+        run: |
+          flutter test test/yacine_provider_envelopes_test.dart \
+            test/yacine_no_source_diagnostics_test.dart \
+            test/yacine_channel_resolver_test.dart \
+            test/yacine_android_channel_service_test.dart

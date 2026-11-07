@@ -997,103 +997,76 @@ class _DirectYacineChannelPlayerState
           title: Text(widget.channel.title(widget.ar),
             maxLines: 1, overflow: TextOverflow.ellipsis),
           actions: [
-            if (widget.qualityVariants.length > 1)
-              PopupMenuButton<String>(
-                tooltip: label('جودة القناة', 'Channel quality'),
-                icon: const Icon(Icons.hd_rounded),
-                onSelected: (providerId) {
-                  final matches = widget.qualityVariants.where((variant) =>
-                      variant.providerId == providerId);
-                  if (matches.isEmpty ||
-                      providerId == widget.channel.providerId) return;
-                  Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
-                    builder: (_) => DirectYacineChannelPlayer(
-                      channel: matches.first,
-                      qualityVariants: widget.qualityVariants,
-                      api: widget.api, ar: widget.ar,
-                    ),
-                  ));
-                },
-                itemBuilder: (_) => [
-                  for (final variant in widget.qualityVariants)
-                    PopupMenuItem<String>(
-                      value: variant.providerId,
-                      child: Text(
-                        variant.title(widget.ar) + ' · ' +
-                        (yacineChannelQuality(variant)?.toString() ?? '-') +
-                        'p' + (variant.providerId ==
-                            widget.channel.providerId ? ' ✓' : ''),
-                      ),
-                    ),
-                ],
-              ),
-            if (_sources.length > 1)
-              PopupMenuButton<int>(
-                tooltip: label('السيرفر والجودة', 'Server and quality'),
-                icon: const Icon(Icons.high_quality_rounded),
-                initialValue: _selectedSource,
-                onSelected: (index) => _connect(
-                  userRetry: true, preferredSource: index),
-                itemBuilder: (_) => [
-                  for (var i = 0; i < _sources.length; i++)
-                    PopupMenuItem(value: i,
-                      child: Text(_sources[i].label +
-                        (i == _selectedSource ? ' ✓' : ''))),
-                ]),
-            PopupMenuButton<String>(
-              tooltip: label('محرك التشغيل', 'Playback engine'),
-              icon: const Icon(Icons.settings_input_component_rounded),
-              onSelected: (mode) {
-                if (mode != 'vlc') return;
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute<void>(
-                    builder: (_) => YacineVlcChannelPlayer(
-                      channel: widget.channel,
-                      qualityVariants: widget.qualityVariants,
-                      api: widget.api, ar: widget.ar),
-                  ));
-              },
-              itemBuilder: (_) => [
-                PopupMenuItem<String>(value: 'vlc',
-                  child: Text(label('جرّب VLC الداخلي',
-                      'Try native VLC instead'))),
-              ],
-            ),
             IconButton(
-              tooltip: label('تشغيل في مشغّل خارجي', 'Open external player'),
-              onPressed: () =>
-                  unawaited(_openExternal(YacineExternalTarget.choose)),
-              icon: const Icon(Icons.open_in_new_rounded),
-            ),
-            IconButton(
-              tooltip: label('إعدادات المشغّل', 'Player settings'),
-              onPressed: _showPlaybackSettings,
-              icon: const Icon(Icons.settings_rounded),
-            ),
-            IconButton(
-              tooltip: label('تحرير رابط الفيديو', 'Edit video URL'),
-              onPressed: _editYtvVideoUrl,
-              icon: const Icon(Icons.link_rounded)),
-            IconButton(
-              tooltip: label('تشخيص التشغيل', 'Playback diagnostics'),
-              onPressed: _showYtvDiagnostics,
-              icon: const Icon(Icons.info_outline_rounded)),
-            IconButton(
-              tooltip: label('نسخ رابط القناة بصيغة M3U', 'Copy current channel M3U'),
-              onPressed: _connecting ? null : _copyCurrentChannelM3u,
-              icon: const Icon(Icons.playlist_add_check_rounded)),
-            IconButton(
-              tooltip: label('تحديث رابط القناة', 'Refresh stream'),
-              onPressed: _connecting ? null : () => _connect(userRetry: true),
-              icon: const Icon(Icons.refresh_rounded)),
-            IconButton(
-              tooltip: label('تدوير الشاشة', 'Rotate screen'),
-              onPressed: _rotateVideo,
-              icon: const Icon(Icons.screen_rotation_rounded)),
+              tooltip: label('إعدادات المشغّل الرئيسي',
+                  'Primary player settings'),
+              icon: const Icon(Icons.tune_rounded),
+              onPressed: _showPlaybackSettings),
             IconButton(
               tooltip: label('ملء الشاشة', 'Fullscreen'),
-              onPressed: () => _setFullscreen(true),
-              icon: const Icon(Icons.fullscreen_rounded)),
+              icon: const Icon(Icons.fullscreen_rounded),
+              onPressed: () => _setFullscreen(true)),
+            PopupMenuButton<String>(
+              tooltip: label('خيارات إضافية', 'More options'),
+              icon: const Icon(Icons.more_vert_rounded),
+              onSelected: (action) {
+                switch (action) {
+                  case 'edit':
+                    unawaited(_editYtvVideoUrl());
+                    break;
+                  case 'quality':
+                    _showPlaybackSettings();
+                    break;
+                  case 'diagnostics':
+                    _showYtvDiagnostics();
+                    break;
+                  case 'copy':
+                    unawaited(_copyCurrentChannelM3u());
+                    break;
+                  case 'refresh':
+                    unawaited(_connect(userRetry: true));
+                    break;
+                  case 'rotate':
+                    unawaited(_rotateVideo());
+                    break;
+                  case 'vlc':
+                    _switchToVlc();
+                    break;
+                  case 'external':
+                    unawaited(_openExternal(YacineExternalTarget.choose));
+                    break;
+                  case 'ytv':
+                    unawaited(_openExternal(YacineExternalTarget.ytvPro));
+                    break;
+                }
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(value: 'edit',
+                  child: Text(label('تحرير رابط الفيديو وبياناته',
+                    'Edit video URL and headers'))),
+                PopupMenuItem(value: 'quality',
+                  child: Text(label('السيرفر / الجودة / أبعاد الصورة',
+                    'Server / quality / video fit'))),
+                PopupMenuItem(value: 'diagnostics',
+                  child: Text(label('تشخيص التشغيل', 'Playback diagnostics'))),
+                PopupMenuItem(value: 'refresh',
+                  child: Text(label('تجديد رابط القناة', 'Refresh channel URL'))),
+                PopupMenuItem(value: 'rotate',
+                  child: Text(label('تدوير الشاشة', 'Rotate screen'))),
+                PopupMenuItem(value: 'copy',
+                  child: Text(label('نسخ M3U', 'Copy M3U'))),
+                const PopupMenuDivider(),
+                PopupMenuItem(value: 'vlc',
+                  child: Text(label('VLC الداخلي (احتياطي)',
+                    'In-app VLC (fallback)'))),
+                PopupMenuItem(value: 'external',
+                  child: Text(label('مشغّل خارجي (اختياري)',
+                    'External player (optional)'))),
+                PopupMenuItem(value: 'ytv',
+                  child: Text(label('YTV Player Pro (خارجي)',
+                    'YTV Player Pro (external)'))),
+              ],
+            ),
           ],
         ),
         body: SafeArea(

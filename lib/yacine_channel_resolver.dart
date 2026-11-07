@@ -49,11 +49,39 @@ class YacineResolveException implements Exception {
 }
 
 class YacinePlaybackSource {
-  const YacinePlaybackSource(this.uri, this.headers, this.label, this.providerMode);
+  const YacinePlaybackSource(this.uri, this.headers, this.label, this.providerMode,
+      {this.vlcPlaylistHeaders = const <String, String>{}});
   final Uri uri;
+  /// ASCII-safe headers for Dart HTTP, the localhost relay and Media3.
   final Map<String, String> headers;
+  /// Desktop libVLC receives the *original provider-declared* Referer media
+  /// option, which may contain invisible Unicode characters. Keep this map
+  /// in memory and use it ONLY for native libVLC's http-referrer option.
+  final Map<String, String> vlcPlaylistHeaders;
   final String label;
   final Object? providerMode;
+}
+
+Map<String, String> yacineDesktopVlcHeaders(
+    Map<String, dynamic> descriptor, Map<String, String> safeHeaders) {
+  final original = descriptor['referer'];
+  if (original is! String || original.isEmpty ||
+      original.length > 2048 ||
+      RegExp(r'[\x00-\x1F\x7F]').hasMatch(original)) {
+    return Map<String, String>.unmodifiable(safeHeaders);
+  }
+  final uri = Uri.tryParse(original);
+  if (uri == null || !uri.hasAuthority || uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty ||
+      (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return Map<String, String>.unmodifiable(safeHeaders);
+  }
+  return Map<String, String>.unmodifiable({
+    ...safeHeaders,
+    // Do not percent-encode the native VLC option. The Windows working
+    // program passes the raw API field directly to libVLC.
+    'Referer': original,
+  });
 }
 
 class YacineChannelResolver {
@@ -174,7 +202,8 @@ class YacineChannelResolver {
           : 'Server ' + (found.length + 1).toString();
       found.add(YacinePlaybackSource(url,
           Map<String, String>.unmodifiable(headers), quality,
-          source['url_type']));
+          source['url_type'],
+          vlcPlaylistHeaders: yacineDesktopVlcHeaders(source, headers)));
     }
     if (found.isEmpty) {
       // Report WHY a successfully fetched descriptor has no playable source.

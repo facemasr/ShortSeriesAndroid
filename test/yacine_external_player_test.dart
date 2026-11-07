@@ -63,6 +63,19 @@ void main() {
     expect(intent.arguments?.containsKey('http-user-agent'), isFalse);
   });
 
+  test('smart YTV handoff chooses header-compatible sources only', () {
+    final requiringReferer = source('https://example.org/one.m3u8',
+        headers: {'Referer': 'https://example.org/'});
+    final direct = source('https://example.org/two.m3u8',
+        headers: {'User-Agent': 'Authorized-Agent'});
+    expect(YacineExternalPlayer.pickYtvDirectSource(
+        [requiringReferer, direct]), same(direct));
+    expect(YacineExternalPlayer.pickYtvDirectSource(
+        [requiringReferer]), isNull);
+    expect(YacineExternalPlayer.pickYtvDirectSource(
+        [source('ftp://example.org/unsafe.m3u8')]), isNull);
+  });
+
   test('YTV direct mode cannot carry Referer or private session headers', () {
     final basic = source('https://example.org/live.m3u8',
         headers: {'User-Agent': 'EGYSHOW-Test/1.0'});

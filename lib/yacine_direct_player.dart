@@ -298,7 +298,7 @@ class _DirectYacineChannelPlayerState
               YacinePlaybackSource(
                 manual.url, manual.headers,
                 label('رابط فيديو مخصص', 'Custom video URL'),
-                manual.url.path.toLowerCase().endsWith('.m3u8') ? 3 : 1,
+                manual.url.path.toLowerCase().endsWith('.m3u8') ? 3 : null,
               ),
             ];
       // Start with the best reachable server just as Windows' choose()
@@ -821,23 +821,6 @@ class _DirectYacineChannelPlayerState
               Flexible(child: Text(_sources[i].label,
                 overflow: TextOverflow.ellipsis)),
             ])),
-      ],
-    );
-  }
-
-  Widget _aspectMenu() {
-    return PopupMenuButton<BoxFit>(
-      tooltip: label('نسبة عرض الفيديو', 'Video aspect ratio'),
-      initialValue: _videoFit,
-      icon: const Icon(Icons.aspect_ratio_rounded, color: Colors.white),
-      onSelected: (fit) { _setVideoFit(fit); _revealControls(); },
-      itemBuilder: (_) => [
-        PopupMenuItem(value: BoxFit.contain,
-          child: Text(label('ملاءمة الشاشة', 'Fit screen'))),
-        PopupMenuItem(value: BoxFit.cover,
-          child: Text(label('ملء الشاشة دون تشويه', 'Fill and crop'))),
-        PopupMenuItem(value: BoxFit.fill,
-          child: Text(label('تمديد الصورة', 'Stretch video'))),
       ],
     );
   }

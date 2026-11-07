@@ -138,6 +138,12 @@ class EgyApi {
   Future<LiveChannel?> refreshProviderChannel(LiveChannel stale) =>
       _YacineDirectCatalog(client).refreshOne(stale);
 
+  /// Fetch the same live station across CURRENT quality packages from the
+  /// provider's API. Never infer a stream URL from a stored channel ID.
+  /// This checks sibling category lists only, not all channel descriptors.
+  Future<List<LiveChannel>> refreshLiveQualityVariants(LiveChannel stale) =>
+      _YacineDirectCatalog(client).refreshQualityVariants(stale);
+
   Future<Map<String, dynamic>> playerContext(String type, int id) =>
       call('/api/v1/player/context?target_type=' + type + '&target_id=' + id.toString());
   Future<Map<String, dynamic>> lease(Map<String, dynamic> source, {bool bypassCache = false, bool forceRelay = false}) =>
@@ -304,6 +310,406 @@ class _YacineDirectCatalog {
       });
     }
     return null;
+  }
+
+  static final RegExp _packageQualitySuffix = RegExp(
+    r'\s*[\[(]?\s*(?:2160|1440|1080|720|576|480|360|320|288|270|244|240|144)\s*p?\s*[\])]?\s*$|\s*[\[(]?\s*(?:4k|uhd|fhd|full[\s_-]*hd|hd|sd)\s*[\])]?\s*
+    var id = int.tryParse(providerId);
+    if (id == null || id < 1 || id > 9223372036854775807) {
+      id = 17;
+      for (final unit in providerId.codeUnits) {
+        id = ((id! * 131) + unit) & 0x7fffffff;
+      }
+      if (id == 0) id = 1;
+    }
+    while (!taken.add(id!)) {
+      id = (id + 1) & 0x7fffffff;
+      if (id == 0) id = 1;
+    }
+    return id;
+  }
+
+  Future<List<LiveChannel>> load() async {
+    final top = await _request('categories');
+    final queue = <Map<String, dynamic>>[];
+    for (final item in top) {
+      final row = asMap(item);
+      queue.add({'item': row, 'path': txt(row['name']).trim()});
+    }
+    final visited = <String>{}, seenChannels = <String>{};
+    final takenIds = <int>{};
+    final channels = <LiveChannel>[];
+    var head = 0;
+    while (head < queue.length) {
+      if (head >= 160) {
+        throw const ApiException('provider_category_limit');
+      }
+      final current = queue[head++];
+      final item = asMap(current['item']);
+      final providerCategoryId = txt(item['id']);
+      if (!RegExp(r'^\d{1,24}$').hasMatch(providerCategoryId) ||
+          !visited.add(providerCategoryId)) continue;
+      final group = txt(current['path']);
+      if (numId(item['child_count']) > 0) {
+        final children = await _request('categories/' + providerCategoryId);
+        for (final child in children) {
+          final row = asMap(child);
+          final title = txt(row['name']).trim();
+          queue.add({'item': row,
+            'path': group.isEmpty ? title : group + ' / ' + title});
+        }
+        continue;
+      }
+      final rows = await _request('categories/' + providerCategoryId + '/channels');
+      for (final entry in rows) {
+        final channel = asMap(entry);
+        final id = txt(channel['id']);
+        final name = txt(channel['name']).trim();
+        if (!RegExp(r'^\d{1,24}$').hasMatch(id) ||
+            name.isEmpty || !seenChannels.add(id)) continue;
+        final logo = Uri.tryParse(txt(channel['logo']));
+        final safeLogo = logo != null &&
+            (logo.scheme == 'https' || logo.scheme == 'http') &&
+            logo.hasAuthority && logo.userInfo.isEmpty
+            ? logo.toString() : '';
+        channels.add(LiveChannel({
+          'id': _stableId(id, takenIds),
+          'provider_id': id,
+          'name_ar': name,
+          'name_en': name,
+          'package_name': group,
+          'logo_url': safeLogo,
+        }));
+        if (channels.length >= 2500) {
+          throw const ApiException('provider_channel_limit');
+        }
+      }
+    }
+    if (channels.length < 25) {
+      throw const ApiException('provider_catalog_incomplete');
+    }
+    return channels;
+  }
+}
+,
+    caseSensitive: false,
+  );
+
+  static String _baseQualityPackage(String groupName) =>
+      groupName.replaceAll(_packageQualitySuffix, '').trim().toLowerCase();
+
+  /// Refresh quality siblings from the CURRENT provider catalog. Looking up
+  /// yesterday's variants would keep re-trying 404/empty rotated IDs.
+  /// Exact package path AND exact station name must match; do not replace
+  /// beIN SPORTS 1 with another station by a fuzzy search.
+  Future<List<LiveChannel>> refreshQualityVariants(LiveChannel stale) async {
+    final parts = stale.group.split(' / ').map((s) => s.trim())
+        .where((s) => s.isNotEmpty).toList();
+    final name = stale.title(false).trim().toLowerCase();
+    if (parts.isEmpty || name.isEmpty) return <LiveChannel>[];
+    var siblings = await _request('categories');
+    var parentPath = '';
+    for (final part in parts.take(parts.length - 1)) {
+      Map<String, dynamic>? match;
+      for (final entry in siblings) {
+        final group = asMap(entry);
+        if (txt(group['name']).trim().toLowerCase() == part.toLowerCase()) {
+          match = group;
+          break;
+        }
+      }
+      if (match == null || numId(match['child_count']) <= 0) {
+        return <LiveChannel>[];
+      }
+      final categoryId = txt(match['id']);
+      if (!RegExp(r'^\d{1,24}
+    var id = int.tryParse(providerId);
+    if (id == null || id < 1 || id > 9223372036854775807) {
+      id = 17;
+      for (final unit in providerId.codeUnits) {
+        id = ((id! * 131) + unit) & 0x7fffffff;
+      }
+      if (id == 0) id = 1;
+    }
+    while (!taken.add(id!)) {
+      id = (id + 1) & 0x7fffffff;
+      if (id == 0) id = 1;
+    }
+    return id;
+  }
+
+  Future<List<LiveChannel>> load() async {
+    final top = await _request('categories');
+    final queue = <Map<String, dynamic>>[];
+    for (final item in top) {
+      final row = asMap(item);
+      queue.add({'item': row, 'path': txt(row['name']).trim()});
+    }
+    final visited = <String>{}, seenChannels = <String>{};
+    final takenIds = <int>{};
+    final channels = <LiveChannel>[];
+    var head = 0;
+    while (head < queue.length) {
+      if (head >= 160) {
+        throw const ApiException('provider_category_limit');
+      }
+      final current = queue[head++];
+      final item = asMap(current['item']);
+      final providerCategoryId = txt(item['id']);
+      if (!RegExp(r'^\d{1,24}$').hasMatch(providerCategoryId) ||
+          !visited.add(providerCategoryId)) continue;
+      final group = txt(current['path']);
+      if (numId(item['child_count']) > 0) {
+        final children = await _request('categories/' + providerCategoryId);
+        for (final child in children) {
+          final row = asMap(child);
+          final title = txt(row['name']).trim();
+          queue.add({'item': row,
+            'path': group.isEmpty ? title : group + ' / ' + title});
+        }
+        continue;
+      }
+      final rows = await _request('categories/' + providerCategoryId + '/channels');
+      for (final entry in rows) {
+        final channel = asMap(entry);
+        final id = txt(channel['id']);
+        final name = txt(channel['name']).trim();
+        if (!RegExp(r'^\d{1,24}$').hasMatch(id) ||
+            name.isEmpty || !seenChannels.add(id)) continue;
+        final logo = Uri.tryParse(txt(channel['logo']));
+        final safeLogo = logo != null &&
+            (logo.scheme == 'https' || logo.scheme == 'http') &&
+            logo.hasAuthority && logo.userInfo.isEmpty
+            ? logo.toString() : '';
+        channels.add(LiveChannel({
+          'id': _stableId(id, takenIds),
+          'provider_id': id,
+          'name_ar': name,
+          'name_en': name,
+          'package_name': group,
+          'logo_url': safeLogo,
+        }));
+        if (channels.length >= 2500) {
+          throw const ApiException('provider_channel_limit');
+        }
+      }
+    }
+    if (channels.length < 25) {
+      throw const ApiException('provider_catalog_incomplete');
+    }
+    return channels;
+  }
+}
+).hasMatch(categoryId)) {
+        return <LiveChannel>[];
+      }
+      siblings = await _request('categories/' + categoryId);
+      parentPath = parentPath.isEmpty ? part : parentPath + ' / ' + part;
+    }
+
+    final wanted = _baseQualityPackage(parts.last);
+    final possible = <Map<String, dynamic>>[];
+    for (final entry in siblings) {
+      final group = asMap(entry);
+      if (numId(group['child_count']) > 0 ||
+          _baseQualityPackage(txt(group['name'])) != wanted) continue;
+      final groupId = txt(group['id']);
+      if (RegExp(r'^\d{1,24}
+    var id = int.tryParse(providerId);
+    if (id == null || id < 1 || id > 9223372036854775807) {
+      id = 17;
+      for (final unit in providerId.codeUnits) {
+        id = ((id! * 131) + unit) & 0x7fffffff;
+      }
+      if (id == 0) id = 1;
+    }
+    while (!taken.add(id!)) {
+      id = (id + 1) & 0x7fffffff;
+      if (id == 0) id = 1;
+    }
+    return id;
+  }
+
+  Future<List<LiveChannel>> load() async {
+    final top = await _request('categories');
+    final queue = <Map<String, dynamic>>[];
+    for (final item in top) {
+      final row = asMap(item);
+      queue.add({'item': row, 'path': txt(row['name']).trim()});
+    }
+    final visited = <String>{}, seenChannels = <String>{};
+    final takenIds = <int>{};
+    final channels = <LiveChannel>[];
+    var head = 0;
+    while (head < queue.length) {
+      if (head >= 160) {
+        throw const ApiException('provider_category_limit');
+      }
+      final current = queue[head++];
+      final item = asMap(current['item']);
+      final providerCategoryId = txt(item['id']);
+      if (!RegExp(r'^\d{1,24}$').hasMatch(providerCategoryId) ||
+          !visited.add(providerCategoryId)) continue;
+      final group = txt(current['path']);
+      if (numId(item['child_count']) > 0) {
+        final children = await _request('categories/' + providerCategoryId);
+        for (final child in children) {
+          final row = asMap(child);
+          final title = txt(row['name']).trim();
+          queue.add({'item': row,
+            'path': group.isEmpty ? title : group + ' / ' + title});
+        }
+        continue;
+      }
+      final rows = await _request('categories/' + providerCategoryId + '/channels');
+      for (final entry in rows) {
+        final channel = asMap(entry);
+        final id = txt(channel['id']);
+        final name = txt(channel['name']).trim();
+        if (!RegExp(r'^\d{1,24}$').hasMatch(id) ||
+            name.isEmpty || !seenChannels.add(id)) continue;
+        final logo = Uri.tryParse(txt(channel['logo']));
+        final safeLogo = logo != null &&
+            (logo.scheme == 'https' || logo.scheme == 'http') &&
+            logo.hasAuthority && logo.userInfo.isEmpty
+            ? logo.toString() : '';
+        channels.add(LiveChannel({
+          'id': _stableId(id, takenIds),
+          'provider_id': id,
+          'name_ar': name,
+          'name_en': name,
+          'package_name': group,
+          'logo_url': safeLogo,
+        }));
+        if (channels.length >= 2500) {
+          throw const ApiException('provider_channel_limit');
+        }
+      }
+    }
+    if (channels.length < 25) {
+      throw const ApiException('provider_catalog_incomplete');
+    }
+    return channels;
+  }
+}
+).hasMatch(groupId)) {
+        possible.add(group);
+      }
+    }
+    // Hard bound the catalog work. Most stations have 1-4 quality variants.
+    if (possible.length > 8) {
+      throw const ApiException('provider_quality_category_limit');
+    }
+
+    final found = <LiveChannel>[];
+    final seenIds = <String>{};
+    final taken = <int>{};
+    for (final group in possible) {
+      final groupName = txt(group['name']).trim();
+      final groupPath = parentPath.isEmpty
+          ? groupName : parentPath + ' / ' + groupName;
+      final channels = await _request(
+          'categories/' + txt(group['id']) + '/channels');
+      for (final entry in channels) {
+        final row = asMap(entry);
+        if (txt(row['name']).trim().toLowerCase() != name) continue;
+        final id = txt(row['id']);
+        if (!RegExp(r'^\d{1,24}
+    var id = int.tryParse(providerId);
+    if (id == null || id < 1 || id > 9223372036854775807) {
+      id = 17;
+      for (final unit in providerId.codeUnits) {
+        id = ((id! * 131) + unit) & 0x7fffffff;
+      }
+      if (id == 0) id = 1;
+    }
+    while (!taken.add(id!)) {
+      id = (id + 1) & 0x7fffffff;
+      if (id == 0) id = 1;
+    }
+    return id;
+  }
+
+  Future<List<LiveChannel>> load() async {
+    final top = await _request('categories');
+    final queue = <Map<String, dynamic>>[];
+    for (final item in top) {
+      final row = asMap(item);
+      queue.add({'item': row, 'path': txt(row['name']).trim()});
+    }
+    final visited = <String>{}, seenChannels = <String>{};
+    final takenIds = <int>{};
+    final channels = <LiveChannel>[];
+    var head = 0;
+    while (head < queue.length) {
+      if (head >= 160) {
+        throw const ApiException('provider_category_limit');
+      }
+      final current = queue[head++];
+      final item = asMap(current['item']);
+      final providerCategoryId = txt(item['id']);
+      if (!RegExp(r'^\d{1,24}$').hasMatch(providerCategoryId) ||
+          !visited.add(providerCategoryId)) continue;
+      final group = txt(current['path']);
+      if (numId(item['child_count']) > 0) {
+        final children = await _request('categories/' + providerCategoryId);
+        for (final child in children) {
+          final row = asMap(child);
+          final title = txt(row['name']).trim();
+          queue.add({'item': row,
+            'path': group.isEmpty ? title : group + ' / ' + title});
+        }
+        continue;
+      }
+      final rows = await _request('categories/' + providerCategoryId + '/channels');
+      for (final entry in rows) {
+        final channel = asMap(entry);
+        final id = txt(channel['id']);
+        final name = txt(channel['name']).trim();
+        if (!RegExp(r'^\d{1,24}$').hasMatch(id) ||
+            name.isEmpty || !seenChannels.add(id)) continue;
+        final logo = Uri.tryParse(txt(channel['logo']));
+        final safeLogo = logo != null &&
+            (logo.scheme == 'https' || logo.scheme == 'http') &&
+            logo.hasAuthority && logo.userInfo.isEmpty
+            ? logo.toString() : '';
+        channels.add(LiveChannel({
+          'id': _stableId(id, takenIds),
+          'provider_id': id,
+          'name_ar': name,
+          'name_en': name,
+          'package_name': group,
+          'logo_url': safeLogo,
+        }));
+        if (channels.length >= 2500) {
+          throw const ApiException('provider_channel_limit');
+        }
+      }
+    }
+    if (channels.length < 25) {
+      throw const ApiException('provider_catalog_incomplete');
+    }
+    return channels;
+  }
+}
+).hasMatch(id) ||
+            !seenIds.add(id)) continue;
+        final logo = Uri.tryParse(txt(row['logo']));
+        final safeLogo = logo != null &&
+            const {'http', 'https'}.contains(logo.scheme) &&
+            logo.hasAuthority && logo.userInfo.isEmpty
+            ? logo.toString() : '';
+        found.add(LiveChannel({
+          'id': _stableId(id, taken),
+          'provider_id': id,
+          'name_ar': txt(row['name']).trim(),
+          'name_en': txt(row['name']).trim(),
+          'package_name': groupPath,
+          'logo_url': safeLogo,
+        }));
+      }
+    }
+    return found;
   }
 
   int _stableId(String providerId, Set<int> taken) {

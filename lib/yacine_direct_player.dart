@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'native_api.dart';
 import 'native_banner_ads.dart';
@@ -17,6 +18,8 @@ import 'yacine_vlc_player.dart';
 import 'yacine_channel_groups.dart';
 import 'yacine_external_player.dart';
 import 'yacine_playback_settings.dart';
+import 'yacine_ytv_editor.dart';
+import 'yacine_ytv_link_presets.dart';
 
 /// Direct, device-side playback for provider-authorized HLS channels.
 /// No EGYSHOW VPS media relay, DRM circumvention, stored signed URLs or
@@ -53,6 +56,10 @@ class _DirectYacineChannelPlayerState
   double _volume = 1.0;
   double _speed = 1.0;
   bool _externalOpening = false;
+  YtvManualLink? _manualLink;
+  String? _playerErrorCode;
+  static const _fitPreference = 'egyshow_ytv_internal_fit_v1';
+  static const _speedPreference = 'egyshow_ytv_internal_speed_v1';
   BoxFit _videoFit = BoxFit.contain;
   bool _landscapeLeft = true;
   bool _refreshingSources = false;
@@ -91,7 +98,88 @@ class _DirectYacineChannelPlayerState
     // overload the provider and invalidate good streams unnecessarily.
     _sourceRefresh = Timer.periodic(const Duration(seconds: 60),
         (_) => unawaited(_refreshSources()));
-    unawaited(_connect());
+    unawaited(_restoreYtvPreferences());
+  }
+
+  Future<void> _restoreYtvPreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final fit = prefs.getString(_fitPreference);
+      final rate = prefs.getDouble(_speedPreference);
+      final link = await YtvManualLinkStore.load(widget.channel.providerId);
+      if (_disposed || !mounted) return;
+      if (fit == 'cover') _videoFit = BoxFit.cover;
+      if (fit == 'fill') _videoFit = BoxFit.fill;
+      if (rate != null && rate >= 0.5 && rate <= 2.0) _speed = rate;
+      _manualLink = link;
+    } catch (_) {
+      // Playback still works if local user settings are unavailable.
+    }
+    if (!_disposed && mounted) unawaited(_connect());
+  }
+
+  void _setVideoFit(BoxFit fit) {
+    if (!mounted || _disposed) return;
+    setState(() => _videoFit = fit);
+    final value = fit == BoxFit.cover ? 'cover'
+        : fit == BoxFit.fill ? 'fill' : 'contain';
+    unawaited(SharedPreferences.getInstance()
+        .then((prefs) => prefs.setString(_fitPreference, value)));
+  }
+
+  String _classifyPlaybackError(Object error) {
+    // Never display or export provider-signed URLs and credentials.
+    final text = error.toString().toLowerCase();
+    if (text.contains('403')) return 'http_403';
+    if (text.contains('404')) return 'http_404';
+    if (text.contains('widevine') || text.contains('drm')) return 'drm';
+    if (text.contains('decoder') || text.contains('codec')) return 'decoder';
+    if (text.contains('timeout')) return 'timeout';
+    if (text.contains('network') || text.contains('connection') ||
+        text.contains('unknownhost')) return 'network';
+    return 'player_error';
+  }
+
+  Future<void> _editYtvVideoUrl() async {
+    final result = await YtvVideoUrlEditor.open(context, ar: widget.ar,
+        providerId: widget.channel.providerId, current: _manualLink);
+    if (!mounted || _disposed || result == null) return;
+    _manualLink = result.useProvider ? null : result.link;
+    _sources = const [];
+    _selectedSource = 0;
+    unawaited(_connect(userRetry: true));
+  }
+
+  void _showYtvDiagnostics() {
+    final player = _video;
+    final text = [
+      'Engine: EGYSHOW TV Pro / Android Media3',
+      'Channel ID: ' + _currentProviderId,
+      'Server: ' + (_activeLabel ?? '-'),
+      'State: ' + (_connecting ? 'connecting'
+          : player?.value.isBuffering == true ? 'buffering'
+          : player?.value.isPlaying == true ? 'playing' : 'stopped'),
+      'Error: ' + (_playerErrorCode ?? _lastProbeFailure ?? 'none'),
+      'Manual source: ' + (_manualLink == null ? 'no' : 'yes'),
+      'HTTP User-Agent: ' + (_activeHeaders?.containsKey('User-Agent') == true
+          ? 'provided' : 'not provided'),
+      'HTTP Referer: ' + (_activeHeaders?.containsKey('Referer') == true
+          ? 'provided' : 'not provided'),
+    ].join('\n');
+    showDialog<void>(context: context, builder: (dialog) => AlertDialog(
+      title: Text(label('تشخيص مشغّل القنوات', 'Live player diagnostics')),
+      content: SelectableText(text),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: text));
+            if (dialog.mounted) Navigator.pop(dialog);
+          },
+          child: Text(label('نسخ التقرير', 'Copy report'))),
+        TextButton(onPressed: () => Navigator.pop(dialog),
+          child: Text(label('إغلاق', 'Close'))),
+      ],
+    ));
   }
 
   /// A 404 means this provider station ID may have rotated; re-discover

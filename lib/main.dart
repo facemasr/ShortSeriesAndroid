@@ -12,6 +12,11 @@ import 'native_sections.dart';
 import 'native_home_sections.dart';
 import 'native_visit_analytics.dart';
 import 'in_app_updates.dart';
+import 'yacine_direct_player.dart';
+import 'egy_tv_sport_hub.dart';
+import 'yacine_catalog_cache.dart';
+import 'yacine_channel_groups.dart';
+import 'egyshow_global_ads.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -124,7 +129,10 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   Map<String, List<Media>> homeData = {};
   final Map<String, List<Media>> catalogs = {};
   final Map<String, int> pages = {};
+  static const String _liveCatalogKey = 'egyshow_live_catalog_metadata_v1';
   List<LiveChannel> channels = [];
+  DateTime? _catalogLastUpdated;
+  String channelQuery = '';
   List<Media> searchResults = [];
   String query = '';
   bool busy = true, listBusy = false, searchBusy = false;
@@ -154,6 +162,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     try {
       prefs = await SharedPreferences.getInstance();
       ar = prefs?.getBool('language_ar') ?? true;
+      channels = decodeYacineCatalog(prefs?.getString(_liveCatalogKey));
       for (final row in prefs?.getStringList('favorites') ?? <String>[]) {
         try {
           final media = Media(asMap(jsonDecode(row)));
@@ -207,7 +216,9 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     if (next >= 1 && next <= 3) {
       final t = ['movie', 'series', 'short_series'][next - 1];
       if (!catalogs.containsKey(t)) await _loadCatalog(t, fresh: true);
-    } else if (next == 4 && channels.isEmpty) {
+    } else if (next == 4 || next == 9) {
+      // EGY TV Sport Windows refreshes its provider catalogue. Never
+      // trust an indefinitely cached channel ID after provider rotations.
       await _loadLive();
     }
   }
@@ -228,13 +239,41 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _loadLive() async {
+  Future<void> _loadLive({bool force = false}) async {
+    // Preserve the locally cached catalog until the user requests a refresh.
+    // Actual playback sessions continue to resolve each channel on demand.
+    // Cache is only a fast initial display. Every visit after 10 minutes
+    // resolves a fresh provider catalogue, preserving saved favourites.
+    if (!force && channels.isNotEmpty && _catalogLastUpdated != null &&
+        DateTime.now().difference(_catalogLastUpdated!) <
+            const Duration(minutes: 10)) return;
+    if (listBusy) return;
     if (mounted) setState(() { listBusy = true; error = ''; });
     try {
       final items = await api.live();
-      if (mounted) setState(() { channels = items; listBusy = false; });
+      if (items.isEmpty) throw const ApiException('provider_catalog_empty');
+      if (!mounted) return;
+      setState(() {
+        channels = items;
+        _catalogLastUpdated = DateTime.now();
+        listBusy = false;
+        error = '';
+      });
+      try {
+        await prefs?.setString(_liveCatalogKey, encodeYacineCatalog(items));
+      } catch (_) {
+        // Storage errors must not block playback of a fetched catalog.
+      }
     } catch (e) {
-      if (mounted) setState(() { error = e.toString(); listBusy = false; });
+      if (mounted) setState(() {
+        // Cached channels may have IDs which rotated since they were saved.
+        // Never conceal a failed live refresh when stale entries remain.
+        error = channels.isEmpty ? e.toString()
+            : (ar
+              ? 'تعذر تحديث فهرس القنوات. المعروض نسخة محفوظة؛ سيتم البحث عن معرّف القناة مباشرة عند تشغيلها.'
+              : 'Live catalog refresh failed. Showing saved entries; each station will be checked again on play.');
+        listBusy = false;
+      });
     }
   }
 
@@ -294,12 +333,47 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   void _play(String type, int id, String title, [String mediaKey = '']) {
+    if (type == 'channel') {
+      LiveChannel? match;
+      for (final channel in channels) {
+        if (channel.id == id) { match = channel; break; }
+      }
+      final directChannel = match;
+      if (directChannel != null && directChannel.providerId.isNotEmpty) {
+        final groups = groupYacineChannels(channels);
+        final variants = <LiveChannel>[];
+        for (final group in groups) {
+          if (group.variants.any((v) =>
+              v.providerId == directChannel.providerId)) {
+            variants.addAll(group.variants);
+            break;
+          }
+        }
+        unawaited(_playLiveChannel(directChannel, variants));
+        return;
+      }
+    }
+    // Movies, episodes, and legacy channels retain the existing site player.
     final parentId = type == 'episode'
         ? (int.tryParse(mediaKey) ?? id) : id;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => NativePlayer(
       type: type, id: id, mediaId: parentId, title: title,
       token: api.token,
     )));
+  }
+
+  /// A single internal TV player for every channel and quality. Media3
+  /// receives newly resolved provider URLs and headers from the device-side
+  /// source service. No installed external player is needed.
+  Future<void> _playLiveChannel(
+      LiveChannel channel, List<LiveChannel> qualityVariants) async {
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(MaterialPageRoute<void>(
+      builder: (_) => DirectYacineChannelPlayer(
+        channel: channel, qualityVariants: qualityVariants,
+        api: api, ar: ar,
+      ),
+    ));
   }
 
   Future<void> _signIn(bool register, String email, String password, String name) async {
@@ -337,7 +411,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       Text(error, textAlign: TextAlign.center,
           style: const TextStyle(color: Colors.orangeAccent)),
       TextButton.icon(onPressed: () { if (tab == 0) _loadHome();
-          else if (tab == 4) _loadLive();
+          else if (tab == 4 || tab == 9) _loadLive();
           else if (tab > 0 && tab < 4) _loadCatalog(
               ['movie','series','short_series'][tab - 1], fresh: true);
         }, icon: const Icon(Icons.refresh), label: Text(tr(ar, 'إعادة المحاولة', 'Retry'))),
@@ -384,11 +458,25 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
             ])),
         ])),
       EgyshowBannerAd(api: api, placement: 'home'),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.nativeWidget),
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Color(0xFF0B5E65), Color(0xFF132333)]),
+            borderRadius: BorderRadius.circular(17)),
+          child: ListTile(
+            leading: const Icon(Icons.sports_soccer_rounded, color: Color(0xFF12D6C0), size: 35),
+            title: const Text('EGY TV SPORT', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1)),
+            subtitle: Text(tr(ar, 'قنوات الرياضة والبث المباشر', 'Sports and live TV channels')),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => _select(9))),
+      ),
       _rail(tr(ar, 'الأكثر مشاهدة', 'Trending'), homeData['trending'] ?? []),
       _rail(tr(ar, 'أضيف حديثًا', 'Just added'), homeData['latest'] ?? []),
       HomeExtras(api: api, ar: ar, openMedia: _open,
         play: _play, openTab: (section) { _select(section); }),
       EgyshowBannerAd(api: api, placement: 'banner'),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.adaptiveAads),
       const SizedBox(height: 24),
     ]));
   }
@@ -396,6 +484,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   Widget _grid(List<Media> data, {bool paginate = false, String type = ''}) =>
       ListView(children: [
         EgyshowBannerAd(api: api, placement: 'banner'),
+        const EgyshowAdPlacement(format: EgyshowAdFormat.adaptiveAads),
         if (error.isNotEmpty) _error(),
         Padding(padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
           child: Text(paginate ? categoryTitle(type, ar) :
@@ -421,36 +510,123 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
             child: CircularProgressIndicator())),
       ]);
 
-  Widget _live() => RefreshIndicator(onRefresh: _loadLive,
-    child: ListView(children: [
-      EgyshowBannerAd(api: api, placement: 'banner'),
-      if (error.isNotEmpty) _error(),
-      Padding(padding: const EdgeInsets.all(16),
-        child: Text(tr(ar, 'القنوات المباشرة', 'Live TV'),
-          style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900))),
-      if (listBusy && channels.isEmpty) const Center(child: CircularProgressIndicator()),
-      GridView.builder(
-        shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2, childAspectRatio: 1.25, mainAxisSpacing: 10,
-          crossAxisSpacing: 10),
-        itemCount: channels.length,
-        itemBuilder: (_, i) => InkWell(
-          onTap: () => _play('channel', channels[i].id, channels[i].title(ar)),
-          child: Container(
-            decoration: BoxDecoration(color: panel,
-              borderRadius: BorderRadius.circular(12)),
-            padding: const EdgeInsets.all(12),
-            child: Column(children: [
-              Expanded(child: Art(channels[i].logo, fit: BoxFit.contain)),
-              const SizedBox(height: 6),
-              Text(channels[i].title(ar), maxLines: 1, overflow: TextOverflow.ellipsis),
-              const Icon(Icons.play_arrow_rounded, color: red),
-            ])),
-          ),
+  void _openLiveGroup(YacineQualityGroup group) {
+    if (group.variants.length == 1) {
+      final c = group.variants.single;
+      _play('channel', c.id, c.title(ar));
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: panel,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * .75),
+          child: ListView(shrinkWrap: true, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              child: Text(group.title(ar), style: const TextStyle(
+                fontSize: 18, fontWeight: FontWeight.w800))),
+            ListTile(
+              leading: const Icon(Icons.auto_awesome_rounded),
+              title: Text(tr(ar, 'جودة تلقائية (720p إن توفرت)',
+                  'Auto quality (720p when available)')),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                final c = group.preferred;
+                _play('channel', c.id, c.title(ar));
+              },
+            ),
+            for (final c in group.variants)
+              ListTile(
+                leading: const Icon(Icons.hd_outlined),
+                title: Text(yacineChannelQuality(c) == null
+                  ? tr(ar, 'جودة غير محددة', 'Unknown quality')
+                  : yacineChannelQuality(c).toString() + 'p'),
+                subtitle: Text(group.category),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _play('channel', c.id, c.title(ar));
+                },
+              ),
+          ]),
         ),
-    ]));
+      ),
+    );
+  }
+
+  Widget _live() {
+    final grouped = groupYacineChannels(channels);
+    final search = channelQuery.trim().toLowerCase();
+    final filtered = search.isEmpty ? grouped : grouped.where((group) =>
+        (group.title(ar) + ' ' + group.category)
+            .toLowerCase().contains(search)).toList();
+    return Column(children: [
+      EgyshowBannerAd(api: api, placement: 'banner'),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.partnerScript, compact: true),
+      Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: TextField(
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.search),
+            hintText: tr(ar, 'ابحث في جميع القنوات', 'Search live channels'),
+            border: const OutlineInputBorder(),
+          ),
+          onChanged: (value) => setState(() => channelQuery = value),
+        )),
+      if (error.isNotEmpty) _error(),
+      Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Align(alignment: AlignmentDirectional.centerStart,
+          child: Text(tr(ar, 'القنوات المباشرة', 'Live TV') +
+            ' · ' + filtered.length.toString(),
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)))),
+      Expanded(child: RefreshIndicator(onRefresh: () => _loadLive(force: true),
+        child: listBusy && channels.isEmpty
+          ? ListView(children: const [
+              SizedBox(height: 180),
+              Center(child: CircularProgressIndicator()),
+            ])
+          : GridView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2, childAspectRatio: 1.15,
+                mainAxisSpacing: 10, crossAxisSpacing: 10),
+              itemCount: filtered.length,
+              itemBuilder: (_, i) {
+                final group = filtered[i];
+                final channel = group.preferred;
+                return InkWell(
+                  onTap: () => _openLiveGroup(group),
+                  child: Container(
+                    decoration: BoxDecoration(color: panel,
+                      borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.all(12),
+                    child: Column(children: [
+                      Expanded(child: Art(channel.logo, fit: BoxFit.contain)),
+                      const SizedBox(height: 6),
+                      Text(group.title(ar), maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                      if (group.category.isNotEmpty)
+                        Text(group.variants.length > 1
+                            ? group.qualities.map((q) => q.toString() + 'p').join(' · ')
+                            : group.category, maxLines: 1,
+                          style: const TextStyle(
+                            fontSize: 10, color: Colors.white54),
+                          overflow: TextOverflow.ellipsis),
+                      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                         const Icon(Icons.play_arrow_rounded, color: red),
+                         const SizedBox(width: 16),
+                       ]),
+                    ]),
+                  ),
+                );
+              },
+            ))),
+    ]);
+  }
 
   Widget _profile() {
     final name = txt(user?['display_name']).isNotEmpty
@@ -487,6 +663,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
         onTap: () => _open(m),
       )),
       const SizedBox(height: 24),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.partnerScript),
       Text(tr(ar, 'الإعدادات', 'Settings'),
         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
       SwitchListTile(
@@ -548,6 +725,11 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       final type = ['movie', 'series', 'short_series'][tab - 1];
       body = _grid(catalogs[type] ?? [], paginate: true, type: type);
     } else if (tab == 4) body = _live();
+    else if (tab == 9) body = EgyTvSportHub(
+      api: api, ar: ar, channels: channels, loading: listBusy,
+      onRefresh: () => _loadLive(force: true),
+      onOpen: (channel) => _play('channel', channel.id, channel.title(ar)),
+    );
     else if (tab == 5 || tab == 6) body = WebsiteSection(
       key: ValueKey('section-' + tab.toString() + (ar ? '-ar' : '-en')),
       kind: tab == 5 ? 'matches' : 'youtube', ar: ar, api: api);
@@ -564,6 +746,10 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
               onPressed: () => setState(() { tab = isSearch ? 0 : 8; error = ''; }),
               icon: Icon(isSearch ? Icons.close : Icons.search_rounded)),
             IconButton(
+              tooltip: 'EGY TV SPORT',
+              onPressed: () => _select(9),
+              icon: const Icon(Icons.live_tv_rounded, color: Color(0xFF12D6C0))),
+            IconButton(
               tooltip: tr(ar, 'المباريات','Matches'),
               onPressed: () => _select(5),
               icon: const Icon(Icons.sports_soccer_outlined)),
@@ -578,18 +764,24 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
         body: body,
         bottomNavigationBar: SafeArea(
           top: false,
-          child: SizedBox(height: 75,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            EgyshowAdPlacement(
+              key: const ValueKey('egyshow-global-footer-ad'),
+              format: EgyshowAdFormat.leaderboard, compact: true, ar: ar),
+            SizedBox(height: 75,
             child: ListView(scrollDirection: Axis.horizontal, children: [
               _navItem(0, Icons.home_outlined, tr(ar, 'الرئيسية', 'Home')),
               _navItem(1, Icons.movie_outlined, tr(ar, 'أفلام', 'Movies')),
               _navItem(2, Icons.tv_outlined, tr(ar, 'مسلسلات', 'Series')),
               _navItem(3, Icons.smart_display_outlined, tr(ar, 'قصيرة', 'Shorts')),
               _navItem(4, Icons.live_tv_outlined, tr(ar, 'مباشر', 'Live')),
+              _navItem(9, Icons.sports_soccer_rounded, 'EGY TV Sport'),
               _navItem(5, Icons.sports_soccer_outlined, tr(ar, 'مباريات', 'Matches')),
               _navItem(6, Icons.play_circle_outline, 'YouTube'),
               _navItem(7, Icons.person_outline, tr(ar, 'حسابي', 'Profile')),
             ]),
-          ),
+            ),
+          ]),
         ),
       ),
     );
@@ -704,6 +896,7 @@ class _NativeDetailsState extends State<NativeDetails> {
               gradient: LinearGradient(colors: [dark, Colors.transparent],
               begin: Alignment.bottomCenter, end: Alignment.center))),
           ])),
+          EgyshowAdPlacement(format: EgyshowAdFormat.nativeWidget, ar: ar),
           Padding(padding: const EdgeInsets.all(16),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(m.title(ar), style: const TextStyle(fontSize: 26,

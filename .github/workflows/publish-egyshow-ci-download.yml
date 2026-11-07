@@ -1,0 +1,53 @@
+name: Publish EGYSHOW Android CI APK as direct download
+on:
+  push:
+    branches:
+      - feature/egyshow-direct-yacine-channels-20261104
+    paths:
+      - .github/workflows/publish-egyshow-ci-download.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release-ci-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      SOURCE_RUN: "42048975518"
+      ARTIFACT: "EGYSHOW-CI-APK-REQUIRES-SERVER-SIGNING"
+      VERSION_TAG: "egyshow-android-v2.0.17-ci-preview"
+    steps:
+      - name: Retrieve successfully built GitHub Actions APK
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          gh run download "$SOURCE_RUN" --repo "$REPO" -n "$ARTIFACT" -D artifact
+          test -s artifact/app-release.apk
+          ls -lh artifact/app-release.apk
+      - name: Publish clearly labeled testing-only APK
+        run: |
+          set -euo pipefail
+          cp artifact/app-release.apk artifact/EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.apk
+          sha256sum artifact/EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.apk
+          (cd artifact && zip -9 -q EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.zip EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.apk)
+          ls -lh artifact/EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.zip
+          if ! gh release view "$VERSION_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$VERSION_TAG" \
+              --repo "$REPO" --target "${{ github.sha }}" --prerelease \
+              --title "EGYSHOW Android v2.0.17 - ZIP CI TEST ONLY (not official update)" \
+              --notes "Download ZIP, extract APK, and install only in a separate test environment if Android accepts it. v2.0.17 Build 25 is NOT production-signed and is not an update over the existing EGYSHOW install. Playback tests on an Android emulator have not fully passed."
+          fi
+          for attempt in 1 2 3; do
+            if gh release upload "$VERSION_TAG" artifact/EGYSHOW_Android_v2.0.17_CI_TEST_ONLY.zip --repo "$REPO" --clobber; then
+              echo "Preview ZIP published successfully."
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep 8
+          done
+          gh release edit "$VERSION_TAG" --repo "$REPO" --draft=false --prerelease
+          gh release view "$VERSION_TAG" --repo "$REPO" --json url,assets

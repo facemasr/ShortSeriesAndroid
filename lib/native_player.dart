@@ -4,6 +4,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'egyshow_global_ads.dart';
 
 /// Only the video screen embeds EGYSHOW's existing player.
 /// Catalog, search, accounts, and episode listings remain native Flutter.
@@ -253,8 +254,12 @@ class NativePlayer extends StatelessWidget {
       title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
       backgroundColor: Colors.black,
     ),
-    body: SafeArea(child: EgyshowSitePlayer(
-      type: type, id: id, mediaId: mediaId,
-      title: title, token: token)),
+    body: SafeArea(child: Column(children: [
+      Expanded(child: EgyshowSitePlayer(
+        type: type, id: id, mediaId: mediaId,
+        title: title, token: token)),
+      const EgyshowAdPlacement(format: EgyshowAdFormat.adaptiveAads,
+        compact: true),
+    ])),
   );
 }

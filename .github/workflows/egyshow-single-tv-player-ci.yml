@@ -1,0 +1,26 @@
+name: EGYSHOW single TV player checks
+on:
+  push:
+    branches:
+      - fix/egyshow-one-internal-tv-player-20261107
+  pull_request:
+    branches:
+      - feature/egyshow-direct-yacine-channels-20261104
+permissions:
+  contents: read
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        run: flutter pub get
+      - name: Analyze single TV player route
+        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_playback_settings.dart lib/egy_tv_sport_hub.dart
+      - name: Test single-engine routing and live source recovery
+        run: flutter test test/yacine_single_player_policy_test.dart test/yacine_provider_id_recovery_test.dart test/yacine_live_quality_variants_test.dart test/yacine_channel_resolver_test.dart

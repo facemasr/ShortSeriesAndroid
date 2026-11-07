@@ -18,9 +18,28 @@ Map<String, dynamic> _localMap(Object? value) {
   }
   return result;
 }
-List<dynamic> _localList(Object? value) =>
-    value is List ? value : <dynamic>[];
 String _localText(Object? value) => value?.toString() ?? '';
+
+/// Accept the provider's common, bounded JSON envelopes without interpreting
+/// unrelated metadata fields as media. A genuine [] is different from an
+/// unexpected response schema: report those failures separately.
+List<dynamic>? yacineDescriptorRows(Object? value, [int depth = 0]) {
+  if (depth >= 6) return null;
+  if (value is List) return value;
+  if (value is! Map) return null;
+  final map = _localMap(value);
+  if (map.containsKey('url')) return <dynamic>[map];
+
+  const keys = <String>[
+    'data', 'sources', 'streams', 'servers', 'items', 'result', 'playback',
+  ];
+  for (final key in keys) {
+    if (!map.containsKey(key)) continue;
+    final rows = yacineDescriptorRows(map[key], depth + 1);
+    if (rows != null) return rows;
+  }
+  return null;
+}
 
 bool _supportedMediaUrl(Uri url, Object? providerMode) {
   final path = url.path.toLowerCase();
@@ -148,7 +167,12 @@ class YacineChannelResolver {
       throw const YacineResolveException('provider_api_unavailable');
     }
     final raw = _decode(response.bodyBytes, response.headers['t']);
-    final rows = _localList(raw['data']);
+    final rows = yacineDescriptorRows(raw['data']);
+    if (rows == null) {
+      // Unknown schema is not evidence that the provider has zero streams.
+      // Do not loop over quality variants for an unrecognized response.
+      throw const YacineResolveException('provider_data_schema_unsupported');
+    }
     final found = <YacinePlaybackSource>[];
     var invalidUrls = 0;
     var unsupportedFormats = 0;

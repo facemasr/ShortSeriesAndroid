@@ -36,4 +36,40 @@ void main() {
       manualSource: false, healthyPlayer: false,
     ), isFalse);
   });
+  test('beIN SPORTS from the API prefers the working desktop VLC engine', () {
+    expect(yacinePreferEmbeddedVlcForProvider(
+      channelName: 'beIN SPORTS 1',
+      packageName: 'beIN SPORTS (720P)',
+      sourceCount: 1, manualSource: false, alreadyPlaying: false,
+    ), isTrue);
+  });
+
+  test('beIN XTRA quality category can use libVLC without affecting MBC', () {
+    expect(yacinePreferEmbeddedVlcForProvider(
+      channelName: 'beIN XTRA 1',
+      packageName: 'beIN SPORTS (1080P)',
+      sourceCount: 1, manualSource: false, alreadyPlaying: false,
+    ), isTrue);
+    expect(yacinePreferEmbeddedVlcForProvider(
+      channelName: 'MBC 1',
+      packageName: 'MBC CHANNELS',
+      sourceCount: 1, manualSource: false, alreadyPlaying: false,
+    ), isFalse);
+  });
+
+  test('never use beIN decoder preference without a usable source', () {
+    expect(yacinePreferEmbeddedVlcForProvider(
+      channelName: 'beIN SPORTS 1', packageName: 'beIN SPORTS (720P)',
+      sourceCount: 0, manualSource: false, alreadyPlaying: false,
+    ), isFalse);
+    expect(yacinePreferEmbeddedVlcForProvider(
+      channelName: 'beIN SPORTS 1', packageName: 'beIN SPORTS (720P)',
+      sourceCount: 1, manualSource: false, alreadyPlaying: true,
+    ), isFalse);
+    expect(yacinePreferEmbeddedVlcForProvider(
+      channelName: 'beIN SPORTS 1', packageName: 'beIN SPORTS (720P)',
+      sourceCount: 1, manualSource: true, alreadyPlaying: false,
+    ), isFalse);
+  });
+
 }

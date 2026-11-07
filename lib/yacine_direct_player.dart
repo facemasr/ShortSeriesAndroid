@@ -95,6 +95,7 @@ class _DirectYacineChannelPlayerState
   bool _disposed = false;
   bool _switchingVariant = false;
   late String _currentProviderId;
+  late LiveChannel _resolvedStation;
   Duration? _lastPosition;
   DateTime _lastAdvance = DateTime.now();
 
@@ -105,6 +106,7 @@ class _DirectYacineChannelPlayerState
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _currentProviderId = widget.initialProviderId ?? widget.channel.providerId;
+    _resolvedStation = widget.channel;
     _watchdog = Timer.periodic(const Duration(seconds: 6), (_) => _checkPlayback());
     // Refresh only the actively viewed channel; polling 675 channels would
     // overload the provider and invalidate good streams unnecessarily.
@@ -247,7 +249,7 @@ class _DirectYacineChannelPlayerState
       if (!yacineShouldRefreshCatalogFor(error.reason)) rethrow;
       _resolutionStage = 'checking_live_channel_catalog';
       _catalogRecovery = 'searching_exact_station';
-      final updated = await widget.api.refreshProviderChannel(widget.channel);
+      final updated = await widget.api.refreshProviderChannel(_resolvedStation);
       if (updated == null) {
         _catalogRecovery = 'station_not_found_in_live_catalog';
         if (error.reason == 'provider_api_http_404') {
@@ -263,6 +265,7 @@ class _DirectYacineChannelPlayerState
         rethrow;
       }
       _currentProviderId = updated.providerId;
+      _resolvedStation = updated;
       _catalogRecovery = 'updated_provider_id';
       _resolutionStage = 'requesting_fresh_channel';
       return operation(_currentProviderId);
@@ -374,12 +377,13 @@ class _DirectYacineChannelPlayerState
       // request its media descriptor. Only hand proven sources to the player.
       final stationResult = manual == null && preloadedSources == null
           ? await YacineLiveSourceService(widget.api, _channelClient)
-              .resolve(widget.channel,
+              .resolve(_resolvedStation,
                   preferredProviderId: _currentProviderId,
                   preferredSourceIndex: preferredSource)
           : null;
       if (stationResult != null) {
         _currentProviderId = stationResult.channel.providerId;
+        _resolvedStation = stationResult.channel;
         _catalogRecovery = stationResult.recovery;
         preferredSource = stationResult.sourceIndex;
       }
@@ -596,7 +600,7 @@ class _DirectYacineChannelPlayerState
     _resolutionStage = 'searching_fresh_quality_sources';
     List<LiveChannel> fresh;
     try {
-      fresh = await widget.api.refreshLiveQualityVariants(widget.channel)
+      fresh = await widget.api.refreshLiveQualityVariants(_resolvedStation)
           .timeout(const Duration(seconds: 20));
     } catch (_) {
       _catalogRecovery = 'fresh_quality_catalog_unavailable';
@@ -909,7 +913,7 @@ class _DirectYacineChannelPlayerState
         ? List<YacinePlaybackSource>.unmodifiable(_sources) : null;
     Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
       builder: (_) => YacineVlcChannelPlayer(
-        channel: LiveChannel({...widget.channel.raw,
+        channel: LiveChannel({..._resolvedStation.raw,
           'provider_id': _currentProviderId}),
         qualityVariants: widget.qualityVariants,
         initialProviderId: _currentProviderId,

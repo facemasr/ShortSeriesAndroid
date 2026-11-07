@@ -62,7 +62,7 @@ class YacineLiveSourceService {
 
     void enqueue(LiveChannel channel) {
       final id = channel.providerId;
-      if (RegExp(r'^\d{1,24}.hasMatch(id) &&
+      if (RegExp(r'^\d{1,24}$').hasMatch(id) &&
           _sameStation(station, channel) &&
           !candidates.any((candidate) => candidate.providerId == id)) {
         candidates.add(channel);

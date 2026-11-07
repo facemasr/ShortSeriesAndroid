@@ -417,6 +417,23 @@ class _DirectYacineChannelPlayerState
       _resolvedSourceCount = sources.length;
       _lastSourceCheck = DateTime.now();
       _sources = sources;
+      // The working EGY TV Sport Windows player begins beIN with libVLC.
+      // Keep stale-ID recovery and current API source discovery on this
+      // device. Only beIN switches engines: all other channels stay Media3.
+      if (yacinePreferEmbeddedVlcForProvider(
+          channelName: widget.channel.title(false),
+          packageName: widget.channel.group,
+          sourceCount: sources.length,
+          manualSource: manual != null,
+          alreadyPlaying: retainCurrent) && !_switchingVariant) {
+        connected = true;
+        _switchingVariant = true;
+        _resolutionStage = 'handing_provider_source_to_vlc';
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_disposed) _switchToVlc(automatic: true);
+        });
+        return;
+      }
       final indices = [
         if (preferredSource >= 0 && preferredSource < sources.length) preferredSource,
         for (var i = 0; i < sources.length; i++)

@@ -126,13 +126,13 @@ jobs:
         run: |
           set -euo pipefail
           test -s preview/app-release.apk
-          cp preview/app-release.apk preview/EGYSHOW_Android_v2.0.31_TEST_ONLY.apk
-          (cd preview && zip -q -9 EGYSHOW_Android_v2.0.31_TEST_ONLY.zip EGYSHOW_Android_v2.0.31_TEST_ONLY.apk)
-          TAG=egyshow-android-v2.0.31-ci-preview
+          cp preview/app-release.apk preview/EGYSHOW_Android_v2.0.32_TEST_ONLY.apk
+          (cd preview && zip -q -9 EGYSHOW_Android_v2.0.32_TEST_ONLY.zip EGYSHOW_Android_v2.0.32_TEST_ONLY.apk)
+          TAG=egyshow-android-v2.0.32-ci-preview
           if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "$REPO" --target "$SHA" \
               --prerelease \
-              --title "EGYSHOW Android 2.0.31 - test build, not an official update" \
+              --title "EGYSHOW Android 2.0.32 - test build, not an official update" \
               --notes "This ZIP contains a CI-built APK with on-device API headers and an HLS local relay modeled on EGY TV Sport Windows. This is NOT signed with the original production key, NOT an in-place update, and NOT proof of successful real-channel playback on a physical Android device."
           fi
-          gh release upload "$TAG" preview/EGYSHOW_Android_v2.0.31_TEST_ONLY.zip --repo "$REPO" --clobber
+          gh release upload "$TAG" preview/EGYSHOW_Android_v2.0.32_TEST_ONLY.zip --repo "$REPO" --clobber

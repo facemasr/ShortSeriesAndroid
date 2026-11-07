@@ -14,11 +14,8 @@ import 'yacine_vlc_m3u.dart';
 import 'yacine_stream_probe.dart';
 import 'yacine_stream_renewal.dart';
 import 'yacine_android_channel_service.dart';
-import 'yacine_vlc_player.dart';
-import 'yacine_decoder_fallback.dart';
 import 'yacine_live_source_service.dart';
 import 'yacine_channel_groups.dart';
-import 'yacine_external_player.dart';
 import 'yacine_playback_settings.dart';
 import 'yacine_ytv_editor.dart';
 import 'yacine_ytv_link_presets.dart';
@@ -61,7 +58,6 @@ class _DirectYacineChannelPlayerState
   bool _showControls = true;
   double _volume = 1.0;
   double _speed = 1.0;
-  bool _externalOpening = false;
   YtvManualLink? _manualLink;
   String? _playerErrorCode;
   String _resolutionStage = 'initializing';
@@ -369,7 +365,6 @@ class _DirectYacineChannelPlayerState
     }
     if (mounted) setState(() { _busy = !retainCurrent; _failure = null; });
     var connected = false;
-    var media3Attempted = false;
     var shouldRefreshLiveQualities = false;
     try {
       final manual = _manualLink;
@@ -407,23 +402,8 @@ class _DirectYacineChannelPlayerState
       _resolvedSourceCount = sources.length;
       _lastSourceCheck = DateTime.now();
       _sources = sources;
-      // The working EGY TV Sport Windows player begins beIN with libVLC.
-      // Keep stale-ID recovery and current API source discovery on this
-      // device. Only beIN switches engines: all other channels stay Media3.
-      if (yacinePreferEmbeddedVlcForProvider(
-          channelName: widget.channel.title(false),
-          packageName: widget.channel.group,
-          sourceCount: sources.length,
-          manualSource: manual != null,
-          alreadyPlaying: retainCurrent) && !_switchingVariant) {
-        connected = true;
-        _switchingVariant = true;
-        _resolutionStage = 'handing_provider_source_to_vlc';
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && !_disposed) _switchToVlc(automatic: true);
-        });
-        return;
-      }
+      // Every available provider source is handled by this one Media3 engine.
+      // Source renewal and quality fallback never launch another player.
       final indices = [
         if (preferredSource >= 0 && preferredSource < sources.length) preferredSource,
         for (var i = 0; i < sources.length; i++)
@@ -444,7 +424,6 @@ class _DirectYacineChannelPlayerState
         VideoPlayerController? candidate;
         try {
           _resolutionStage = 'initializing_media3';
-          media3Attempted = true;
           candidate = VideoPlayerController.networkUrl(
             source.uri,
             httpHeaders: source.headers,
@@ -567,20 +546,6 @@ class _DirectYacineChannelPlayerState
           _renewal?.cancel();
           _renewal = Timer(const Duration(seconds: 15),
               () => unawaited(_refreshSources()));
-        } else if (yacineShouldUseDesktopVlc(
-          sourceCount: _sources.length,
-          media3Attempted: media3Attempted,
-          manualSource: _manualLink != null,
-          healthyPlayer: stillPlaying,
-        ) && !_switchingVariant) {
-          // The provider delivered media, but this decoder could not open it.
-          // Match EGY TV Sport Windows: try embedded VLC with the ORIGINAL
-          // provider URI and headers before requesting additional variants.
-          _switchingVariant = true;
-          _resolutionStage = 'switching_to_embedded_vlc';
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && !_disposed) _switchToVlc(automatic: true);
-          });
         } else if (shouldRefreshLiveQualities &&
             await _tryNextLiveQualityVariant()) {
           // Navigation to the new matching live station was scheduled.
@@ -863,67 +828,6 @@ class _DirectYacineChannelPlayerState
     super.dispose();
   }
 
-  Future<void> _openExternal(YacineExternalTarget target) async {
-    if (_disposed || _externalOpening) return;
-    _externalOpening = true;
-    try {
-      final sources = await _withCurrentChannel(
-          (id) => YacineChannelResolver(_channelClient).resolve(id));
-      if (!mounted || _disposed || sources.isEmpty) return;
-      final index = sources.indexWhere((s) => s.label == _activeLabel);
-      final preferred = index >= 0 ? index
-          : _selectedSource < sources.length ? _selectedSource : 0;
-      await YacineExternalPlayer.open(
-        sources[preferred],
-        title: widget.channel.title(widget.ar),
-        target: target,
-        chooserTitle: label('تشغيل القناة باستخدام', 'Open channel with'),
-      );
-      if (_disposed || !mounted) return;
-      _userPaused = true;
-      await _video?.pause();
-    } on YacineExternalPlaybackException catch (e) {
-      if (!mounted) return;
-      final message = e.reason == 'session_headers_require_internal_player'
-          ? label('رابط القناة يحتاج ترويسات لا يدعمها فتح YTV المباشر؛ استخدم المشغّل الداخلي.',
-              'This URL needs headers that YTV direct mode cannot accept; use the internal player.')
-          : e.reason == 'ytv_pro_not_installed_or_view_unsupported'
-              ? label('تعذر فتح نشاط تشغيل YTV PRO. تحقق من تثبيت الإصدار 15.0 أو استخدم مشغّلًا آخر.',
-                  'Could not open the YTV PRO player activity. Verify version 15.0 or use another player.')
-              : label('تعذر فتح المشغّل الخارجي. ثبّت VLC أو مشغّل HLS.',
-                  'No external player found. Install VLC or an HLS player.');
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)));
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
-          label('تعذر جلب الرابط أو فتح المشغّل الخارجي.',
-              'Unable to resolve a fresh URL or open an external player.'))));
-      }
-    } finally {
-      _externalOpening = false;
-    }
-  }
-
-  void _switchToVlc({bool automatic = false}) {
-    if (!mounted || _disposed) return;
-    // Only hand over CURRENT RAM metadata. Never write signed URLs to disk.
-    // Automatic fallback is one-way to prevent a native decoder loop.
-    final freshSources = automatic
-        ? List<YacinePlaybackSource>.unmodifiable(_sources) : null;
-    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
-      builder: (_) => YacineVlcChannelPlayer(
-        channel: LiveChannel({..._resolvedStation.raw,
-          'provider_id': _currentProviderId}),
-        qualityVariants: widget.qualityVariants,
-        initialProviderId: _currentProviderId,
-        initialSources: freshSources,
-        disableNativeFallback: automatic,
-        api: widget.api, ar: widget.ar,
-      ),
-    ));
-  }
-
   void _selectQuality(LiveChannel quality) {
     if (!mounted || quality.providerId == _currentProviderId) return;
     Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
@@ -969,13 +873,6 @@ class _DirectYacineChannelPlayerState
         onSpeed: (rate) => unawaited(_changeSpeed(rate)),
         onSource: (index) =>
             unawaited(_connect(userRetry: true, preferredSource: index)),
-        onExternal: () =>
-            unawaited(_openExternal(YacineExternalTarget.choose)),
-        onVlcExternal: () =>
-            unawaited(_openExternal(YacineExternalTarget.vlc)),
-        onYtvProExternal: () =>
-            unawaited(_openExternal(YacineExternalTarget.ytvPro)),
-        onOtherEngine: () => _switchToVlc(),
         onEditSource: _editYtvVideoUrl,
         onDiagnostics: _showYtvDiagnostics,
         onReconnect: () => unawaited(_connect(userRetry: true)),
@@ -1217,15 +1114,7 @@ class _DirectYacineChannelPlayerState
                   case 'rotate':
                     unawaited(_rotateVideo());
                     break;
-                  case 'vlc':
-                    _switchToVlc();
-                    break;
-                  case 'external':
-                    unawaited(_openExternal(YacineExternalTarget.choose));
-                    break;
-                  case 'ytv':
-                    unawaited(_openExternal(YacineExternalTarget.ytvPro));
-                    break;
+
                 }
               },
               itemBuilder: (_) => [
@@ -1243,16 +1132,7 @@ class _DirectYacineChannelPlayerState
                   child: Text(label('تدوير الشاشة', 'Rotate screen'))),
                 PopupMenuItem(value: 'copy',
                   child: Text(label('نسخ M3U', 'Copy M3U'))),
-                const PopupMenuDivider(),
-                PopupMenuItem(value: 'vlc',
-                  child: Text(label('VLC الداخلي (احتياطي)',
-                    'In-app VLC (fallback)'))),
-                PopupMenuItem(value: 'external',
-                  child: Text(label('مشغّل خارجي (اختياري)',
-                    'External player (optional)'))),
-                PopupMenuItem(value: 'ytv',
-                  child: Text(label('YTV Player Pro (خارجي)',
-                    'YTV Player Pro (external)'))),
+
               ],
             ),
           ],

@@ -195,7 +195,11 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     if (!force && source.uri == _activeUri && _controller != null) return;
     final needsRelay = YacineLocalRelay.needsRelay(source);
     Uri playback = source.uri;
-    Map<String, String> vlcHeaders = source.headers;
+    // Mirror desktop GUI._make_embedded_media(): libVLC gets the original
+    // Referer value, not Dart HTTP's percent-encoded safety representation.
+    // Credential-bearing sources continue through the loopback-only relay.
+    Map<String, String> vlcHeaders = source.vlcPlaylistHeaders.isNotEmpty
+        ? source.vlcPlaylistHeaders : source.headers;
     if (needsRelay) {
       await _relay.start();
       if (_disposed || !mounted) return;

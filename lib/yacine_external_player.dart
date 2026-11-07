@@ -67,8 +67,9 @@ class YacineExternalPlayer {
 
   static bool isExternalCompatible(YacinePlaybackSource source) {
     // Do not export provider session credentials to arbitrary external apps.
-    return !const {'Cookie', 'Authorization', 'X-Auth-Token'}
-        .any(source.headers.containsKey);
+    const forbidden = {'cookie', 'authorization', 'x-auth-token'};
+    return !source.headers.keys.any(
+        (name) => forbidden.contains(name.toLowerCase()));
   }
 
   static String mediaMimeType(YacinePlaybackSource source) {

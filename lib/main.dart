@@ -600,7 +600,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
                 final channel = group.preferred;
                 return InkWell(
                   onTap: () => _openLiveGroup(group),
-                   onLongPress: () => unawaited(_openLiveExternal(group.preferred)),
                   child: Container(
                     decoration: BoxDecoration(color: panel,
                       borderRadius: BorderRadius.circular(12)),
@@ -620,12 +619,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
                       Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                          const Icon(Icons.play_arrow_rounded, color: red),
                          const SizedBox(width: 16),
-                         GestureDetector(
-                           onTap: () =>
-                               unawaited(_openLiveExternal(group.preferred)),
-                           child: const Icon(Icons.open_in_new_rounded,
-                               color: Color(0xFF21D9C6)),
-                         ),
                        ]),
                     ]),
                   ),

@@ -30,6 +30,17 @@ bool _supportedMediaUrl(Uri url, Object? providerMode) {
   return const {'1','3'}.contains(providerMode?.toString());
 }
 
+/// Only catalog-side failures should trigger a bounded exact-station lookup.
+/// DRM, licensing and malformed URLs are NOT bypassed.
+bool yacineShouldRefreshCatalogFor(String reason) => const {
+  'provider_api_http_404',
+  'provider_stream_unavailable',
+  'provider_stream_unavailable_empty',
+  'provider_stream_expired',
+  'provider_stream_invalid_url',
+  'provider_stream_format_unsupported',
+}.contains(reason);
+
 class YacineResolveException implements Exception {
   const YacineResolveException(this.reason);
   final String reason;
@@ -111,18 +122,34 @@ class YacineChannelResolver {
     final raw = _decode(response.bodyBytes, response.headers['t']);
     final rows = _localList(raw['data']);
     final found = <YacinePlaybackSource>[];
+    var invalidUrls = 0;
+    var unsupportedFormats = 0;
+    var expiredUrls = 0;
+    var protectedSources = 0;
     for (final item in rows.take(15)) {
       final source = _localMap(item);
-      if (source.isEmpty) continue;
+      if (source.isEmpty) {
+        invalidUrls++;
+        continue;
+      }
       final drm = source['drm'];
-      if (yacineDescriptorHasDrm(drm)) continue;
+      if (yacineDescriptorHasDrm(drm)) {
+        protectedSources++;
+        continue;
+      }
 
       final url = Uri.tryParse(_localText(source['url']));
       if (url == null || !url.hasAuthority ||
           url.userInfo.isNotEmpty ||
-          (url.scheme != 'https' && url.scheme != 'http')) continue;
+          (url.scheme != 'https' && url.scheme != 'http')) {
+        invalidUrls++;
+        continue;
+      }
       // Support HLS, unprotected DASH, and native direct-media formats.
-      if (!_supportedMediaUrl(url, source['url_type'])) continue;
+      if (!_supportedMediaUrl(url, source['url_type'])) {
+        unsupportedFormats++;
+        continue;
+      }
       // Tokens may use seconds or milliseconds. Reject short-lived URLs
       // that have already expired, without persisting them.
       final rawExpiry = int.tryParse(url.queryParameters['e'] ??
@@ -133,6 +160,7 @@ class YacineChannelResolver {
       if (expires != null &&
           expires > 1700000000 &&
           expires <= DateTime.now().millisecondsSinceEpoch ~/ 1000 + 20) {
+        expiredUrls++;
         continue;
       }
 
@@ -148,7 +176,28 @@ class YacineChannelResolver {
           Map<String, String>.unmodifiable(headers), quality,
           source['url_type']));
     }
-    if (found.isEmpty) throw const YacineResolveException('provider_stream_unavailable');
+    if (found.isEmpty) {
+      // Report WHY a successfully fetched descriptor has no playable source.
+      // Do not include any signed URLs, cookies, tokens or private headers.
+      if (rows.isEmpty) {
+        throw const YacineResolveException('provider_stream_unavailable_empty');
+      }
+      if (protectedSources > 0 && protectedSources >= rows.take(15).length) {
+        throw const YacineResolveException('provider_stream_protected');
+      }
+      if (expiredUrls > 0 &&
+          expiredUrls == rows.take(15).length) {
+        throw const YacineResolveException('provider_stream_expired');
+      }
+      if (unsupportedFormats > 0 &&
+          unsupportedFormats == rows.take(15).length) {
+        throw const YacineResolveException('provider_stream_format_unsupported');
+      }
+      if (invalidUrls > 0 && invalidUrls == rows.take(15).length) {
+        throw const YacineResolveException('provider_stream_invalid_url');
+      }
+      throw const YacineResolveException('provider_stream_unavailable');
+    }
     return found;
   }
 }

@@ -200,8 +200,8 @@ class _DirectYacineChannelPlayerState
   /// Resolve updated server metadata without interrupting a healthy stream.
   /// Only switch players when an expiring token has an actual replacement.
   Future<void> _refreshSources() async {
-    if (_refreshingSources || _connecting || _disposed || !_foreground ||
-        _userPaused) return;
+    if (_manualLink != null || _refreshingSources || _connecting ||
+        _disposed || !_foreground || _userPaused) return;
     final playing = _video;
     if (playing == null || !playing.value.isInitialized) return;
     _refreshingSources = true;
@@ -268,6 +268,7 @@ class _DirectYacineChannelPlayerState
     // Keep the existing renewal deadline during replacement preparation.
     if (userRetry) _failures = 0;
     _lastProbeFailure = null;
+    _playerErrorCode = null;
     // Keep a healthy stream visible while a renewed source initializes.
     // Avoid a black screen at every signed-URL refresh.
     final previous = _video;
@@ -284,13 +285,22 @@ class _DirectYacineChannelPlayerState
     if (mounted) setState(() { _busy = !retainCurrent; _failure = null; });
     var connected = false;
     try {
-      final choice = preloadedSources == null
+      final manual = _manualLink;
+      final choice = manual == null && preloadedSources == null
           ? await _withCurrentChannel((id) =>
               EgyTvAndroidChannelService(_channelClient).choose(
                   id, preferredIndex: preferredSource,
                   quickCheck: previous == null))
           : null;
-      final sources = preloadedSources ?? choice!.sources;
+      final sources = manual == null
+          ? (preloadedSources ?? choice!.sources)
+          : <YacinePlaybackSource>[
+              YacinePlaybackSource(
+                manual.url, manual.headers,
+                label('رابط فيديو مخصص', 'Custom video URL'),
+                manual.url.path.toLowerCase().endsWith('.m3u8') ? 3 : 1,
+              ),
+            ];
       // Start with the best reachable server just as Windows' choose()
       // does, then try the remaining provider sources if the native
       // Android decoder rejects the initial source.
@@ -365,7 +375,8 @@ class _DirectYacineChannelPlayerState
           _lastProbeFailure = null;
           if (mounted) setState(() { _busy = false; _failure = null; });
           return;
-        } catch (_) {
+        } catch (error) {
+          _playerErrorCode = _classifyPlaybackError(error);
           // Diagnose only the first native playback failure, on the device.
           // A reachable manifest/segment is not proof that ExoPlayer can decode
           // it, and a 403 here reflects the upstream provider response.
@@ -712,6 +723,8 @@ class _DirectYacineChannelPlayerState
 
   Future<void> _changeSpeed(double rate) async {
     _speed = rate;
+    unawaited(SharedPreferences.getInstance().then(
+        (prefs) => prefs.setDouble(_speedPreference, rate)));
     final video = _video;
     if (video == null || !video.value.isInitialized) return;
     try {
@@ -730,7 +743,7 @@ class _DirectYacineChannelPlayerState
       showDragHandle: true,
       builder: (_) => YacinePlaybackSettings(
         ar: widget.ar,
-        engineName: 'ExoPlayer',
+        engineName: 'EGYSHOW TV PRO · Media3',
         fit: _videoFit,
         speed: _speed,
         sources: _sources,
@@ -738,7 +751,7 @@ class _DirectYacineChannelPlayerState
         qualityVariants: widget.qualityVariants,
         currentProviderId: _currentProviderId,
         onQualityVariant: _selectQuality,
-        onFit: (fit) { if (mounted) setState(() => _videoFit = fit); },
+        onFit: _setVideoFit,
         onSpeed: (rate) => unawaited(_changeSpeed(rate)),
         onSource: (index) =>
             unawaited(_connect(userRetry: true, preferredSource: index)),
@@ -749,6 +762,8 @@ class _DirectYacineChannelPlayerState
         onYtvProExternal: () =>
             unawaited(_openExternal(YacineExternalTarget.ytvPro)),
         onOtherEngine: _switchToVlc,
+        onEditSource: _editYtvVideoUrl,
+        onDiagnostics: _showYtvDiagnostics,
         onReconnect: () => unawaited(_connect(userRetry: true)),
       ),
     );
@@ -815,7 +830,7 @@ class _DirectYacineChannelPlayerState
       tooltip: label('نسبة عرض الفيديو', 'Video aspect ratio'),
       initialValue: _videoFit,
       icon: const Icon(Icons.aspect_ratio_rounded, color: Colors.white),
-      onSelected: (fit) { setState(() => _videoFit = fit); _revealControls(); },
+      onSelected: (fit) { _setVideoFit(fit); _revealControls(); },
       itemBuilder: (_) => [
         PopupMenuItem(value: BoxFit.contain,
           child: Text(label('ملاءمة الشاشة', 'Fit screen'))),
@@ -943,6 +958,11 @@ class _DirectYacineChannelPlayerState
                       _qualityMenu(),
                       _aspectMenu(),
                       IconButton(
+                        tooltip: label('تحرير الرابط', 'Edit link'),
+                        onPressed: _editYtvVideoUrl,
+                        icon: const Icon(Icons.link_rounded,
+                          color: Colors.white)),
+                      IconButton(
                         tooltip: label('إعدادات المشغّل', 'Player settings'),
                         onPressed: _showPlaybackSettings,
                         icon: const Icon(Icons.settings_rounded,
@@ -1051,6 +1071,14 @@ class _DirectYacineChannelPlayerState
               icon: const Icon(Icons.settings_rounded),
             ),
             IconButton(
+              tooltip: label('تحرير رابط الفيديو', 'Edit video URL'),
+              onPressed: _editYtvVideoUrl,
+              icon: const Icon(Icons.link_rounded)),
+            IconButton(
+              tooltip: label('تشخيص التشغيل', 'Playback diagnostics'),
+              onPressed: _showYtvDiagnostics,
+              icon: const Icon(Icons.info_outline_rounded)),
+            IconButton(
               tooltip: label('نسخ رابط القناة بصيغة M3U', 'Copy current channel M3U'),
               onPressed: _connecting ? null : _copyCurrentChannelM3u,
               icon: const Icon(Icons.playlist_add_check_rounded)),
@@ -1078,8 +1106,8 @@ class _DirectYacineChannelPlayerState
                   const Icon(Icons.circle, color: Color(0xFF12D6C0), size: 8),
                   const SizedBox(width: 7),
                   Expanded(child: Text(label(
-                    'EGY TV SPORT · فحص السيرفر كل دقيقة وتجديد الرابط قبل انتهائه',
-                    'EGY TV SPORT · Check server every minute; refresh expiring URLs') +
+                    'EGYSHOW TV PRO · مشغّل Media3 داخلي · تحديث القناة تلقائيًا',
+                    'EGYSHOW TV PRO · Internal Media3 · automatic stream refresh') +
                     (_lastSourceCheck == null ? '' :
                       ' · ' + _lastSourceCheck!.hour.toString().padLeft(2, '0') +
                       ':' + _lastSourceCheck!.minute.toString().padLeft(2, '0')),

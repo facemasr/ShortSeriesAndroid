@@ -16,7 +16,7 @@ import 'yacine_direct_player.dart';
 import 'egy_tv_sport_hub.dart';
 import 'yacine_catalog_cache.dart';
 import 'yacine_channel_groups.dart';
-import 'yacine_channel_resolver.dart';
+import 'yacine_live_source_service.dart';
 import 'yacine_external_player.dart';
 import 'egyshow_global_ads.dart';
 
@@ -374,25 +374,17 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   Future<void> _playLiveChannel(
       LiveChannel channel, List<LiveChannel> qualityVariants) async {
     if (_ytvHandoffBusy) return;
+    YacineStationResolution? prepared;
     if (_preferYtvPro) {
       _ytvHandoffBusy = true;
       try {
-        var providerId = channel.providerId;
-        List<YacinePlaybackSource> sources;
-        try {
-          sources = await YacineChannelResolver(api.client)
-              .resolve(providerId);
-        } on YacineResolveException catch (error) {
-          if (!yacineShouldRefreshCatalogFor(error.reason)) rethrow;
-          final current = await api.refreshProviderChannel(channel);
-          if (current == null || current.providerId == providerId) rethrow;
-          providerId = current.providerId;
-          sources = await YacineChannelResolver(api.client)
-              .resolve(providerId);
-        }
+        // Same current-station pipeline as the native Media3/VLC players.
+        // Keep verified headers and signed URLs in memory, never in catalog.
+        prepared = await YacineLiveSourceService(api, api.client)
+            .resolve(channel);
         if (!mounted) return;
         final compatible =
-            YacineExternalPlayer.pickYtvDirectSource(sources);
+            YacineExternalPlayer.pickYtvDirectSource(prepared.sources);
         if (compatible != null) {
           await YacineExternalPlayer.open(
             compatible,
@@ -403,8 +395,8 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
           return;
         }
       } catch (_) {
-        // Missing external player, network failure, or unsupported headers:
-        // retain the native EGYSHOW player without exposing credentials.
+        // The external app cannot accept all provider-supplied headers, or
+        // the station is temporarily unavailable. Try internal playback.
       } finally {
         _ytvHandoffBusy = false;
       }
@@ -412,7 +404,10 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     if (!mounted) return;
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
       DirectYacineChannelPlayer(
-        channel: channel, qualityVariants: qualityVariants,
+        channel: prepared?.channel ?? channel,
+        qualityVariants: qualityVariants,
+        initialSources: prepared?.sources,
+        initialProviderId: prepared?.channel.providerId,
         api: api, ar: ar)));
   }
 
@@ -420,20 +415,11 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   /// installed Android video app, using only freshly resolved source metadata.
   Future<void> _openLiveExternal(LiveChannel channel) async {
     try {
-      var id = channel.providerId;
-      List<YacinePlaybackSource> sources;
-      try {
-        sources = await YacineChannelResolver(api.client).resolve(id);
-      } on YacineResolveException catch (error) {
-        if (error.reason != 'provider_api_http_404') rethrow;
-        final current = await api.refreshProviderChannel(channel);
-        if (current == null || current.providerId == id) rethrow;
-        id = current.providerId;
-        sources = await YacineChannelResolver(api.client).resolve(id);
-      }
-      if (!mounted || sources.isEmpty) return;
+      final selected = await YacineLiveSourceService(api, api.client)
+          .resolve(channel);
+      if (!mounted || selected.sources.isEmpty) return;
       await YacineExternalPlayer.open(
-        sources.first,
+        selected.sources[selected.sourceIndex],
         title: channel.title(ar),
         target: YacineExternalTarget.choose,
         chooserTitle: ar ? 'اختر مشغّل القناة' : 'Choose a video player',

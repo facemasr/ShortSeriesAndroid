@@ -31,7 +31,25 @@ void main() {
     expect(second.headers['Referer'],
       'http://yacinneeee.live%E2%81%A0%E2%80%8D%E3%85%A4');
     expect(first.providerMode, 3);
+    // The desktop libVLC option uses the original provider-declared Referer,
+    // whereas Media3 and the RAM relay must use the ASCII-safe version.
+    expect(second.vlcPlaylistHeaders['Referer'],
+        'http://yacinneeee.live\u2060\u200D\u3164');
+    expect(first.vlcPlaylistHeaders['User-Agent'], agent);
     client.close();
+  });
+
+  test('desktop VLC headers reject invalid or injected original Referer', () {
+    final safe = <String, String>{
+      'User-Agent': 'okhttp/4.12.0',
+      'Referer': 'https://example.com/safe',
+    };
+    expect(yacineDesktopVlcHeaders({
+      'referer': 'https://example.com/attack\\r\\nX-Injected: 1',
+    }, safe)['Referer'], 'https://example.com/safe');
+    expect(yacineDesktopVlcHeaders({
+      'referer': 'javascript:alert(1)',
+    }, safe)['Referer'], 'https://example.com/safe');
   });
 
   test('skips expired, protected and HTML sources', () async {

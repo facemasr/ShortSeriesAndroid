@@ -26,9 +26,17 @@ class YacineVlcChannelPlayer extends StatefulWidget {
   const YacineVlcChannelPlayer({
     super.key, required this.channel, required this.api, required this.ar,
     this.qualityVariants = const [],
+    this.initialSources,
+    this.initialProviderId,
+    this.disableNativeFallback = false,
   });
   final LiveChannel channel;
   final List<LiveChannel> qualityVariants;
+  /// Fresh sources handed off from Media3 in RAM; never cached to disk.
+  final List<YacinePlaybackSource>? initialSources;
+  final String? initialProviderId;
+  /// Avoid a Media3-to-VLC-to-Media3 retry loop for a failed source.
+  final bool disableNativeFallback;
   final EgyApi api;
   final bool ar;
 
@@ -87,12 +95,13 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _currentProviderId = widget.channel.providerId;
+    _currentProviderId = widget.initialProviderId ?? widget.channel.providerId;
     _poll = Timer.periodic(const Duration(seconds: 20),
         (_) => unawaited(_refreshActiveChannel()));
     _watchdog = Timer.periodic(const Duration(seconds: 7),
         (_) => _checkPlayback());
-    unawaited(_resolveAndPlay(force: true));
+    unawaited(_resolveAndPlay(
+        force: true, readySources: widget.initialSources));
   }
 
   int? _expiry(Uri? uri) {
@@ -112,7 +121,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     try {
       return await operation(_currentProviderId);
     } on YacineResolveException catch (error) {
-      if (error.reason != 'provider_api_http_404') rethrow;
+      if (!yacineShouldRefreshCatalogFor(error.reason)) rethrow;
       final refreshed = await widget.api.refreshProviderChannel(widget.channel);
       if (refreshed == null ||
           refreshed.providerId.isEmpty ||
@@ -141,7 +150,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
           ? await _withCurrentChannel((id) =>
               EgyTvAndroidChannelService(_http).choose(
                 id, preferredIndex: preferred ?? _server,
-                quickCheck: _controller == null))
+                quickCheck: false))
           : null;
       final sources = readySources ?? selected!.sources;
       if (_disposed || !mounted) return;
@@ -317,7 +326,8 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   /// reachable, try Media3/ExoPlayer with the SAME fresh provider headers.
   /// Never use this to bypass HTTP 401/403, subscriptions or DRM.
   void _tryNativeBeinFallback() {
-    if (_disposed || !mounted || _sourceDenied || _hadPlayback ||
+    if (_disposed || !mounted || widget.disableNativeFallback ||
+        _sourceDenied || _hadPlayback ||
         _triedNativeFallback || !_isBeinSports) return;
     _triedNativeFallback = true;
     _retry?.cancel();

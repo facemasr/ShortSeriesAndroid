@@ -18,8 +18,6 @@ Map<String, dynamic> _localMap(Object? value) {
   }
   return result;
 }
-List<dynamic> _localList(Object? value) =>
-    value is List ? value : <dynamic>[];
 String _localText(Object? value) => value?.toString() ?? '';
 
 /// Accept the provider's common, bounded JSON envelopes without interpreting

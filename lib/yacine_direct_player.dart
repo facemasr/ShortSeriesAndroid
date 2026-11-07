@@ -951,17 +951,8 @@ class _DirectYacineChannelPlayerState
                         icon: Icon(_volume <= 0
                           ? Icons.volume_off_rounded : Icons.volume_up_rounded,
                           color: Colors.white)),
-                      Expanded(child: Slider(
-                        value: _volume, min: 0, max: 1,
-                        activeColor: teal, inactiveColor: Colors.white38,
-                        onChanged: _changeVolume)),
+                      const Spacer(),
                       _qualityMenu(),
-                      _aspectMenu(),
-                      IconButton(
-                        tooltip: label('تحرير الرابط', 'Edit link'),
-                        onPressed: _editYtvVideoUrl,
-                        icon: const Icon(Icons.link_rounded,
-                          color: Colors.white)),
                       IconButton(
                         tooltip: label('إعدادات المشغّل', 'Player settings'),
                         onPressed: _showPlaybackSettings,

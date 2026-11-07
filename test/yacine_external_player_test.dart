@@ -47,4 +47,33 @@ void main() {
       )), isFalse);
     }
   });
+  test('YTV PRO v15.0 direct intent targets the exported player activity', () {
+    final s = source('https://example.org/live/stream.m3u8?e=1999999999',
+        headers: {'User-Agent': 'EGYSHOW-Test/1.0'});
+    final intent = YacineExternalPlayer.ytvDirectIntent(s);
+
+    expect(intent.action, 'android.intent.action.VIEW');
+    expect(intent.package, 'com.ytv.pronew');
+    expect(intent.componentName,
+        'dev.google.ytvclib.ui.main.PlayerActivity');
+    expect(intent.data, s.uri.toString());
+    expect(intent.arguments?['type'], 3);
+    expect(intent.arguments?['ua'], 'EGYSHOW-Test/1.0');
+    expect(intent.arguments?.containsKey('id'), isFalse);
+    expect(intent.arguments?.containsKey('http-user-agent'), isFalse);
+  });
+
+  test('YTV direct mode cannot carry Referer or private session headers', () {
+    final basic = source('https://example.org/live.m3u8',
+        headers: {'User-Agent': 'EGYSHOW-Test/1.0'});
+    expect(YacineExternalPlayer.isYtvDirectCompatible(basic), isTrue);
+    for (final header in ['Referer', 'Cookie', 'Authorization',
+                          'X-Auth-Token', 'Origin', 'cookie']) {
+      expect(YacineExternalPlayer.isYtvDirectCompatible(
+          source('https://example.org/live.m3u8',
+              headers: {header: 'session-data'})), isFalse);
+    }
+  });
+
+
 }

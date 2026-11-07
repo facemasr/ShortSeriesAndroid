@@ -251,39 +251,57 @@ class _YacineDirectCatalog {
     throw const ApiException('provider_catalog_network_unavailable');
   }
 
-  /// Match the current station by BOTH package and name, never guessed IDs.
-  /// Only invoked on provider HTTP 404; no signed URLs enter the catalog.
+  /// Recover a rotated provider ID without guessing another TV station.
+  /// The live catalog encodes nested packages as "Parent / Child", so
+  /// searching only top-level categories silently fails for nested channels.
+  /// Resolve the exact category path and exact original station name.
   Future<LiveChannel?> refreshOne(LiveChannel stale) async {
-    final group = stale.group.trim().toLowerCase();
-    final name = stale.title(false).trim().toLowerCase();
-    if (group.isEmpty || name.isEmpty) return null;
-    final groups = await _request('categories');
-    for (final item in groups) {
-      final category = asMap(item);
-      if (txt(category['name']).trim().toLowerCase() != group) continue;
-      final categoryId = txt(category['id']);
-      if (!RegExp(r'^\d{1,24}$').hasMatch(categoryId) ||
-          numId(category['child_count']) > 0) continue;
-      final channels = await _request('categories/' + categoryId + '/channels');
-      for (final item in channels) {
-        final row = asMap(item);
-        if (txt(row['name']).trim().toLowerCase() != name) continue;
-        final providerId = txt(row['id']);
-        if (!RegExp(r'^\d{1,24}$').hasMatch(providerId)) continue;
-        final logo = Uri.tryParse(txt(row['logo']));
-        final safeLogo = logo != null &&
-            const {'https', 'http'}.contains(logo.scheme) &&
-            logo.hasAuthority && logo.userInfo.isEmpty
-            ? logo.toString() : '';
-        return LiveChannel(<String, dynamic>{
-          'id': _stableId(providerId, <int>{}),
-          'provider_id': providerId,
-          'name_ar': txt(row['name']).trim(),
-          'name_en': txt(row['name']).trim(),
-          'package_name': stale.group,
-          'logo_url': safeLogo,
-        });
+    final path = stale.group.split(' / ')
+        .map((segment) => segment.trim().toLowerCase())
+        .where((segment) => segment.isNotEmpty).toList();
+    final stationName = stale.title(false).trim().toLowerCase();
+    if (path.isEmpty || stationName.isEmpty) return null;
+
+    var categories = await _request('categories');
+    Map<String, dynamic>? selected;
+    for (var level = 0; level < path.length; level++) {
+      selected = null;
+      for (final entry in categories) {
+        final item = asMap(entry);
+        if (txt(item['name']).trim().toLowerCase() == path[level]) {
+          selected = item;
+          break;
+        }
       }
+      if (selected == null) return null;
+      final categoryId = txt(selected['id']);
+      if (!RegExp(r'^\d{1,24}$').hasMatch(categoryId)) return null;
+      if (level < path.length - 1) {
+        if (numId(selected['child_count']) <= 0) return null;
+        categories = await _request('categories/' + categoryId);
+      }
+    }
+    if (selected == null || numId(selected['child_count']) > 0) return null;
+
+    final selectedId = txt(selected['id']);
+    final channels = await _request('categories/' + selectedId + '/channels');
+    for (final entry in channels) {
+      final row = asMap(entry);
+      if (txt(row['name']).trim().toLowerCase() != stationName) continue;
+      final providerId = txt(row['id']);
+      if (!RegExp(r'^\d{1,24}$').hasMatch(providerId)) continue;
+      final logo = Uri.tryParse(txt(row['logo']));
+      final safeLogo = logo != null &&
+          const {'https', 'http'}.contains(logo.scheme) &&
+          logo.hasAuthority && logo.userInfo.isEmpty ? logo.toString() : '';
+      return LiveChannel(<String, dynamic>{
+        'id': _stableId(providerId, <int>{}),
+        'provider_id': providerId,
+        'name_ar': txt(row['name']).trim(),
+        'name_en': txt(row['name']).trim(),
+        'package_name': stale.group,
+        'logo_url': safeLogo,
+      });
     }
     return null;
   }

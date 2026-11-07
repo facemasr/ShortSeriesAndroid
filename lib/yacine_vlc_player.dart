@@ -18,7 +18,6 @@ import 'yacine_android_channel_service.dart';
 import 'yacine_channel_groups.dart';
 import 'yacine_external_player.dart';
 import 'yacine_playback_settings.dart';
-import 'yacine_live_station_sync.dart';
 import 'yacine_live_source_service.dart';
 
 /// Device-local VLC player for the same per-channel API and original HTTP
@@ -53,7 +52,6 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   final YacineLocalRelay _relay = YacineLocalRelay();
   bool _usingRelay = false;
   late String _currentProviderId;
-  DateTime? _lastLiveIdValidation;
 
   VlcPlayerController? _controller;
   List<YacinePlaybackSource> _sources = const [];
@@ -178,23 +176,6 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     final parsed = int.tryParse(value ?? '');
     if (parsed == null || parsed < 1700000000) return null;
     return parsed > 9999999999 ? parsed ~/ 1000 : parsed;
-  }
-
-  /// Desktop-style category lookup: never start from an old cached ID if a
-  /// current exact-name/exact-quality provider ID is available.
-  Future<void> _syncLiveStationBeforePlay() async {
-    final now = DateTime.now();
-    if (_lastLiveIdValidation != null &&
-        now.difference(_lastLiveIdValidation!) <
-            const Duration(seconds: 45)) return;
-    _lastLiveIdValidation = now;
-    final result = await yacineFindLiveStation(
-      station: widget.channel,
-      currentProviderId: _currentProviderId,
-      refreshStation: widget.api.refreshProviderChannel,
-    );
-    if (_disposed || !mounted) return;
-    _currentProviderId = result.providerId;
   }
 
   /// Recover a rotated provider ID once by looking up this exact station

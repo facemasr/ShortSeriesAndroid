@@ -67,6 +67,8 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   Timer? _controlsTimer;
   int _server = 0;
   int _failures = 0;
+  int _connectionAttempts = 0;
+  String _resolutionStage = 'initializing_vlc';
   bool _loading = true;
   bool _fetching = false;
   bool _disposed = false;
@@ -92,6 +94,68 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   String? _lastError;
 
   String t(String a, String b) => widget.ar ? a : b;
+
+  /// This report contains states only; never copy signed URLs or credentials.
+  String _currentVlcReport() {
+    final state = _controller?.value;
+    final selected = _sources.isNotEmpty && _server < _sources.length
+        ? _sources[_server] : null;
+    final headers = selected?.headers ?? _activeHeaders ??
+        const <String, String>{};
+    return [
+      'Engine: EGYSHOW TV Pro / Android libVLC',
+      'Channel ID: ' + _currentProviderId,
+      'Channel: ' + widget.channel.title(false),
+      'Category: ' + widget.channel.group,
+      'Stage: ' + _resolutionStage,
+      'Sources: ' + _sources.length.toString(),
+      'Server: ' + (_sources.isEmpty ? '-' : (_server + 1).toString()),
+      'Connection attempts: ' + _connectionAttempts.toString(),
+      'Retry count: ' + _failures.toString(),
+      'State: ' + (state == null ? 'no_controller'
+          : state.hasError ? 'error'
+          : state.isPlaying ? 'playing'
+          : state.isBuffering ? 'buffering' : 'opening'),
+      'Has played video: ' + (_hadPlayback ? 'yes' : 'no'),
+      'VLC relay: ' + (_usingRelay ? 'local' : 'direct'),
+      'Error: ' + (_lastError ?? 'none'),
+      'Media probe: ' + (_diagnosticMessage ?? 'not_run'),
+      'HTTP User-Agent: ' +
+          (headers.containsKey('User-Agent') ? 'provided' : 'not provided'),
+      'HTTP Referer: ' +
+          (headers.containsKey('Referer') ? 'provided' : 'not provided'),
+      'Source: ' + (widget.disableNativeFallback
+          ? 'automatic_VLC_handoff' : 'direct_VLC'),
+    ].join('\n');
+  }
+
+  void _showVlcDiagnostics() {
+    if (!mounted || _disposed) return;
+    final report = _currentVlcReport();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t('تشخيص VLC', 'VLC diagnostics')),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(child: SelectableText(report)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: _currentVlcReport()));
+              Navigator.of(ctx).pop();
+            },
+            child: Text(t('نسخ التقرير', 'Copy report')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(t('إغلاق', 'Close')),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -157,6 +221,8 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   }) async {
     if (_disposed || _fetching) return;
     _fetching = true;
+    _connectionAttempts++;
+    _resolutionStage = 'fetching_channel_descriptor';
     _retry?.cancel();
     _retry = null;
     if (mounted) setState(() {
@@ -181,6 +247,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
         throw const YacineResolveException('provider_stream_unavailable');
       }
       _sources = sources;
+      _resolutionStage = 'sources_received';
       final preferredChoice = preferred ?? _server;
       final index = selected?.index ??
           (preferredChoice >= 0 && preferredChoice < sources.length
@@ -188,6 +255,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       await _startMedia(sources[index], index, force: force);
     } catch (error) {
       failed = true;
+      _resolutionStage = 'source_fetch_failed';
       if (mounted && !_disposed) {
         setState(() {
           _loading = false;
@@ -236,6 +304,8 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       vlcHeaders = const {};
     }
     if (_disposed || !mounted) return;
+    _resolutionStage = needsRelay
+        ? 'opening_vlc_local_relay' : 'opening_vlc_direct';
     final fresh = VlcPlayerController.network(
       playback.toString(),
       hwAcc: HwAcc.auto,
@@ -326,6 +396,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       _failures = 0;
       if (!_hadPlayback || _loading || _notice != null) {
         setState(() {
+          _resolutionStage = 'playing';
           _hadPlayback = true;
           _loading = false;
           _notice = null;
@@ -335,6 +406,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       return;
     }
     if (value.hasError || value.isEnded) {
+      _resolutionStage = 'vlc_playback_failed';
       if (_lastError == null) {
         setState(() {
           _loading = false;
@@ -687,6 +759,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
         onYtvProExternal: () =>
             unawaited(_openExternal(YacineExternalTarget.ytvPro)),
         onOtherEngine: _switchToExo,
+        onDiagnostics: _showVlcDiagnostics,
         onReconnect: () => unawaited(_restartCurrent()),
         audioTracks: player == null || !player.value.isInitialized
             ? null : () => player.getAudioTracks(),

@@ -16,6 +16,7 @@ import 'yacine_stream_renewal.dart';
 import 'yacine_android_channel_service.dart';
 import 'yacine_vlc_player.dart';
 import 'yacine_decoder_fallback.dart';
+import 'yacine_live_station_sync.dart';
 import 'yacine_channel_groups.dart';
 import 'yacine_external_player.dart';
 import 'yacine_playback_settings.dart';
@@ -90,6 +91,7 @@ class _DirectYacineChannelPlayerState
   bool _disposed = false;
   bool _switchingVariant = false;
   late String _currentProviderId;
+  DateTime? _lastLiveIdValidation;
   Duration? _lastPosition;
   DateTime _lastAdvance = DateTime.now();
 
@@ -228,6 +230,29 @@ class _DirectYacineChannelPlayerState
     );
   }
 
+  /// The grid can display yesterday's cached channel IDs even when the
+  /// provider rotates them hourly. Resolve the CURRENT exact station/package
+  /// from the provider catalog before the first media descriptor call.
+  /// Only the currently selected station is looked up (not 675 streams).
+  Future<void> _syncLiveStationBeforePlay() async {
+    final now = DateTime.now();
+    if (_lastLiveIdValidation != null &&
+        now.difference(_lastLiveIdValidation!) <
+            const Duration(seconds: 45)) return;
+    _lastLiveIdValidation = now;
+    _resolutionStage = 'finding_current_station_in_live_api';
+    _catalogRecovery = 'checking_live_station_before_open';
+    final updated = await yacineFindLiveStation(
+      station: widget.channel,
+      currentProviderId: _currentProviderId,
+      refreshStation: widget.api.refreshProviderChannel,
+    );
+    if (_disposed || !mounted) return;
+    _currentProviderId = updated.providerId;
+    _catalogRecovery = updated.outcome;
+    _resolutionStage = 'fetching_channel_descriptor';
+  }
+
   /// When the station returns HTTP 404 OR has no playable source, do one
   /// exact-title, exact-package catalog lookup and resolve the replacement.
   /// A station that has moved must not be silently replaced by another.
@@ -361,6 +386,10 @@ class _DirectYacineChannelPlayerState
     var media3Attempted = false;
     try {
       final manual = _manualLink;
+      if (manual == null && preloadedSources == null && !retainCurrent) {
+        await _syncLiveStationBeforePlay();
+        if (_disposed || !mounted) return;
+      }
       final choice = manual == null && preloadedSources == null
           ? await _withCurrentChannel((id) =>
               EgyTvAndroidChannelService(_channelClient).choose(

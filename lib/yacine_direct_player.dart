@@ -58,6 +58,9 @@ class _DirectYacineChannelPlayerState
   bool _externalOpening = false;
   YtvManualLink? _manualLink;
   String? _playerErrorCode;
+  String _resolutionStage = 'initializing';
+  String _catalogRecovery = 'not_needed';
+  int _resolvedSourceCount = 0;
   static const _fitPreference = 'egyshow_ytv_internal_fit_v1';
   static const _speedPreference = 'egyshow_ytv_internal_speed_v1';
   BoxFit _videoFit = BoxFit.contain;
@@ -129,6 +132,14 @@ class _DirectYacineChannelPlayerState
 
   String _classifyPlaybackError(Object error) {
     // Never display or export provider-signed URLs and credentials.
+    // Provider errors have known stable identifiers; avoid copying raw
+    // exception messages because some media engines include signed URIs.
+    if (error is YacineResolveException) return error.reason;
+    if (error is ApiException) {
+      if (error.message.startsWith('provider_')) return error.message;
+      return error.code == 404 ? 'api_http_404' : 'catalog_api_error';
+    }
+    if (error is TimeoutException) return 'api_or_player_timeout';
     final text = error.toString().toLowerCase();
     if (text.contains('403')) return 'http_403';
     if (text.contains('404')) return 'http_404';
@@ -155,15 +166,25 @@ class _DirectYacineChannelPlayerState
     final text = [
       'Engine: EGYSHOW TV Pro / Android Media3',
       'Channel ID: ' + _currentProviderId,
-      'Server: ' + (_activeLabel ?? '-'),
+      'Server: ' + (_activeLabel ??
+          (_sources.isNotEmpty ? _sources.first.label : '-')),
+      'Stage: ' + _resolutionStage,
+      'Catalog recovery: ' + _catalogRecovery,
+      'Sources: ' + _resolvedSourceCount.toString(),
+      'Attempts: ' + _failures.toString(),
       'State: ' + (_connecting ? 'connecting'
           : player?.value.isBuffering == true ? 'buffering'
           : player?.value.isPlaying == true ? 'playing' : 'stopped'),
-      'Error: ' + (_playerErrorCode ?? _lastProbeFailure ?? 'none'),
+      'Error: ' + (_playerErrorCode ?? _lastProbeFailure ??
+          (_resolutionStage == 'playing' ? 'none' : 'not_reported_yet')),
       'Manual source: ' + (_manualLink == null ? 'no' : 'yes'),
-      'HTTP User-Agent: ' + (_activeHeaders?.containsKey('User-Agent') == true
+      'HTTP User-Agent: ' + ((_activeHeaders ??
+          (_sources.isNotEmpty ? _sources.first.headers :
+          const <String, String>{})).containsKey('User-Agent')
           ? 'provided' : 'not provided'),
-      'HTTP Referer: ' + (_activeHeaders?.containsKey('Referer') == true
+      'HTTP Referer: ' + ((_activeHeaders ??
+          (_sources.isNotEmpty ? _sources.first.headers :
+          const <String, String>{})).containsKey('Referer')
           ? 'provided' : 'not provided'),
     ].join('\n');
     showDialog<void>(context: context, builder: (dialog) => AlertDialog(
@@ -190,9 +211,17 @@ class _DirectYacineChannelPlayerState
       return await operation(_currentProviderId);
     } on YacineResolveException catch (error) {
       if (error.reason != 'provider_api_http_404') rethrow;
+      _resolutionStage = 'recovering_rotated_provider_id';
+      _catalogRecovery = 'searching_exact_station';
       final updated = await widget.api.refreshProviderChannel(widget.channel);
-      if (updated == null || updated.providerId == _currentProviderId) rethrow;
+      if (updated == null || updated.providerId == _currentProviderId) {
+        _catalogRecovery = 'station_not_found_in_live_catalog';
+        throw const YacineResolveException(
+            'provider_404_station_not_found_in_catalog');
+      }
       _currentProviderId = updated.providerId;
+      _catalogRecovery = 'updated_provider_id';
+      _resolutionStage = 'requesting_fresh_channel';
       return operation(_currentProviderId);
     }
   }
@@ -269,6 +298,9 @@ class _DirectYacineChannelPlayerState
     if (userRetry) _failures = 0;
     _lastProbeFailure = null;
     _playerErrorCode = null;
+    _resolutionStage = 'fetching_channel_descriptor';
+    _resolvedSourceCount = 0;
+    _catalogRecovery = 'not_needed';
     // Keep a healthy stream visible while a renewed source initializes.
     // Avoid a black screen at every signed-URL refresh.
     final previous = _video;
@@ -308,6 +340,8 @@ class _DirectYacineChannelPlayerState
         preferredSource = choice.index;
       }
       if (_disposed || !mounted) return;
+      _resolutionStage = 'source_list_received';
+      _resolvedSourceCount = sources.length;
       _lastSourceCheck = DateTime.now();
       _sources = sources;
       final indices = [
@@ -329,6 +363,7 @@ class _DirectYacineChannelPlayerState
         // so probing must never block the first playback attempt.
         VideoPlayerController? candidate;
         try {
+          _resolutionStage = 'initializing_media3';
           candidate = VideoPlayerController.networkUrl(
             source.uri,
             httpHeaders: source.headers,
@@ -373,9 +408,12 @@ class _DirectYacineChannelPlayerState
           _scheduleRenewal(source.uri);
           connected = true;
           _lastProbeFailure = null;
+          _playerErrorCode = null;
+          _resolutionStage = 'playing';
           if (mounted) setState(() { _busy = false; _failure = null; });
           return;
         } catch (error) {
+          _resolutionStage = 'media3_failed';
           _playerErrorCode = _classifyPlaybackError(error);
           // Diagnose only the first native playback failure, on the device.
           // A reachable manifest/segment is not proof that ExoPlayer can decode
@@ -402,17 +440,29 @@ class _DirectYacineChannelPlayerState
         }
       }
       throw const ApiException('all_sources_unavailable');
-    } catch (_) {
+    } catch (error) {
+      _resolutionStage = 'channel_open_failed';
+      _playerErrorCode ??= _classifyPlaybackError(error);
       if (mounted && !_disposed) {
         setState(() {
           _busy = false;
           _failure = retainCurrent ? null : label(
-            _lastProbeFailure == 'source_http_403'
-                ? 'مصدر البث يرفض تشغيل هذه القناة (403). سيتم طلب رابط جديد.'
-                : 'لم يتم التحقق من بث متاح لهذه القناة. ستتم إعادة المحاولة.',
-            _lastProbeFailure == 'source_http_403'
-                ? 'The stream provider rejected this channel (403). Retrying with a fresh URL.'
-                : 'No verified live stream is available. Retrying.',
+            _playerErrorCode == 'provider_404_station_not_found_in_catalog'
+                ? 'معرّف القناة انتهى ولم أجد القناة نفسها في القائمة الحالية.'
+                : _playerErrorCode == 'provider_api_http_404'
+                ? 'معرّف القناة غير موجود في API. يتم تحديث بياناتها.'
+                : _lastProbeFailure == 'source_http_403'
+                ? 'مصدر البث يرفض الاتصال (403). سيتم طلب رابط جديد.'
+                : 'فشل فتح مصدر القناة. رمز التشخيص: ' +
+                    (_playerErrorCode ?? 'unknown'),
+            _playerErrorCode == 'provider_404_station_not_found_in_catalog'
+                ? 'The channel ID is stale, and the exact station is not in the current catalog.'
+                : _playerErrorCode == 'provider_api_http_404'
+                ? 'Channel ID unavailable. Refreshing provider metadata.'
+                : _lastProbeFailure == 'source_http_403'
+                ? 'Provider refused media access (403). Retrying.'
+                : 'Unable to open stream; diagnostic: ' +
+                    (_playerErrorCode ?? 'unknown'),
           );
         });
       }

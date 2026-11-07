@@ -96,7 +96,7 @@ jobs:
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='33' versionName='2.0.25'"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='34' versionName='2.0.26'"
           echo "CI candidate verified; NOT production-signed, NOT eligible for direct publication."
       - name: Upload CI APK candidate for private server signing
         uses: actions/upload-artifact@v4
@@ -126,13 +126,13 @@ jobs:
         run: |
           set -euo pipefail
           test -s preview/app-release.apk
-          cp preview/app-release.apk preview/EGYSHOW_Android_v2.0.25_TEST_ONLY.apk
-          (cd preview && zip -q -9 EGYSHOW_Android_v2.0.25_TEST_ONLY.zip EGYSHOW_Android_v2.0.25_TEST_ONLY.apk)
-          TAG=egyshow-android-v2.0.25-ci-preview
+          cp preview/app-release.apk preview/EGYSHOW_Android_v2.0.26_TEST_ONLY.apk
+          (cd preview && zip -q -9 EGYSHOW_Android_v2.0.26_TEST_ONLY.zip EGYSHOW_Android_v2.0.26_TEST_ONLY.apk)
+          TAG=egyshow-android-v2.0.26-ci-preview
           if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "$REPO" --target "$SHA" \
               --prerelease \
-              --title "EGYSHOW Android 2.0.25 - test build, not an official update" \
+              --title "EGYSHOW Android 2.0.26 - test build, not an official update" \
               --notes "This ZIP contains a CI-built APK with on-device API headers and an HLS local relay modeled on EGY TV Sport Windows. This is NOT signed with the original production key, NOT an in-place update, and NOT proof of successful real-channel playback on a physical Android device."
           fi
-          gh release upload "$TAG" preview/EGYSHOW_Android_v2.0.25_TEST_ONLY.zip --repo "$REPO" --clobber
+          gh release upload "$TAG" preview/EGYSHOW_Android_v2.0.26_TEST_ONLY.zip --repo "$REPO" --clobber

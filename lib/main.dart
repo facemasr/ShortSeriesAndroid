@@ -16,8 +16,6 @@ import 'yacine_direct_player.dart';
 import 'egy_tv_sport_hub.dart';
 import 'yacine_catalog_cache.dart';
 import 'yacine_channel_groups.dart';
-import 'yacine_live_source_service.dart';
-import 'yacine_external_player.dart';
 import 'egyshow_global_ads.dart';
 
 void main() {
@@ -132,9 +130,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   final Map<String, List<Media>> catalogs = {};
   final Map<String, int> pages = {};
   static const String _liveCatalogKey = 'egyshow_live_catalog_metadata_v1';
-  static const String _ytvPreferenceKey = 'egyshow_auto_ytv_pro_v1';
-  bool _preferYtvPro = true;
-  bool _ytvHandoffBusy = false;
   List<LiveChannel> channels = [];
   DateTime? _catalogLastUpdated;
   String channelQuery = '';
@@ -167,7 +162,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     try {
       prefs = await SharedPreferences.getInstance();
       ar = prefs?.getBool('language_ar') ?? true;
-      _preferYtvPro = prefs?.getBool(_ytvPreferenceKey) ?? true;
       channels = decodeYacineCatalog(prefs?.getString(_liveCatalogKey));
       for (final row in prefs?.getStringList('favorites') ?? <String>[]) {
         try {
@@ -368,79 +362,18 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     )));
   }
 
-  /// Yacine-style two-app flow: controller/catalog -> source resolution
-  /// on the user's device -> installed YTV Pro v15 direct player. Sources
-  /// requiring Referer or private session headers stay in EGYSHOW.
+  /// A single internal TV player for every channel and quality. Media3
+  /// receives newly resolved provider URLs and headers from the device-side
+  /// source service. No installed external player is needed.
   Future<void> _playLiveChannel(
       LiveChannel channel, List<LiveChannel> qualityVariants) async {
-    if (_ytvHandoffBusy) return;
-    YacineStationResolution? prepared;
-    if (_preferYtvPro) {
-      _ytvHandoffBusy = true;
-      try {
-        // Same current-station pipeline as the native Media3/VLC players.
-        // Keep verified headers and signed URLs in memory, never in catalog.
-        prepared = await YacineLiveSourceService(api, api.client)
-            .resolve(channel);
-        if (!mounted) return;
-        final compatible =
-            YacineExternalPlayer.pickYtvDirectSource(prepared.sources);
-        if (compatible != null) {
-          await YacineExternalPlayer.open(
-            compatible,
-            title: channel.title(ar),
-            target: YacineExternalTarget.ytvPro,
-            chooserTitle: ar ? 'تشغيل في YTV Pro' : 'Open in YTV Pro',
-          );
-          return;
-        }
-      } catch (_) {
-        // The external app cannot accept all provider-supplied headers, or
-        // the station is temporarily unavailable. Try internal playback.
-      } finally {
-        _ytvHandoffBusy = false;
-      }
-    }
     if (!mounted) return;
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
-      DirectYacineChannelPlayer(
-        channel: prepared?.channel ?? channel,
-        qualityVariants: qualityVariants,
-        initialSources: prepared?.sources,
-        initialProviderId: prepared?.channel.providerId,
-        api: api, ar: ar)));
-  }
-
-  /// Open the active channel directly from the native channel list in an
-  /// installed Android video app, using only freshly resolved source metadata.
-  Future<void> _openLiveExternal(LiveChannel channel) async {
-    try {
-      final selected = await YacineLiveSourceService(api, api.client)
-          .resolve(channel);
-      if (!mounted || selected.sources.isEmpty) return;
-      await YacineExternalPlayer.open(
-        selected.sources[selected.sourceIndex],
-        title: channel.title(ar),
-        target: YacineExternalTarget.choose,
-        chooserTitle: ar ? 'اختر مشغّل القناة' : 'Choose a video player',
-      );
-    } on YacineExternalPlaybackException catch (error) {
-      if (!mounted) return;
-      final message = error.reason == 'session_headers_require_internal_player'
-          ? (ar ? 'القناة تحتاج بيانات جلسة؛ استخدم المشغّل الداخلي.'
-              : 'This channel requires private in-app session headers.')
-          : (ar ? 'لا يوجد مشغّل خارجي مناسب. ثبّت VLC أو مشغّل HLS.'
-              : 'No compatible external player. Install VLC or an HLS app.');
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)));
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
-          ar ? 'تعذر تحديث رابط القناة أو فتح المشغّل الخارجي.'
-             : 'Could not refresh the stream URL or launch an external player.',
-        )));
-      }
-    }
+    await Navigator.of(context).push<void>(MaterialPageRoute<void>(
+      builder: (_) => DirectYacineChannelPlayer(
+        channel: channel, qualityVariants: qualityVariants,
+        api: api, ar: ar,
+      ),
+    ));
   }
 
   Future<void> _signIn(bool register, String email, String password, String name) async {
@@ -667,7 +600,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
                 final channel = group.preferred;
                 return InkWell(
                   onTap: () => _openLiveGroup(group),
-                   onLongPress: () => unawaited(_openLiveExternal(group.preferred)),
                   child: Container(
                     decoration: BoxDecoration(color: panel,
                       borderRadius: BorderRadius.circular(12)),
@@ -687,12 +619,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
                       Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                          const Icon(Icons.play_arrow_rounded, color: red),
                          const SizedBox(width: 16),
-                         GestureDetector(
-                           onTap: () =>
-                               unawaited(_openLiveExternal(group.preferred)),
-                           child: const Icon(Icons.open_in_new_rounded,
-                               color: Color(0xFF21D9C6)),
-                         ),
                        ]),
                     ]),
                   ),
@@ -803,13 +729,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       api: api, ar: ar, channels: channels, loading: listBusy,
       onRefresh: () => _loadLive(force: true),
       onOpen: (channel) => _play('channel', channel.id, channel.title(ar)),
-      onOpenExternal: (channel) => unawaited(_openLiveExternal(channel)),
-      preferYtvPro: _preferYtvPro,
-      onPreferYtvProChanged: (value) {
-        setState(() => _preferYtvPro = value);
-        unawaited(prefs?.setBool(_ytvPreferenceKey, value) ??
-            Future<bool>.value(false));
-      });
+    );
     else if (tab == 5 || tab == 6) body = WebsiteSection(
       key: ValueKey('section-' + tab.toString() + (ar ? '-ar' : '-en')),
       kind: tab == 5 ? 'matches' : 'youtube', ar: ar, api: api);

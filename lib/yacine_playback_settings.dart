@@ -18,10 +18,10 @@ class YacinePlaybackSettings extends StatefulWidget {
     required this.onFit,
     required this.onSpeed,
     required this.onSource,
-    required this.onExternal,
-    required this.onVlcExternal,
-    required this.onYtvProExternal,
-    required this.onOtherEngine,
+    this.onExternal,
+    this.onVlcExternal,
+    this.onYtvProExternal,
+    this.onOtherEngine,
     required this.onReconnect,
     this.qualityVariants = const [],
     this.currentProviderId = '',
@@ -43,10 +43,10 @@ class YacinePlaybackSettings extends StatefulWidget {
   final ValueChanged<BoxFit> onFit;
   final ValueChanged<double> onSpeed;
   final ValueChanged<int> onSource;
-  final VoidCallback onExternal;
-  final VoidCallback onVlcExternal;
-  final VoidCallback onYtvProExternal;
-  final VoidCallback onOtherEngine;
+  final VoidCallback? onExternal;
+  final VoidCallback? onVlcExternal;
+  final VoidCallback? onYtvProExternal;
+  final VoidCallback? onOtherEngine;
   final VoidCallback onReconnect;
   final List<LiveChannel> qualityVariants;
   final String currentProviderId;
@@ -169,40 +169,6 @@ class _YacinePlaybackSettingsState extends State<YacinePlaybackSettings> {
                   'Channel playback diagnostics')),
                 onTap: () => choose(widget.onDiagnostics!),
               ),
-            heading(t('طريقة التشغيل', 'Playback engine')),
-            ListTile(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-              tileColor: const Color(0xFF1B3038),
-              leading: const Icon(Icons.open_in_new_rounded,
-                  color: Color(0xFF34DBC9)),
-              title: Text(t('فتح بمشغّل خارجي', 'Open in external player')),
-              subtitle: Text(t('اختر أي مشغّل فيديو مثبت على الهاتف',
-                  'Choose an installed video player')),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => choose(widget.onExternal),
-            ),
-            const SizedBox(height: 5),
-            ListTile(
-              leading: const Icon(Icons.play_circle_outline_rounded),
-              title: const Text('VLC for Android'),
-              subtitle: Text(t('فتح القناة مباشرة في VLC الخارجي',
-                  'Hand off the current channel to the VLC app')),
-              onTap: () => choose(widget.onVlcExternal),
-            ),
-            ListTile(
-              leading: const Icon(Icons.live_tv_outlined),
-              title: const Text('YTV Player Pro'),
-              subtitle: Text(t('تجربة فتح الرابط في المشغّل الذي أرسلته',
-                  'Try opening this channel in the referenced video player')),
-              onTap: () => choose(widget.onYtvProExternal),
-            ),
-            ListTile(
-              leading: const Icon(Icons.swap_horizontal_circle_outlined),
-              title: Text(t('تبديل المحرك داخل التطبيق',
-                  'Switch in-app player engine')),
-              onTap: () => choose(widget.onOtherEngine),
-            ),
             heading(t('السيرفر / الجودة', 'Server / quality')),
             if (widget.sources.isEmpty)
               Padding(padding: const EdgeInsets.all(12),
@@ -275,12 +241,10 @@ class _YacinePlaybackSettingsState extends State<YacinePlaybackSettings> {
               onTap: () => choose(widget.onReconnect),
             ),
             const Divider(),
-            Text(t('تختلف قدرات المشغّلات الخارجية. بعض التطبيقات لا تمرّر '
-                'User-Agent أو Referer، وقد لا تعمل معها القنوات التي تشترط '
-                'هذه البيانات. لا يمكن تجاوز اشتراك أو حماية DRM.',
-                'External players may ignore User-Agent or Referer and '
-                'such streams may fail outside the app. Subscription and '
-                'DRM restrictions are not bypassed.'),
+            Text(t('مشغّل Media3 الداخلي واحد لجميع القنوات. تتجدد '
+                'الروابط المؤقتة من المصدر المتاح دون التحويل إلى تطبيق آخر.',
+                'One internal Media3 player for every channel. Temporary '
+                'media URLs are refreshed without switching player apps.'),
               style: const TextStyle(color: Colors.white54, fontSize: 12)),
           ]),
         ),

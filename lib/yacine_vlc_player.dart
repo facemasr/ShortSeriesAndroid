@@ -52,6 +52,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
   final YacineLocalRelay _relay = YacineLocalRelay();
   bool _usingRelay = false;
   late String _currentProviderId;
+  late LiveChannel _resolvedStation;
 
   VlcPlayerController? _controller;
   List<YacinePlaybackSource> _sources = const [];
@@ -161,6 +162,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _currentProviderId = widget.initialProviderId ?? widget.channel.providerId;
+    _resolvedStation = widget.channel;
     _poll = Timer.periodic(const Duration(seconds: 20),
         (_) => unawaited(_refreshActiveChannel()));
     _watchdog = Timer.periodic(const Duration(seconds: 7),
@@ -187,11 +189,12 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
       return await operation(_currentProviderId);
     } on YacineResolveException catch (error) {
       if (!yacineShouldRefreshCatalogFor(error.reason)) rethrow;
-      final refreshed = await widget.api.refreshProviderChannel(widget.channel);
+      final refreshed = await widget.api.refreshProviderChannel(_resolvedStation);
       if (refreshed == null ||
           refreshed.providerId.isEmpty ||
           refreshed.providerId == _currentProviderId) rethrow;
       _currentProviderId = refreshed.providerId;
+      _resolvedStation = refreshed;
       return operation(_currentProviderId);
     }
   }
@@ -215,12 +218,13 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     try {
       final stationResult = readySources == null
           ? await YacineLiveSourceService(widget.api, _http)
-              .resolve(widget.channel,
+              .resolve(_resolvedStation,
                   preferredProviderId: _currentProviderId,
                   preferredSourceIndex: preferred ?? _server)
           : null;
       if (stationResult != null) {
         _currentProviderId = stationResult.channel.providerId;
+        _resolvedStation = stationResult.channel;
       }
       final sources = readySources ?? stationResult!.sources;
       if (_disposed || !mounted) return;
@@ -689,7 +693,7 @@ class _YacineVlcChannelPlayerState extends State<YacineVlcChannelPlayer>
     if (!mounted || _disposed) return;
     Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
       builder: (_) => DirectYacineChannelPlayer(
-        channel: LiveChannel({...widget.channel.raw,
+        channel: LiveChannel({..._resolvedStation.raw,
           'provider_id': _currentProviderId}),
         qualityVariants: widget.qualityVariants,
         api: widget.api, ar: widget.ar,

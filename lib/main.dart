@@ -268,7 +268,12 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       }
     } catch (e) {
       if (mounted) setState(() {
-        error = channels.isEmpty ? e.toString() : '';
+        // Cached channels may have IDs which rotated since they were saved.
+        // Never conceal a failed live refresh when stale entries remain.
+        error = channels.isEmpty ? e.toString()
+            : (ar
+              ? 'تعذر تحديث فهرس القنوات. المعروض نسخة محفوظة؛ سيتم البحث عن معرّف القناة مباشرة عند تشغيلها.'
+              : 'Live catalog refresh failed. Showing saved entries; each station will be checked again on play.');
         listBusy = false;
       });
     }

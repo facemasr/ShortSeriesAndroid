@@ -1,0 +1,43 @@
+name: EGYSHOW current-channel source integration
+
+on:
+  push:
+    branches:
+      - fix/egyshow-live-source-pipeline-20261107
+  pull_request:
+    branches:
+      - feature/egyshow-direct-yacine-channels-20261104
+
+permissions:
+  contents: read
+
+jobs:
+  source-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Analyze catalog, player integration and source pipeline
+        run: |
+          flutter analyze --no-fatal-infos \
+            lib/native_api.dart \
+            lib/main.dart \
+            lib/yacine_channel_resolver.dart \
+            lib/yacine_live_source_service.dart \
+            lib/yacine_direct_player.dart \
+            lib/yacine_vlc_player.dart
+      - name: Verify fresh station ID, source headers, renewal and regression
+        run: |
+          flutter test test/yacine_live_source_service_test.dart \
+            test/yacine_stale_id_nested_recovery_test.dart \
+            test/yacine_live_quality_variants_test.dart \
+            test/yacine_no_source_diagnostics_test.dart \
+            test/yacine_stream_renewal_test.dart \
+            test/yacine_android_channel_service_test.dart \
+            test/yacine_external_player_test.dart

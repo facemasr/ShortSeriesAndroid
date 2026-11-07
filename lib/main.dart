@@ -16,7 +16,6 @@ import 'yacine_direct_player.dart';
 import 'egy_tv_sport_hub.dart';
 import 'yacine_catalog_cache.dart';
 import 'yacine_channel_groups.dart';
-import 'yacine_channel_resolver.dart';
 import 'yacine_live_source_service.dart';
 import 'yacine_external_player.dart';
 import 'egyshow_global_ads.dart';

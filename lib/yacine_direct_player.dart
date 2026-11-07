@@ -59,6 +59,9 @@ class _DirectYacineChannelPlayerState
   YtvManualLink? _manualLink;
   String? _playerErrorCode;
   String _resolutionStage = 'initializing';
+  DateTime? _connectionStartedAt;
+  int _connectionAttempts = 0;
+  String? _lastCompletedFailure;
   String _catalogRecovery = 'not_needed';
   int _resolvedSourceCount = 0;
   static const _fitPreference = 'egyshow_ytv_internal_fit_v1';
@@ -161,9 +164,16 @@ class _DirectYacineChannelPlayerState
     unawaited(_connect(userRetry: true));
   }
 
-  void _showYtvDiagnostics() {
+  /// Read the current state when the dialog renders or Copy is pressed.
+  /// The previous implementation captured a single string at dialog opening,
+  /// causing "fetching_channel_descriptor" to remain forever on screen.
+  String _currentYtvReport() {
     final player = _video;
-    final text = [
+    final seconds = _connectionStartedAt == null ? 0 :
+        DateTime.now().difference(_connectionStartedAt!).inSeconds;
+    final visibleHeaders = _activeHeaders ??
+        (_sources.isNotEmpty ? _sources.first.headers : const <String, String>{});
+    return [
       'Engine: EGYSHOW TV Pro / Android Media3',
       'Channel ID: ' + _currentProviderId,
       'Server: ' + (_activeLabel ??
@@ -171,37 +181,50 @@ class _DirectYacineChannelPlayerState
       'Stage: ' + _resolutionStage,
       'Catalog recovery: ' + _catalogRecovery,
       'Sources: ' + _resolvedSourceCount.toString(),
-      'Attempts: ' + _failures.toString(),
+      'Connection attempts: ' + _connectionAttempts.toString(),
+      'Retry count: ' + _failures.toString(),
+      'Elapsed: ' + seconds.toString() + 's',
       'State: ' + (_connecting ? 'connecting'
           : player?.value.isBuffering == true ? 'buffering'
           : player?.value.isPlaying == true ? 'playing' : 'stopped'),
       'Error: ' + (_playerErrorCode ?? _lastProbeFailure ??
           (_resolutionStage == 'playing' ? 'none' : 'not_reported_yet')),
+      if (_lastCompletedFailure != null)
+        'Last completed error: ' + _lastCompletedFailure!,
       'Media probe: ' + (_lastProbeFailure ?? 'not_run'),
       'Manual source: ' + (_manualLink == null ? 'no' : 'yes'),
-      'HTTP User-Agent: ' + ((_activeHeaders ??
-          (_sources.isNotEmpty ? _sources.first.headers :
-          const <String, String>{})).containsKey('User-Agent')
+      'HTTP User-Agent: ' + (visibleHeaders.containsKey('User-Agent')
           ? 'provided' : 'not provided'),
-      'HTTP Referer: ' + ((_activeHeaders ??
-          (_sources.isNotEmpty ? _sources.first.headers :
-          const <String, String>{})).containsKey('Referer')
+      'HTTP Referer: ' + (visibleHeaders.containsKey('Referer')
           ? 'provided' : 'not provided'),
     ].join('\n');
-    showDialog<void>(context: context, builder: (dialog) => AlertDialog(
-      title: Text(label('تشخيص مشغّل القنوات', 'Live player diagnostics')),
-      content: SelectableText(text),
-      actions: [
-        TextButton(
-          onPressed: () async {
-            await Clipboard.setData(ClipboardData(text: text));
-            if (dialog.mounted) Navigator.pop(dialog);
-          },
-          child: Text(label('نسخ التقرير', 'Copy report'))),
-        TextButton(onPressed: () => Navigator.pop(dialog),
-          child: Text(label('إغلاق', 'Close'))),
-      ],
-    ));
+  }
+
+  void _showYtvDiagnostics() {
+    // A periodic UI-only refresh cancels when the dialog closes. It never
+    // performs provider requests or stores temporary stream URLs.
+    final ticks = Stream<int>.periodic(const Duration(seconds: 1), (n) => n);
+    showDialog<void>(context: context, builder: (dialog) =>
+      StreamBuilder<int>(
+        stream: ticks,
+        builder: (context, _) => AlertDialog(
+          title: Text(label('تشخيص مشغّل القنوات', 'Live player diagnostics')),
+          content: SingleChildScrollView(
+            child: SelectableText(_currentYtvReport())),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(
+                    ClipboardData(text: _currentYtvReport()));
+                if (dialog.mounted) Navigator.pop(dialog);
+              },
+              child: Text(label('نسخ التقرير', 'Copy report'))),
+            TextButton(onPressed: () => Navigator.pop(dialog),
+              child: Text(label('إغلاق', 'Close'))),
+          ],
+        ),
+      ),
+    );
   }
 
   /// When the station returns HTTP 404 OR has no playable source, do one
@@ -303,6 +326,8 @@ class _DirectYacineChannelPlayerState
       List<YacinePlaybackSource>? preloadedSources}) async {
     if (_connecting || _disposed) return;
     _connecting = true;
+    _connectionStartedAt = DateTime.now();
+    _connectionAttempts++;
     _retry?.cancel();
     _retry = null;
     // Keep the existing renewal deadline during replacement preparation.
@@ -333,7 +358,7 @@ class _DirectYacineChannelPlayerState
           ? await _withCurrentChannel((id) =>
               EgyTvAndroidChannelService(_channelClient).choose(
                   id, preferredIndex: preferredSource,
-                  quickCheck: previous == null))
+                  quickCheck: false))
           : null;
       final sources = manual == null
           ? (preloadedSources ?? choice!.sources)
@@ -421,6 +446,7 @@ class _DirectYacineChannelPlayerState
           _lastProbeFailure = null;
           _playerErrorCode = null;
           _resolutionStage = 'playing';
+          _lastCompletedFailure = null;
           if (mounted) setState(() { _busy = false; _failure = null; });
           return;
         } catch (error) {
@@ -454,6 +480,7 @@ class _DirectYacineChannelPlayerState
     } catch (error) {
       _resolutionStage = 'channel_open_failed';
       _playerErrorCode ??= _classifyPlaybackError(error);
+      _lastCompletedFailure = _playerErrorCode;
       if (mounted && !_disposed) {
         setState(() {
           _busy = false;

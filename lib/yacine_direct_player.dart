@@ -347,7 +347,12 @@ class _DirectYacineChannelPlayerState
       _video = null;
       if (previous != null) {
         previous.removeListener(_onMediaChanged);
-        await previous.dispose();
+        try {
+          await previous.dispose().timeout(const Duration(seconds: 4));
+        } catch (_) {
+          // A hung native decoder cleanup must not lock _connecting forever.
+          // The next Media3 attempt can still open a fresh source.
+        }
       }
     }
     if (mounted) setState(() { _busy = !retainCurrent; _failure = null; });

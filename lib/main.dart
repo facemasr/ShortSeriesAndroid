@@ -132,6 +132,9 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   final Map<String, List<Media>> catalogs = {};
   final Map<String, int> pages = {};
   static const String _liveCatalogKey = 'egyshow_live_catalog_metadata_v1';
+  static const String _ytvPreferenceKey = 'egyshow_auto_ytv_pro_v1';
+  bool _preferYtvPro = true;
+  bool _ytvHandoffBusy = false;
   List<LiveChannel> channels = [];
   DateTime? _catalogLastUpdated;
   String channelQuery = '';
@@ -164,6 +167,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     try {
       prefs = await SharedPreferences.getInstance();
       ar = prefs?.getBool('language_ar') ?? true;
+      _preferYtvPro = prefs?.getBool(_ytvPreferenceKey) ?? true;
       channels = decodeYacineCatalog(prefs?.getString(_liveCatalogKey));
       for (final row in prefs?.getStringList('favorites') ?? <String>[]) {
         try {
@@ -351,10 +355,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
             break;
           }
         }
-        Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
-          DirectYacineChannelPlayer(
-            channel: directChannel, qualityVariants: variants,
-            api: api, ar: ar)));
+        unawaited(_playLiveChannel(directChannel, variants));
         return;
       }
     }
@@ -365,6 +366,54 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       type: type, id: id, mediaId: parentId, title: title,
       token: api.token,
     )));
+  }
+
+  /// Yacine-style two-app flow: controller/catalog -> source resolution
+  /// on the user's device -> installed YTV Pro v15 direct player. Sources
+  /// requiring Referer or private session headers stay in EGYSHOW.
+  Future<void> _playLiveChannel(
+      LiveChannel channel, List<LiveChannel> qualityVariants) async {
+    if (_ytvHandoffBusy) return;
+    if (_preferYtvPro) {
+      _ytvHandoffBusy = true;
+      try {
+        var providerId = channel.providerId;
+        List<YacinePlaybackSource> sources;
+        try {
+          sources = await YacineChannelResolver(api.client)
+              .resolve(providerId);
+        } on YacineResolveException catch (error) {
+          if (!yacineShouldRefreshCatalogFor(error.reason)) rethrow;
+          final current = await api.refreshProviderChannel(channel);
+          if (current == null || current.providerId == providerId) rethrow;
+          providerId = current.providerId;
+          sources = await YacineChannelResolver(api.client)
+              .resolve(providerId);
+        }
+        if (!mounted) return;
+        final compatible =
+            YacineExternalPlayer.pickYtvDirectSource(sources);
+        if (compatible != null) {
+          await YacineExternalPlayer.open(
+            compatible,
+            title: channel.title(ar),
+            target: YacineExternalTarget.ytvPro,
+            chooserTitle: ar ? 'تشغيل في YTV Pro' : 'Open in YTV Pro',
+          );
+          return;
+        }
+      } catch (_) {
+        // Missing external player, network failure, or unsupported headers:
+        // retain the native EGYSHOW player without exposing credentials.
+      } finally {
+        _ytvHandoffBusy = false;
+      }
+    }
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) =>
+      DirectYacineChannelPlayer(
+        channel: channel, qualityVariants: qualityVariants,
+        api: api, ar: ar)));
   }
 
   /// Open the active channel directly from the native channel list in an
@@ -768,7 +817,13 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       api: api, ar: ar, channels: channels, loading: listBusy,
       onRefresh: () => _loadLive(force: true),
       onOpen: (channel) => _play('channel', channel.id, channel.title(ar)),
-      onOpenExternal: (channel) => unawaited(_openLiveExternal(channel)));
+      onOpenExternal: (channel) => unawaited(_openLiveExternal(channel)),
+      preferYtvPro: _preferYtvPro,
+      onPreferYtvProChanged: (value) {
+        setState(() => _preferYtvPro = value);
+        unawaited(prefs?.setBool(_ytvPreferenceKey, value) ??
+            Future<bool>.value(false));
+      });
     else if (tab == 5 || tab == 6) body = WebsiteSection(
       key: ValueKey('section-' + tab.toString() + (ar ? '-ar' : '-en')),
       kind: tab == 5 ? 'matches' : 'youtube', ar: ar, api: api);

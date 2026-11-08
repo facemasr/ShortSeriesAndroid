@@ -7,7 +7,6 @@ import 'package:video_player/video_player.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'native_api.dart';
-import 'native_banner_ads.dart';
 import 'yacine_media_format.dart';
 import 'yacine_channel_resolver.dart';
 import 'yacine_vlc_m3u.dart';
@@ -66,8 +65,8 @@ class _DirectYacineChannelPlayerState
   String? _lastCompletedFailure;
   String _catalogRecovery = 'not_needed';
   int _resolvedSourceCount = 0;
-  static const _fitPreference = 'egyshow_ytv_internal_fit_v1';
-  static const _speedPreference = 'egyshow_ytv_internal_speed_v1';
+  static const _fitPreference = 'egytvpro_internal_fit_v1';
+  static const _speedPreference = 'egytvpro_internal_speed_v1';
   BoxFit _videoFit = BoxFit.contain;
   bool _landscapeLeft = true;
   bool _refreshingSources = false;
@@ -181,7 +180,7 @@ class _DirectYacineChannelPlayerState
     final visibleHeaders = _activeHeaders ??
         (_sources.isNotEmpty ? _sources.first.headers : const <String, String>{});
     return [
-      'Engine: EGYSHOW TV Pro / Android Media3',
+      'Engine: EGY TV PRO / Android Media3',
       'Channel ID: ' + _currentProviderId,
       'Server: ' + (_activeLabel ??
           (_sources.isNotEmpty ? _sources.first.label : '-')),
@@ -861,7 +860,7 @@ class _DirectYacineChannelPlayerState
       showDragHandle: true,
       builder: (_) => YacinePlaybackSettings(
         ar: widget.ar,
-        engineName: 'EGYSHOW TV PRO · Media3',
+        engineName: 'EGY TV PRO · Media3',
         fit: _videoFit,
         speed: _speed,
         sources: _sources,
@@ -1147,16 +1146,13 @@ class _DirectYacineChannelPlayerState
                   const Icon(Icons.circle, color: Color(0xFF12D6C0), size: 8),
                   const SizedBox(width: 7),
                   Expanded(child: Text(label(
-                    'EGYSHOW TV PRO · مشغّل Media3 داخلي · تحديث القناة تلقائيًا',
-                    'EGYSHOW TV PRO · Internal Media3 · automatic stream refresh') +
+                    'EGY TV PRO · مشغّل Media3 داخلي · تحديث القناة تلقائيًا',
+                    'EGY TV PRO · Internal Media3 · automatic stream refresh') +
                     (_lastSourceCheck == null ? '' :
                       ' · ' + _lastSourceCheck!.hour.toString().padLeft(2, '0') +
                       ':' + _lastSourceCheck!.minute.toString().padLeft(2, '0')),
                     style: const TextStyle(color: Colors.white70, fontSize: 12))),
                 ])),
-              // Reuse EGYSHOW's approved ad manager placements.
-              EgyshowBannerAd(api: widget.api, placement: 'player_bottom',
-                height: 84),
             ],
           ]),
         ),

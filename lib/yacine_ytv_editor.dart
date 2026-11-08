@@ -29,8 +29,8 @@ class YtvVideoUrlEditor {
         context: context,
         builder: (dialog) => StatefulBuilder(
           builder: (ctx, setLocalState) => AlertDialog(
-            title: Text(label('EGYSHOW TV PRO · تحرير الرابط',
-                'EGYSHOW TV PRO · Edit URL')),
+            title: Text(label('EGY TV PRO · تحرير الرابط',
+                'EGY TV PRO · Edit URL')),
             content: SingleChildScrollView(child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [

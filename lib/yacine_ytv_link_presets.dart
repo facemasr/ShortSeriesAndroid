@@ -81,7 +81,7 @@ class YtvManualLink {
 
 class YtvManualLinkStore {
   const YtvManualLinkStore._();
-  static const _prefix = 'egyshow_user_ytv_v1_';
+  static const _prefix = 'egytvpro_user_ytv_v1_';
 
   static String _key(String providerId) =>
       _prefix + Uri.encodeComponent(providerId);

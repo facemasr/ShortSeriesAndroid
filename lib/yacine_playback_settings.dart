@@ -145,7 +145,7 @@ class _YacinePlaybackSettingsState extends State<YacinePlaybackSettings> {
               IconButton(onPressed: () => Navigator.of(context).pop(),
                 icon: const Icon(Icons.close_rounded)),
             ]),
-            Text('EGYSHOW · ' + widget.engineName,
+            Text('EGY TV PRO · ' + widget.engineName,
               style: const TextStyle(color: Colors.white60)),
             if (widget.onEditSource != null) ...[
               heading(t('روابط الفيديو', 'Video links')),

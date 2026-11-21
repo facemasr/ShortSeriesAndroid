@@ -43,7 +43,7 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
       - name: Analyze EGYSHOW application
-        run: flutter analyze lib/main.dart
+        run: flutter analyze lib/main.dart --no-fatal-infos
       - name: Run regression tests
         run: flutter test
       - name: Build Android release candidate

@@ -40,6 +40,8 @@ jobs:
           s = re.sub(r'android:label="[^"]*"', 'android:label="EGYSHOW"', s, count=1)
           p.write_text(s)
           PY
+          # flutter create generates a placeholder test for a different app template.
+          rm -f test/widget_test.dart
       - name: Install Flutter dependencies
         run: flutter pub get
       - name: Analyze EGYSHOW application

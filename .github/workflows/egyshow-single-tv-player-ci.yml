@@ -1,4 +1,4 @@
-name: EGYSHOW single TV player checks
+name: EGYSHOW no-TV app shell checks
 on:
   push:
     branches:
@@ -20,7 +20,7 @@ jobs:
           cache: true
       - name: Dependencies
         run: flutter pub get
-      - name: Analyze single TV player route
-        run: flutter analyze --no-fatal-infos lib/main.dart lib/yacine_direct_player.dart lib/yacine_playback_settings.dart lib/egy_tv_sport_hub.dart
-      - name: Test single-engine routing and live source recovery
-        run: flutter test test/yacine_single_player_policy_test.dart test/yacine_provider_id_recovery_test.dart test/yacine_live_quality_variants_test.dart test/yacine_channel_resolver_test.dart
+      - name: Analyze EGYSHOW app shell
+        run: flutter analyze --no-fatal-infos lib/main.dart
+      - name: Verify TV channels are absent from app navigation
+        run: flutter test test/yacine_single_player_policy_test.dart

@@ -1,74 +1,51 @@
-# ShortSeris Native App
+# EGYSHOW Android
 
-Native Flutter application for **https://shortseris.online**.
+Native Flutter companion app for the current EGYSHOW website: **https://egyshow.com**.
 
-This repository no longer uses Android WebView. The app reads JSON from the ShortSeris mobile API and renders native Flutter screens.
+The app uses the first-party EGYSHOW JSON APIs for the catalogue, search, details, account and playback. It keeps the Arabic/English interface and RTL/LTR layout.
 
-## API
-Base endpoint:
+## Included sections
 
-`https://shortseris.online/mobile-api/index.php`
-
-Main actions used by the app:
-- `home`
-- `media`
-- `media_detail`
-- `channels`
-- `playback`
-- `login` / `logout` / `me`
-- `favorites`
-- `watchlist`
-- `continue`
-- `progress`
-
-## Features
-- Arabic / English
-- RTL / LTR
+- Home and featured titles
 - Movies
 - Series
-- Short series
-- Seasons and episodes
-- Live TV
+- Short series, seasons and episodes
 - Search
-- Native playback with media_kit
-- Multiple playback servers
-- Secure Bearer-token login
-- Favorites
-- My List
-- Continue Watching
-- Playback progress sync
+- Match listings
+- EGYSHOW YouTube discovery
+- Account, sign-in and favourites
 
-## GitHub build
-Every push to `main` starts **Build Android APK** in GitHub Actions.
+**Live TV / EGY TV Sport channel browsing and playback have been removed from this app.** The separate EGY TV PRO product is not part of this project and is not modified.
 
-After the workflow succeeds:
-1. Open **Actions**
-2. Open the latest **Build Android APK**
-3. Download the **ShortSeris-Android** artifact
-4. Extract `app-release.apk`
+## Website API
 
-The workflow generates the Android runner automatically, so this repository can stay focused on the Flutter source.
+Base origin: `https://egyshow.com`
 
-## Local development
+Main API routes used by the app include:
+
+- `/api/v1/home`
+- `/api/v1/media`
+- `/api/v1/media/{id}`
+- `/api/v1/search`
+- `/api/v1/player/context`
+- `/api/v1/auth/login` and `/api/v1/auth/register`
+- `/api/v1/profile`
+- `/matches/api`
+- `/api/v1/youtube/discover` and `/api/v1/youtube/search`
+
+## Android build
+
+The project is Flutter. Install Flutter stable and Android SDK, then run:
+
 ```bash
-flutter create . --platforms=android,ios --org online.shortseris --project-name shortseris_app
 flutter pub get
-flutter run
+flutter analyze
+flutter test
+flutter build apk --release
 ```
 
-For Android release builds ensure the INTERNET permission exists in the main Android manifest.
+The release APK must be signed with the existing EGYSHOW production signing key before publishing as an update. Never replace the installed production app with an unsigned or differently signed APK.
 
+## Version
 
-## Remote control from the website
-
-The app reads `action=app_config` from the ShortSeris mobile API at launch.
-
-After installing ShortSeris **v5.8.0 App Control Center**, the website admin can remotely control:
-- App on/off and maintenance mode
-- Arabic/English app name, logo, splash and colors
-- Movies, Series, Short Series, Live TV, Search, Account and Continue Watching visibility
-- Android/iOS minimum and latest versions
-- Forced app updates and update URLs
-- Native app ads for Home, Details, Player and TV
-
-Admin path: `/admin/app-control`
+Current development candidate: **2.0.34+42**.

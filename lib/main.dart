@@ -281,7 +281,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   void _play(String type, int id, String title, [String mediaKey = '']) {
-    // Movies, episodes, and legacy channels retain the existing site player.
+    // Movies and episodes use the EGYSHOW player.
     final parentId = type == 'episode'
         ? (int.tryParse(mediaKey) ?? id) : id;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => NativePlayer(
@@ -325,7 +325,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       Text(error, textAlign: TextAlign.center,
           style: const TextStyle(color: Colors.orangeAccent)),
       TextButton.icon(onPressed: () { if (tab == 0) _loadHome();
-          else if (tab == 4 || tab == 9) _loadLive();
           else if (tab > 0 && tab < 4) _loadCatalog(
               ['movie','series','short_series'][tab - 1], fresh: true);
         }, icon: const Icon(Icons.refresh), label: Text(tr(ar, 'إعادة المحاولة', 'Retry'))),
@@ -411,124 +410,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
           const Center(child: Padding(padding: EdgeInsets.all(20),
             child: CircularProgressIndicator())),
       ]);
-
-  void _openLiveGroup(YacineQualityGroup group) {
-    if (group.variants.length == 1) {
-      final c = group.variants.single;
-      _play('channel', c.id, c.title(ar));
-      return;
-    }
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: panel,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(sheetContext).height * .75),
-          child: ListView(shrinkWrap: true, children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-              child: Text(group.title(ar), style: const TextStyle(
-                fontSize: 18, fontWeight: FontWeight.w800))),
-            ListTile(
-              leading: const Icon(Icons.auto_awesome_rounded),
-              title: Text(tr(ar, 'جودة تلقائية (720p إن توفرت)',
-                  'Auto quality (720p when available)')),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                final c = group.preferred;
-                _play('channel', c.id, c.title(ar));
-              },
-            ),
-            for (final c in group.variants)
-              ListTile(
-                leading: const Icon(Icons.hd_outlined),
-                title: Text(yacineChannelQuality(c) == null
-                  ? tr(ar, 'جودة غير محددة', 'Unknown quality')
-                  : yacineChannelQuality(c).toString() + 'p'),
-                subtitle: Text(group.category),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _play('channel', c.id, c.title(ar));
-                },
-              ),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Widget _live() {
-    final grouped = groupYacineChannels(channels);
-    final search = channelQuery.trim().toLowerCase();
-    final filtered = search.isEmpty ? grouped : grouped.where((group) =>
-        (group.title(ar) + ' ' + group.category)
-            .toLowerCase().contains(search)).toList();
-    return Column(children: [
-      EgyshowBannerAd(api: api, placement: 'banner'),
-      const EgyshowAdPlacement(format: EgyshowAdFormat.partnerScript, compact: true),
-      Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-        child: TextField(
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search),
-            hintText: tr(ar, 'ابحث في جميع القنوات', 'Search live channels'),
-            border: const OutlineInputBorder(),
-          ),
-          onChanged: (value) => setState(() => channelQuery = value),
-        )),
-      if (error.isNotEmpty) _error(),
-      Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        child: Align(alignment: AlignmentDirectional.centerStart,
-          child: Text(tr(ar, 'القنوات المباشرة', 'Live TV') +
-            ' · ' + filtered.length.toString(),
-            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)))),
-      Expanded(child: RefreshIndicator(onRefresh: () => _loadLive(force: true),
-        child: listBusy && channels.isEmpty
-          ? ListView(children: const [
-              SizedBox(height: 180),
-              Center(child: CircularProgressIndicator()),
-            ])
-          : GridView.builder(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2, childAspectRatio: 1.15,
-                mainAxisSpacing: 10, crossAxisSpacing: 10),
-              itemCount: filtered.length,
-              itemBuilder: (_, i) {
-                final group = filtered[i];
-                final channel = group.preferred;
-                return InkWell(
-                  onTap: () => _openLiveGroup(group),
-                  child: Container(
-                    decoration: BoxDecoration(color: panel,
-                      borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.all(12),
-                    child: Column(children: [
-                      Expanded(child: Art(channel.logo, fit: BoxFit.contain)),
-                      const SizedBox(height: 6),
-                      Text(group.title(ar), maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                      if (group.category.isNotEmpty)
-                        Text(group.variants.length > 1
-                            ? group.qualities.map((q) => q.toString() + 'p').join(' · ')
-                            : group.category, maxLines: 1,
-                          style: const TextStyle(
-                            fontSize: 10, color: Colors.white54),
-                          overflow: TextOverflow.ellipsis),
-                      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                         const Icon(Icons.play_arrow_rounded, color: red),
-                         const SizedBox(width: 16),
-                       ]),
-                    ]),
-                  ),
-                );
-              },
-            ))),
-    ]);
-  }
 
   Widget _profile() {
     final name = txt(user?['display_name']).isNotEmpty

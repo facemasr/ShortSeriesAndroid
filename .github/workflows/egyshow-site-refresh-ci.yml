@@ -1,0 +1,65 @@
+name: EGYSHOW site-refresh Android validation
+
+on:
+  push:
+    branches:
+      - feature/egyshow-site-refresh-no-tv-20261121
+  pull_request:
+    branches:
+      - feature/egyshow-direct-yacine-channels-20261104
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate EGYSHOW Android runner
+        run: |
+          flutter create --platforms=android --org com.egyshow --project-name egyshow_mobile .
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+          if "android.permission.INTERNET" not in s:
+              s = s.replace("<application", '<uses-permission android:name="android.permission.INTERNET" />\\n    <application', 1)
+          if "android.permission.ACCESS_NETWORK_STATE" not in s:
+              s = s.replace("<application", '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\\n    <application', 1)
+          s = re.sub(r'android:label="[^"]*"', 'android:label="EGYSHOW"', s, count=1)
+          p.write_text(s)
+          PY
+      - name: Install Flutter dependencies
+        run: flutter pub get
+      - name: Analyze EGYSHOW application
+        run: flutter analyze lib/main.dart
+      - name: Run regression tests
+        run: flutter test
+      - name: Build Android release candidate
+        run: flutter build apk --release
+      - name: Verify package and version
+        run: |
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
+          SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
+          AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$AAPT"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='42' versionName='2.0.34'"
+          echo "Unsigned CI candidate only. Production release must use the existing EGYSHOW signing key."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EGYSHOW-Android-2.0.34-CI-UNSIGNED
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

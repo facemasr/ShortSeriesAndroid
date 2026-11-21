@@ -34,9 +34,9 @@ jobs:
           p = Path("android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
           if "android.permission.INTERNET" not in s:
-              s = s.replace("<application", '<uses-permission android:name="android.permission.INTERNET" />\\n    <application', 1)
+              s = s.replace("<application", '<uses-permission android:name="android.permission.INTERNET" />\n    <application', 1)
           if "android.permission.ACCESS_NETWORK_STATE" not in s:
-              s = s.replace("<application", '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\\n    <application', 1)
+              s = s.replace("<application", '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <application', 1)
           s = re.sub(r'android:label="[^"]*"', 'android:label="EGYSHOW"', s, count=1)
           p.write_text(s)
           PY

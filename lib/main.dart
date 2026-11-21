@@ -12,10 +12,6 @@ import 'native_sections.dart';
 import 'native_home_sections.dart';
 import 'native_visit_analytics.dart';
 import 'in_app_updates.dart';
-import 'yacine_direct_player.dart';
-import 'egy_tv_sport_hub.dart';
-import 'yacine_catalog_cache.dart';
-import 'yacine_channel_groups.dart';
 import 'egyshow_global_ads.dart';
 
 void main() {
@@ -129,10 +125,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   Map<String, List<Media>> homeData = {};
   final Map<String, List<Media>> catalogs = {};
   final Map<String, int> pages = {};
-  static const String _liveCatalogKey = 'egyshow_live_catalog_metadata_v1';
-  List<LiveChannel> channels = [];
-  DateTime? _catalogLastUpdated;
-  String channelQuery = '';
   List<Media> searchResults = [];
   String query = '';
   bool busy = true, listBusy = false, searchBusy = false;
@@ -162,7 +154,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     try {
       prefs = await SharedPreferences.getInstance();
       ar = prefs?.getBool('language_ar') ?? true;
-      channels = decodeYacineCatalog(prefs?.getString(_liveCatalogKey));
       for (final row in prefs?.getStringList('favorites') ?? <String>[]) {
         try {
           final media = Media(asMap(jsonDecode(row)));
@@ -216,11 +207,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     if (next >= 1 && next <= 3) {
       final t = ['movie', 'series', 'short_series'][next - 1];
       if (!catalogs.containsKey(t)) await _loadCatalog(t, fresh: true);
-    } else if (next == 4 || next == 9) {
-      // EGY TV Sport Windows refreshes its provider catalogue. Never
-      // trust an indefinitely cached channel ID after provider rotations.
-      await _loadLive();
-    }
   }
 
   Future<void> _loadCatalog(String type, {bool fresh = false}) async {
@@ -236,44 +222,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       });
     } catch (e) {
       if (mounted) setState(() { error = e.toString(); listBusy = false; });
-    }
-  }
-
-  Future<void> _loadLive({bool force = false}) async {
-    // Preserve the locally cached catalog until the user requests a refresh.
-    // Actual playback sessions continue to resolve each channel on demand.
-    // Cache is only a fast initial display. Every visit after 10 minutes
-    // resolves a fresh provider catalogue, preserving saved favourites.
-    if (!force && channels.isNotEmpty && _catalogLastUpdated != null &&
-        DateTime.now().difference(_catalogLastUpdated!) <
-            const Duration(minutes: 10)) return;
-    if (listBusy) return;
-    if (mounted) setState(() { listBusy = true; error = ''; });
-    try {
-      final items = await api.live();
-      if (items.isEmpty) throw const ApiException('provider_catalog_empty');
-      if (!mounted) return;
-      setState(() {
-        channels = items;
-        _catalogLastUpdated = DateTime.now();
-        listBusy = false;
-        error = '';
-      });
-      try {
-        await prefs?.setString(_liveCatalogKey, encodeYacineCatalog(items));
-      } catch (_) {
-        // Storage errors must not block playback of a fetched catalog.
-      }
-    } catch (e) {
-      if (mounted) setState(() {
-        // Cached channels may have IDs which rotated since they were saved.
-        // Never conceal a failed live refresh when stale entries remain.
-        error = channels.isEmpty ? e.toString()
-            : (ar
-              ? 'تعذر تحديث فهرس القنوات. المعروض نسخة محفوظة؛ سيتم البحث عن معرّف القناة مباشرة عند تشغيلها.'
-              : 'Live catalog refresh failed. Showing saved entries; each station will be checked again on play.');
-        listBusy = false;
-      });
     }
   }
 
@@ -333,26 +281,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   void _play(String type, int id, String title, [String mediaKey = '']) {
-    if (type == 'channel') {
-      LiveChannel? match;
-      for (final channel in channels) {
-        if (channel.id == id) { match = channel; break; }
-      }
-      final directChannel = match;
-      if (directChannel != null && directChannel.providerId.isNotEmpty) {
-        final groups = groupYacineChannels(channels);
-        final variants = <LiveChannel>[];
-        for (final group in groups) {
-          if (group.variants.any((v) =>
-              v.providerId == directChannel.providerId)) {
-            variants.addAll(group.variants);
-            break;
-          }
-        }
-        unawaited(_playLiveChannel(directChannel, variants));
-        return;
-      }
-    }
     // Movies, episodes, and legacy channels retain the existing site player.
     final parentId = type == 'episode'
         ? (int.tryParse(mediaKey) ?? id) : id;
@@ -360,20 +288,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       type: type, id: id, mediaId: parentId, title: title,
       token: api.token,
     )));
-  }
-
-  /// A single internal TV player for every channel and quality. Media3
-  /// receives newly resolved provider URLs and headers from the device-side
-  /// source service. No installed external player is needed.
-  Future<void> _playLiveChannel(
-      LiveChannel channel, List<LiveChannel> qualityVariants) async {
-    if (!mounted) return;
-    await Navigator.of(context).push<void>(MaterialPageRoute<void>(
-      builder: (_) => DirectYacineChannelPlayer(
-        channel: channel, qualityVariants: qualityVariants,
-        api: api, ar: ar,
-      ),
-    ));
   }
 
   Future<void> _signIn(bool register, String email, String password, String name) async {
@@ -459,18 +373,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
         ])),
       EgyshowBannerAd(api: api, placement: 'home'),
       const EgyshowAdPlacement(format: EgyshowAdFormat.nativeWidget),
-      Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF0B5E65), Color(0xFF132333)]),
-            borderRadius: BorderRadius.circular(17)),
-          child: ListTile(
-            leading: const Icon(Icons.sports_soccer_rounded, color: Color(0xFF12D6C0), size: 35),
-            title: const Text('EGY TV SPORT', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1)),
-            subtitle: Text(tr(ar, 'قنوات الرياضة والبث المباشر', 'Sports and live TV channels')),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () => _select(9))),
-      ),
       _rail(tr(ar, 'الأكثر مشاهدة', 'Trending'), homeData['trending'] ?? []),
       _rail(tr(ar, 'أضيف حديثًا', 'Just added'), homeData['latest'] ?? []),
       HomeExtras(api: api, ar: ar, openMedia: _open,
@@ -724,12 +626,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     else if (tab >= 1 && tab <= 3) {
       final type = ['movie', 'series', 'short_series'][tab - 1];
       body = _grid(catalogs[type] ?? [], paginate: true, type: type);
-    } else if (tab == 4) body = _live();
-    else if (tab == 9) body = EgyTvSportHub(
-      api: api, ar: ar, channels: channels, loading: listBusy,
-      onRefresh: () => _loadLive(force: true),
-      onOpen: (channel) => _play('channel', channel.id, channel.title(ar)),
-    );
     else if (tab == 5 || tab == 6) body = WebsiteSection(
       key: ValueKey('section-' + tab.toString() + (ar ? '-ar' : '-en')),
       kind: tab == 5 ? 'matches' : 'youtube', ar: ar, api: api);
@@ -745,10 +641,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
               tooltip: tr(ar, 'بحث', 'Search'),
               onPressed: () => setState(() { tab = isSearch ? 0 : 8; error = ''; }),
               icon: Icon(isSearch ? Icons.close : Icons.search_rounded)),
-            IconButton(
-              tooltip: 'EGY TV SPORT',
-              onPressed: () => _select(9),
-              icon: const Icon(Icons.live_tv_rounded, color: Color(0xFF12D6C0))),
             IconButton(
               tooltip: tr(ar, 'المباريات','Matches'),
               onPressed: () => _select(5),
@@ -774,8 +666,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
               _navItem(1, Icons.movie_outlined, tr(ar, 'أفلام', 'Movies')),
               _navItem(2, Icons.tv_outlined, tr(ar, 'مسلسلات', 'Series')),
               _navItem(3, Icons.smart_display_outlined, tr(ar, 'قصيرة', 'Shorts')),
-              _navItem(4, Icons.live_tv_outlined, tr(ar, 'مباشر', 'Live')),
-              _navItem(9, Icons.sports_soccer_rounded, 'EGY TV Sport'),
               _navItem(5, Icons.sports_soccer_outlined, tr(ar, 'مباريات', 'Matches')),
               _navItem(6, Icons.play_circle_outline, 'YouTube'),
               _navItem(7, Icons.person_outline, tr(ar, 'حسابي', 'Profile')),

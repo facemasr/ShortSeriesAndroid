@@ -207,6 +207,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     if (next >= 1 && next <= 3) {
       final t = ['movie', 'series', 'short_series'][next - 1];
       if (!catalogs.containsKey(t)) await _loadCatalog(t, fresh: true);
+    }
   }
 
   Future<void> _loadCatalog(String type, {bool fresh = false}) async {
@@ -507,7 +508,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     else if (tab >= 1 && tab <= 3) {
       final type = ['movie', 'series', 'short_series'][tab - 1];
       body = _grid(catalogs[type] ?? [], paginate: true, type: type);
-    else if (tab == 5 || tab == 6) body = WebsiteSection(
+    } else if (tab == 5 || tab == 6) body = WebsiteSection(
       key: ValueKey('section-' + tab.toString() + (ar ? '-ar' : '-en')),
       kind: tab == 5 ? 'matches' : 'youtube', ar: ar, api: api);
     else if (isSearch) body = _searchBody();

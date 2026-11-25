@@ -80,8 +80,8 @@ class _EgyshowBannerAdState extends State<EgyshowBannerAd> {
 
   Future<void> _load() async {
     try {
-      final ctx = await widget.api.playerContext('movie', 26926);
-      final ads = asList(ctx['ads']).map(asMap).where((ad) {
+      final ctx = await widget.api.call('/api/v1/ads/placements?placements=home,banner,global&device_type=mobile');
+      final ads = asMap(ctx['placements']).values.map(asMap).where((ad) {
         final placement = txt(ad['placement']).toLowerCase();
         final format = txt(ad['format']).toLowerCase();
         final active = ad['is_active'] == true || ad['is_active'] == 1;

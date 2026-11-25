@@ -73,7 +73,7 @@ class _EpisodeReelsState extends State<EpisodeReels> {
               key: ValueKey('egyshow-episode-' + ep.id.toString()),
               type: 'episode', id: ep.id,
               mediaId: widget.media.id,
-              token: widget.token,
+              token: widget.token, ar: widget.ar,
               title: ep.title(widget.ar),
               reelMode: true,
             );

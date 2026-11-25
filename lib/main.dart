@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'native_api.dart';
 import 'native_player.dart';
 import 'native_reels.dart';
@@ -150,7 +151,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   Future<void> _start() async {
-    // Public home must not depend on reading a saved login token.
+    // The updated website requires an authenticated member for catalog APIs.
     try {
       prefs = await SharedPreferences.getInstance();
       ar = prefs?.getBool('language_ar') ?? true;
@@ -161,19 +162,31 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
         } catch (_) {}
       }
     } catch (_) {}
-    await _loadHome();
     try {
       api.token = await secure.read(key: 'egyshow_auth');
       if (api.token != null) {
         try {
-          user = asMap((await api.profile())['user']);
-        } catch (_) {
-          api.token = null;
-          await secure.delete(key: 'egyshow_auth');
+          final profile = await api.profile();
+          user = asMap(profile['user']);
+          final refreshed = txt(profile['token']);
+          if (refreshed.isNotEmpty) {
+            api.token = refreshed;
+            await secure.write(key: 'egyshow_auth', value: refreshed);
+          }
+        } on ApiException catch (e) {
+          if (e.code == 401 || e.code == 403) {
+            api.token = null;
+            await secure.delete(key: 'egyshow_auth');
+          }
         }
       }
     } catch (_) {}
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (api.token == null) {
+      setState(() { tab = 7; busy = false; });
+    } else {
+      await _loadHome();
+    }
   }
 
   Future<void> _loadHome() async {
@@ -287,7 +300,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
         ? (int.tryParse(mediaKey) ?? id) : id;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => NativePlayer(
       type: type, id: id, mediaId: parentId, title: title,
-      token: api.token,
+      token: api.token, ar: ar,
     )));
   }
 
@@ -299,13 +312,16 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     api.token = token;
     await secure.write(key: 'egyshow_auth', value: token);
     final info = await api.profile();
-    if (mounted) setState(() => user = asMap(info['user']));
+    if (mounted) setState(() { user = asMap(info['user']); tab = 0; catalogs.clear(); pages.clear(); });
+    await _loadHome();
   }
 
   Future<void> _logout() async {
+    try { await api.call('/api/v1/auth/logout', method: 'POST', authenticated: true); } catch (_) {}
     api.token = null;
     await secure.delete(key: 'egyshow_auth');
-    if (mounted) setState(() => user = null);
+    try { await WebViewCookieManager().clearCookies(); } catch (_) {}
+    if (mounted) setState(() { user = null; tab = 7; homeData = {}; catalogs.clear(); pages.clear(); searchResults = []; });
   }
 
   void _switchLang() {

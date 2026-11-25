@@ -80,19 +80,20 @@ class _EgyshowBannerAdState extends State<EgyshowBannerAd> {
 
   Future<void> _load() async {
     try {
-      final ctx = await widget.api.call('/api/v1/ads/placements?placements=home,banner,global&device_type=mobile');
+      final names = widget.placement == 'home' ? 'content_top,banner' : 'content_inline,banner,content_bottom';
+      final ctx = await widget.api.call('/api/v1/ads/placements?placements=$names&device_type=mobile');
       final ads = asMap(ctx['placements']).values.map(asMap).where((ad) {
         final placement = txt(ad['placement']).toLowerCase();
         final format = txt(ad['format']).toLowerCase();
         final active = ad['is_active'] == true || ad['is_active'] == 1;
         final bannerPlacement = placement.contains('banner') ||
-            placement == widget.placement || placement == 'global';
+            placement == 'content_top' || placement == 'content_inline' || placement == 'content_bottom';
         return active && bannerPlacement &&
           (format == 'image' || format == 'html' || format == 'script' ||
            txt(ad['code_html']).isNotEmpty);
       }).toList();
       if (ads.isEmpty || !mounted) return;
-      ads.sort((a,b) => numId(b['priority']).compareTo(numId(a['priority'])));
+      ads.sort((a,b) => numId(a['priority']).compareTo(numId(b['priority'])));
       final selected = ads.first;
       final html = txt(selected['code_html']);
       if (html.isNotEmpty) {

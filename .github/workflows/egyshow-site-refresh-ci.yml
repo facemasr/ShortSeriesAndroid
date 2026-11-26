@@ -49,6 +49,27 @@ jobs:
         run: flutter analyze lib/main.dart --no-fatal-infos
       - name: Run regression tests
         run: flutter test
+      - name: Work around WebView dependency lint compiler crash (CI preview only)
+        run: |
+          # The generated AndroidWebkitLibrary.g.kt crashes the Android lint engine.
+          # Leave app lint, Dart analysis and regression tests enabled.
+          mkdir -p "$HOME/.gradle/init.d"
+          cat > "$HOME/.gradle/init.d/egyshow-webview-preview.gradle" <<'GRADLE'
+          gradle.beforeProject { p ->
+              if (p.path == ':webview_flutter_android') {
+                  p.pluginManager.withPlugin('com.android.library') {
+                      p.extensions.getByName('androidComponents').finalizeDsl { dsl ->
+                          dsl.lint.checkReleaseBuilds = false
+                      }
+                  }
+                  p.tasks.configureEach { t ->
+                      if (t.name.startsWith('lintVital') && t.name.endsWith('Release')) {
+                          t.enabled = false
+                      }
+                  }
+              }
+          }
+          GRADLE
       - name: Build Android release candidate
         run: flutter build apk --release
       - name: Verify package and version

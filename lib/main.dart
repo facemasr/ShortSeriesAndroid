@@ -134,6 +134,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   Timer? searchTimer;
   Map<String, dynamic>? user;
   bool checkingSession = true;
+  int sessionEpoch = 0;
   String sessionError = '';
   bool get member => user != null && user!.isNotEmpty && api.token?.isNotEmpty == true;
 
@@ -213,9 +214,13 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
 
   void _lockForRetry() {
     if (!mounted) return;
+    sessionEpoch++;
+    searchTimer?.cancel();
     Navigator.of(context).popUntil((route) => route.isFirst);
     setState(() {
       user = null; checkingSession = false; busy = false;
+      listBusy = false; searchBusy = false;
+      homeData = {}; catalogs.clear(); pages.clear(); searchResults = []; query = '';
       sessionError = tr(ar, 'تعذر التحقق من الجلسة. تحقق من الاتصال وأعد المحاولة.',
         'Unable to verify your session. Check your connection and retry.');
     });
@@ -223,6 +228,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
 
   Future<void> _expireSession() async {
     if (!mounted) return;
+    sessionEpoch++;
     api.token = null;
     searchTimer?.cancel();
     Navigator.of(context).popUntil((route) => route.isFirst);
@@ -239,18 +245,18 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
 
   Future<void> _loadHome() async {
     if (!member) return;
-    final requestToken = api.token;
+    final requestEpoch = sessionEpoch;
     if (mounted) setState(() { busy = true; error = ''; });
     try {
       final data = await api.home();
-      if (mounted && member && api.token == requestToken) setState(() { homeData = data; busy = false; error = ''; });
+      if (mounted && member && sessionEpoch == requestEpoch) setState(() { homeData = data; busy = false; error = ''; });
     } catch (e) {
-      if (!member || api.token != requestToken) return;
+      if (!member || sessionEpoch != requestEpoch) return;
       final fallback = <Media>[];
       for (final type in ['movie', 'series', 'short_series']) {
         try { fallback.addAll(await api.catalog(type)); } catch (_) {}
       }
-      if (!mounted || !member || api.token != requestToken) return;
+      if (!mounted || !member || sessionEpoch != requestEpoch) return;
       setState(() {
         homeData = fallback.isEmpty ? {} : {
           'featured': fallback.take(1).toList(),
@@ -277,24 +283,24 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
 
   Future<void> _loadCatalog(String type, {bool fresh = false}) async {
     if (!member || listBusy) return;
-    final requestToken = api.token;
+    final requestEpoch = sessionEpoch;
     if (mounted) setState(() { listBusy = true; error = ''; });
     try {
       final page = fresh ? 1 : (pages[type] ?? 0) + 1;
       final items = await api.catalog(type, page: page);
-      if (mounted && member && api.token == requestToken) setState(() {
+      if (mounted && member && sessionEpoch == requestEpoch) setState(() {
         catalogs[type] = fresh ? items : [...catalogs[type] ?? [], ...items];
         pages[type] = page;
         listBusy = false;
       });
     } catch (e) {
-      if (mounted) setState(() { error = e.toString(); listBusy = false; });
+      if (mounted && member && sessionEpoch == requestEpoch) setState(() { error = e.toString(); listBusy = false; });
     }
   }
 
   void _search(String value) {
     if (!member) return;
-    final requestToken = api.token;
+    final requestEpoch = sessionEpoch;
     searchTimer?.cancel();
     query = value;
     if (value.trim().isEmpty) {
@@ -306,11 +312,11 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       final q = value.trim();
       try {
         final result = await api.search(q);
-        if (mounted && member && api.token == requestToken && query.trim() == q) {
+        if (mounted && member && sessionEpoch == requestEpoch && query.trim() == q) {
           setState(() { searchResults = result; searchBusy = false; });
         }
       } catch (e) {
-        if (mounted && member && api.token == requestToken && query.trim() == q) {
+        if (mounted && member && sessionEpoch == requestEpoch && query.trim() == q) {
           setState(() { searchBusy = false; error = e.toString(); });
         }
       }
@@ -378,6 +384,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       await secure.write(key: 'egyshow_auth', value: verifiedToken);
       api.token = verifiedToken;
       if (!mounted) return;
+      sessionEpoch++;
       setState(() {
         user = account; checkingSession = false; sessionError = '';
         tab = 0; homeData = {}; catalogs.clear(); pages.clear();
@@ -955,7 +962,8 @@ class LoginDialog extends StatefulWidget {
 class _LoginDialogState extends State<LoginDialog> {
   final email = TextEditingController(), password = TextEditingController(),
       name = TextEditingController();
-  bool create = false, loading = false;
+  final bool create = false;
+  bool loading = false;
   String error = '';
   @override
   void dispose() {

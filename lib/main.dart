@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'native_api.dart';
 import 'native_player.dart';
 import 'native_reels.dart';
@@ -132,11 +133,15 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   String error = '';
   Timer? searchTimer;
   Map<String, dynamic>? user;
+  bool checkingSession = true;
+  String sessionError = '';
+  bool get member => user != null && user!.isNotEmpty && api.token?.isNotEmpty == true;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    api.onUnauthorized = () { if (mounted && member) unawaited(_expireSession()); };
     _start();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) EgyshowAppUpdates.check(context, ar: ar);
@@ -147,59 +152,105 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       EgyshowAppUpdates.check(context, ar: ar);
+      if (member) unawaited(_verifySession());
     }
   }
 
   Future<void> _start() async {
-    // The updated website requires an authenticated member for catalog APIs.
     try {
       prefs = await SharedPreferences.getInstance();
       ar = prefs?.getBool('language_ar') ?? true;
-      for (final row in prefs?.getStringList('favorites') ?? <String>[]) {
-        try {
-          final media = Media(asMap(jsonDecode(row)));
-          if (media.id > 0) favorites[media.key] = media;
-        } catch (_) {}
-      }
-    } catch (_) {}
-    try {
       api.token = await secure.read(key: 'egyshow_auth');
-      if (api.token != null) {
-        try {
-          final profile = await api.profile();
-          user = asMap(profile['user']);
-          final refreshed = txt(profile['token']);
-          if (refreshed.isNotEmpty) {
-            api.token = refreshed;
-            await secure.write(key: 'egyshow_auth', value: refreshed);
-          }
-        } on ApiException catch (e) {
-          if (e.code == 401 || e.code == 403) {
-            api.token = null;
-            await secure.delete(key: 'egyshow_auth');
-          }
+    } catch (_) {}
+    await _verifySession(initial: true);
+  }
+
+  Future<void> _verifySession({bool initial = false}) async {
+    if (!mounted || (checkingSession && !initial)) return;
+    setState(() { checkingSession = true; sessionError = ''; });
+    final token = api.token;
+    if (token == null || token.isEmpty) {
+      if (mounted) setState(() { user = null; checkingSession = false; busy = false; });
+      return;
+    }
+    try {
+      final profile = await api.profile();
+      if (!mounted || api.token != token) return;
+      final account = asMap(profile['user']);
+      if (account.isEmpty) throw const ApiException('Invalid member profile', 401);
+      final refreshed = txt(profile['token']);
+      if (refreshed.isNotEmpty && refreshed != token) {
+        await secure.write(key: 'egyshow_auth', value: refreshed);
+        if (!mounted || api.token != token) return;
+        api.token = refreshed;
+      }
+      final wasMember = user != null;
+      if (!wasMember) {
+        favorites.clear();
+        for (final row in prefs?.getStringList('favorites') ?? <String>[]) {
+          try {
+            final media = Media(asMap(jsonDecode(row)));
+            if (media.id > 0) favorites[media.key] = media;
+          } catch (_) {}
         }
       }
-    } catch (_) {}
-    if (!mounted) return;
-    if (api.token == null) {
-      setState(() { tab = 7; busy = false; });
-    } else {
-      await _loadHome();
+      setState(() {
+        user = account; checkingSession = false;
+        if (!wasMember) tab = 0;
+      });
+      if (!wasMember) await _loadHome();
+    } on ApiException catch (e) {
+      if (!mounted || api.token != token) return;
+      if (e.code == 401 || e.code == 403) {
+        await _expireSession();
+      } else {
+        _lockForRetry();
+      }
+    } catch (_) {
+      if (mounted && api.token == token) _lockForRetry();
     }
   }
 
+  void _lockForRetry() {
+    if (!mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    setState(() {
+      user = null; checkingSession = false; busy = false;
+      sessionError = tr(ar, 'تعذر التحقق من الجلسة. تحقق من الاتصال وأعد المحاولة.',
+        'Unable to verify your session. Check your connection and retry.');
+    });
+  }
+
+  Future<void> _expireSession() async {
+    if (!mounted) return;
+    api.token = null;
+    searchTimer?.cancel();
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    setState(() {
+      user = null; checkingSession = false; busy = false; tab = 0;
+      homeData = {}; catalogs.clear(); pages.clear(); favorites.clear();
+      searchResults = []; query = ''; error = ''; sessionError = '';
+      listBusy = false; searchBusy = false;
+    });
+    try { await secure.delete(key: 'egyshow_auth'); } catch (_) {}
+    try { await prefs?.remove('favorites'); } catch (_) {}
+    try { await WebViewCookieManager().clearCookies(); } catch (_) {}
+  }
+
   Future<void> _loadHome() async {
+    if (!member) return;
+    final requestToken = api.token;
     if (mounted) setState(() { busy = true; error = ''; });
     try {
       final data = await api.home();
-      if (mounted) setState(() { homeData = data; busy = false; error = ''; });
+      if (mounted && member && api.token == requestToken) setState(() { homeData = data; busy = false; error = ''; });
     } catch (e) {
+      if (!member || api.token != requestToken) return;
       final fallback = <Media>[];
       for (final type in ['movie', 'series', 'short_series']) {
         try { fallback.addAll(await api.catalog(type)); } catch (_) {}
       }
-      if (!mounted) return;
+      if (!mounted || !member || api.token != requestToken) return;
       setState(() {
         homeData = fallback.isEmpty ? {} : {
           'featured': fallback.take(1).toList(),
@@ -213,6 +264,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   Future<void> _select(int next) async {
+    if (!member || next == 5) return;
     setState(() { tab = next; error = ''; });
     if (next != 5 && next != 6) {
       EgyshowVisitAnalytics.instance.track(EgyshowVisitAnalytics.tabPath(next));
@@ -224,12 +276,13 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   Future<void> _loadCatalog(String type, {bool fresh = false}) async {
-    if (listBusy) return;
+    if (!member || listBusy) return;
+    final requestToken = api.token;
     if (mounted) setState(() { listBusy = true; error = ''; });
     try {
       final page = fresh ? 1 : (pages[type] ?? 0) + 1;
       final items = await api.catalog(type, page: page);
-      if (mounted) setState(() {
+      if (mounted && member && api.token == requestToken) setState(() {
         catalogs[type] = fresh ? items : [...catalogs[type] ?? [], ...items];
         pages[type] = page;
         listBusy = false;
@@ -240,6 +293,8 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   void _search(String value) {
+    if (!member) return;
+    final requestToken = api.token;
     searchTimer?.cancel();
     query = value;
     if (value.trim().isEmpty) {
@@ -251,11 +306,11 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       final q = value.trim();
       try {
         final result = await api.search(q);
-        if (mounted && query.trim() == q) {
+        if (mounted && member && api.token == requestToken && query.trim() == q) {
           setState(() { searchResults = result; searchBusy = false; });
         }
       } catch (e) {
-        if (mounted && query.trim() == q) {
+        if (mounted && member && api.token == requestToken && query.trim() == q) {
           setState(() { searchBusy = false; error = e.toString(); });
         }
       }
@@ -263,6 +318,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   Future<void> _favorite(Media media) async {
+    if (!member) return;
     final enabled = !favorites.containsKey(media.key);
     setState(() {
       if (enabled) favorites[media.key] = media;
@@ -276,6 +332,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   void _open(Media media) {
+    if (!member) return;
     final previousPath = EgyshowVisitAnalytics.instance.current.value.path;
     EgyshowVisitAnalytics.instance.track(EgyshowVisitAnalytics.mediaPath(media));
     Navigator.push(context, MaterialPageRoute(builder: (_) =>
@@ -288,6 +345,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   void _openReels(Media media, int episodeIndex) {
+    if (!member) return;
     if (media.episodes.isEmpty) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) =>
       EpisodeReels(media: media, episodes: media.episodes, ar: ar,
@@ -295,6 +353,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
   }
 
   void _play(String type, int id, String title, [String mediaKey = '']) {
+    if (!member) return;
     // Movies and episodes use the EGYSHOW player.
     final parentId = type == 'episode'
         ? (int.tryParse(mediaKey) ?? id) : id;
@@ -308,20 +367,35 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     final result = await api.authenticate(email, password,
         displayName: register ? name : null, language: ar ? 'ar' : 'en');
     final token = txt(result['token']);
-    if (token.isEmpty) throw const ApiException('لم يتم استلام رمز تسجيل الدخول');
+    if (token.isEmpty) throw ApiException(tr(ar, 'لم يتم استلام رمز تسجيل الدخول', 'Missing sign-in token'));
     api.token = token;
-    await secure.write(key: 'egyshow_auth', value: token);
-    final info = await api.profile();
-    if (mounted) setState(() { user = asMap(info['user']); tab = 0; catalogs.clear(); pages.clear(); });
-    await _loadHome();
+    try {
+      final info = await api.profile();
+      final account = asMap(info['user']);
+      if (account.isEmpty) throw const ApiException('Invalid member profile', 401);
+      final refreshed = txt(info['token']);
+      final verifiedToken = refreshed.isNotEmpty ? refreshed : token;
+      await secure.write(key: 'egyshow_auth', value: verifiedToken);
+      api.token = verifiedToken;
+      if (!mounted) return;
+      setState(() {
+        user = account; checkingSession = false; sessionError = '';
+        tab = 0; homeData = {}; catalogs.clear(); pages.clear();
+        searchResults = []; favorites.clear(); query = '';
+      });
+      await _loadHome();
+    } catch (_) {
+      api.token = null;
+      try { await secure.delete(key: 'egyshow_auth'); } catch (_) {}
+      rethrow;
+    }
   }
 
   Future<void> _logout() async {
-    try { await api.call('/api/v1/auth/logout', method: 'POST', authenticated: true); } catch (_) {}
-    api.token = null;
-    await secure.delete(key: 'egyshow_auth');
-    try { await WebViewCookieManager().clearCookies(); } catch (_) {}
-    if (mounted) setState(() { user = null; tab = 7; homeData = {}; catalogs.clear(); pages.clear(); searchResults = []; });
+    if (!member) return;
+    final pending = api.call('/api/v1/auth/logout', method: 'POST', authenticated: true);
+    await _expireSession();
+    try { await pending; } catch (_) {}
   }
 
   void _switchLang() {
@@ -390,7 +464,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       EgyshowBannerAd(api: api, placement: 'home'),
       const EgyshowAdPlacement(format: EgyshowAdFormat.nativeWidget),
       _rail(tr(ar, 'الأكثر مشاهدة', 'Trending'), homeData['trending'] ?? []),
-      _rail(tr(ar, 'أضيف حديثًا', 'Just added'), homeData['latest'] ?? []),
       HomeExtras(api: api, ar: ar, openMedia: _open,
         play: _play, openTab: (section) { _select(section); }),
       EgyshowBannerAd(api: api, placement: 'banner'),
@@ -518,6 +591,53 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    if (checkingSession || !member) {
+      return Directionality(
+        textDirection: ar ? TextDirection.rtl : TextDirection.ltr,
+        child: Scaffold(
+          appBar: AppBar(title: const Text('EGYSHOW',
+            style: TextStyle(color: red, fontWeight: FontWeight.w900)),
+            actions: [IconButton(tooltip: 'AR/EN', onPressed: _switchLang,
+              icon: const Icon(Icons.translate_outlined))]),
+          body: checkingSession
+            ? const Center(child: CircularProgressIndicator())
+            : SafeArea(child: Center(child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 440),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    const Icon(Icons.lock_outline, color: red, size: 64),
+                    const SizedBox(height: 18),
+                    Text(tr(ar, 'مرحباً بك في إيجي شو', 'Welcome to EGYSHOW'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 27, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 12),
+                    Text(tr(ar, 'سجّل الدخول للوصول إلى المحتوى والمشاهدة.',
+                      'Sign in to access the catalog and watch.'),
+                      textAlign: TextAlign.center),
+                    const SizedBox(height: 24),
+                    if (sessionError.isNotEmpty) ...[
+                      Text(sessionError, textAlign: TextAlign.center),
+                      OutlinedButton(onPressed: () => _verifySession(),
+                        child: Text(tr(ar, 'إعادة المحاولة', 'Retry'))),
+                    ],
+                    FilledButton.icon(icon: const Icon(Icons.login),
+                      onPressed: () async {
+                        await showDialog<void>(context: context, builder: (_) =>
+                          LoginDialog(ar: ar, submit: _signIn));
+                      },
+                      label: Text(tr(ar, 'تسجيل الدخول', 'Sign in'))),
+                    TextButton(onPressed: () async {
+                      final uri = Uri.parse('https://egyshow.com/' + (ar ? 'ar' : 'en') + '/account');
+                      if (!await launchUrl(uri, mode: LaunchMode.externalApplication) && mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(tr(ar, 'تعذر فتح الموقع', 'Could not open website'))));
+                      }
+                    }, child: Text(tr(ar, 'إنشاء حساب على الموقع', 'Create an account on the website'))),
+                  ])))),
+          ),
+        ),
+      );
+    }
     final isSearch = tab == 8;
     Widget body;
     if (tab == 0) body = _home();
@@ -540,10 +660,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
               onPressed: () => setState(() { tab = isSearch ? 0 : 8; error = ''; }),
               icon: Icon(isSearch ? Icons.close : Icons.search_rounded)),
             IconButton(
-              tooltip: tr(ar, 'المباريات','Matches'),
-              onPressed: () => _select(5),
-              icon: const Icon(Icons.sports_soccer_outlined)),
-            IconButton(
               tooltip: 'YouTube',
               onPressed: () => _select(6),
               icon: const Icon(Icons.play_circle_outline)),
@@ -564,7 +680,6 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
               _navItem(1, Icons.movie_outlined, tr(ar, 'أفلام', 'Movies')),
               _navItem(2, Icons.tv_outlined, tr(ar, 'مسلسلات', 'Series')),
               _navItem(3, Icons.smart_display_outlined, tr(ar, 'قصيرة', 'Shorts')),
-              _navItem(5, Icons.sports_soccer_outlined, tr(ar, 'مباريات', 'Matches')),
               _navItem(6, Icons.play_circle_outline, 'YouTube'),
               _navItem(7, Icons.person_outline, tr(ar, 'حسابي', 'Profile')),
             ]),
@@ -661,7 +776,12 @@ class _NativeDetailsState extends State<NativeDetails> {
   Future<void> _fetch() async {
     try {
       final d = await widget.api.details(widget.media.id);
-      if (mounted) setState(() => detail = d);
+      if (mounted) setState(() {
+        detail = d; error = '';
+        if (selectedSeason != 0 && !d.episodes.any((ep) => ep.season == selectedSeason)) {
+          selectedSeason = 0; visibleEpisodes = 12;
+        }
+      });
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
     }
@@ -673,13 +793,13 @@ class _NativeDetailsState extends State<NativeDetails> {
     final episodes = m.episodes.where((e) =>
         selectedSeason == 0 || e.season == selectedSeason).toList();
     final shownEpisodes = episodes.take(visibleEpisodes).toList();
-    final seasons = m.seasons.map((e) => numId(e['season_number'])).toSet().toList()..sort();
+    final seasons = m.episodes.map((e) => e.season).where((n) => n > 0).toSet().toList()..sort();
     return Directionality(textDirection: ar ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(appBar: AppBar(title: Text(m.title(ar), maxLines: 1,
             overflow: TextOverflow.ellipsis)),
         body: ListView(children: [
-          SizedBox(height: 245, child: Stack(fit: StackFit.expand, children: [
-            Art(m.backdrop),
+          AspectRatio(aspectRatio: 16 / 9, child: Stack(fit: StackFit.expand, children: [
+            Art(m.backdrop, fit: BoxFit.contain),
             const DecoratedBox(decoration: BoxDecoration(
               gradient: LinearGradient(colors: [dark, Colors.transparent],
               begin: Alignment.bottomCenter, end: Alignment.center))),
@@ -701,7 +821,7 @@ class _NativeDetailsState extends State<NativeDetails> {
               Row(children: [
                 Expanded(child: FilledButton.icon(
                   onPressed: m.isSeries ? (episodes.isEmpty ? null : () {
-                    if (m.type == 'short_series') widget.onReels(m, 0);
+                    if (m.type == 'short_series') widget.onReels(m, m.episodes.indexWhere((e) => e.id == episodes.first.id));
                     else widget.onPlay('episode', episodes.first.id, m.title(ar), m.id.toString());
                   }) : () => widget.onPlay('movie', m.id, m.title(ar)),
                   icon: const Icon(Icons.play_arrow_rounded),
@@ -719,8 +839,11 @@ class _NativeDetailsState extends State<NativeDetails> {
               if (detail == null && error.isEmpty)
                 const Padding(padding: EdgeInsets.all(20),
                   child: Center(child: CircularProgressIndicator())),
-              if (error.isNotEmpty) Text(error,
-                  style: const TextStyle(color: Colors.orangeAccent)),
+              if (error.isNotEmpty) ...[
+                Text(error, style: const TextStyle(color: Colors.orangeAccent)),
+                TextButton.icon(onPressed: _fetch, icon: const Icon(Icons.refresh),
+                  label: Text(tr(ar, 'إعادة المحاولة', 'Retry'))),
+              ],
               if (m.isSeries) ...[
                 const SizedBox(height: 16),
                 Text(tr(ar, 'الحلقات', 'Episodes'),
@@ -745,7 +868,7 @@ class _NativeDetailsState extends State<NativeDetails> {
                 ...shownEpisodes.map((ep) => Card(color: panel, child: ListTile(
                   leading: SizedBox(width: 80, height: 50,
                     child: ClipRRect(borderRadius: BorderRadius.circular(5),
-                      child: Art(ep.image.isNotEmpty ? ep.image : m.backdrop))),
+                      child: Art(ep.image.isNotEmpty ? ep.image : m.poster))),
                   title: Text(ep.title(ar), maxLines: 2),
                   subtitle: Text(tr(ar, 'الموسم ', 'Season ') +
                     ep.season.toString() + ' • ' +
@@ -839,8 +962,8 @@ class _LoginDialogState extends State<LoginDialog> {
     email.dispose(); password.dispose(); name.dispose(); super.dispose();
   }
   Future<void> _save() async {
-    if (email.text.trim().isEmpty || password.text.length < 8) {
-      setState(() => error = 'أدخل بريدًا إلكترونيًا وكلمة مرور صحيحة (8 أحرف على الأقل)');
+    if (email.text.trim().isEmpty || password.text.isEmpty) {
+      setState(() => error = tr(widget.ar, 'أدخل البريد الإلكتروني وكلمة المرور', 'Enter your email and password'));
       return;
     }
     setState(() { loading = true; error = ''; });
@@ -864,12 +987,9 @@ class _LoginDialogState extends State<LoginDialog> {
         TextField(controller: password, obscureText: true,
           decoration: InputDecoration(labelText: tr(widget.ar, 'كلمة المرور', 'Password'))),
         if (error.isNotEmpty) Text(error, style: const TextStyle(color: Colors.redAccent)),
-        TextButton(onPressed: loading ? null : () => setState(() => create = !create),
-          child: Text(create ? tr(widget.ar, 'لدي حساب', 'Already registered') :
-              tr(widget.ar, 'حساب جديد', 'Create account'))),
       ])),
     actions: [
-      TextButton(onPressed: () => Navigator.pop(context),
+      TextButton(onPressed: loading ? null : () => Navigator.pop(context),
         child: Text(tr(widget.ar, 'إلغاء', 'Cancel'))),
       FilledButton(onPressed: loading ? null : _save,
         child: loading ? const SizedBox(height: 18, width: 18,

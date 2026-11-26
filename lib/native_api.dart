@@ -75,9 +75,11 @@ class EgyApi {
   EgyApi({http.Client? httpClient}) : client = httpClient ?? http.Client();
   final http.Client client;
   String? token;
+  void Function()? onUnauthorized;
 
   Future<Map<String, dynamic>> call(String path, {String method = 'GET',
     Map<String, dynamic>? data, bool authenticated = false}) async {
+    final requestToken = token;
     final headers = <String, String>{'Accept': 'application/json',
       'Content-Type': 'application/json', 'X-Client': 'EGYSHOW-Mobile-Native'};
     if ((authenticated || token != null) && token != null) {
@@ -95,6 +97,9 @@ class EgyApi {
       throw const ApiException('انتهت مهلة الاتصال / Connection timed out');
     } catch (_) {
       throw const ApiException('تعذر الاتصال بالموقع / Network unavailable');
+    }
+    if (response.statusCode == 401 && requestToken != null && token == requestToken) {
+      onUnauthorized?.call();
     }
     Map<String, dynamic> result;
     try {

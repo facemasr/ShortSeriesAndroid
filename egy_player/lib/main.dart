@@ -33,6 +33,22 @@ class PlayTarget {
     return PlayTarget(type!,id,u.queryParameters['lang']!='en');
   }
 }
+// Only direct HTTPS media or Android's permission-scoped content URIs.
+Uri? parseDirectMedia(String? input) {
+  final uri=Uri.tryParse((input??'').trim());
+  if(uri==null||uri.scheme!='https'||uri.host.isEmpty||uri.userInfo.isNotEmpty||uri.hasFragment) return null;
+  return uri;
+}
+Uri? parseLocalMedia(String? input) {
+  final uri=Uri.tryParse(input??'');
+  return uri!=null&&uri.scheme=='content'&&uri.host.isNotEmpty&&uri.userInfo.isEmpty?uri:null;
+}
+VideoFormat? formatFor(Uri uri) {
+  final path=uri.path.toLowerCase();
+  if(path.endsWith('.m3u8'))return VideoFormat.hls;
+  if(path.endsWith('.mpd'))return VideoFormat.dash;
+  return null; // let Media3 infer progressive media
+}
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
   @override State<PlayerScreen> createState()=>_PlayerScreenState();
@@ -42,6 +58,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final ads=PlayerAds();
   void onAdChanged(){if(mounted)setState((){});}
   PlayTarget? target;
+  Uri? externalMedia;
+  String externalName='';
   VideoPlayerController? video;
   List<Map<String,dynamic>> sources=[];
   int generation=0,index=-1;
@@ -55,10 +73,89 @@ class _PlayerScreenState extends State<PlayerScreen> {
     ads.addListener(onAdChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {if(mounted)unawaited(ads.prepare());});
     bridge.setMethodCallHandler((call) async {
-      if(call.method=='open') await openTarget(call.arguments as String?);
+      if(call.method=='open') await dispatch(call.arguments as String?);
     });
-    unawaited(bridge.invokeMethod<String>('initialLink').then((link)=>openTarget(link,initial:true))
+    unawaited(bridge.invokeMethod<String>('initialLink').then((link)=>dispatch(link,initial:true))
       .catchError((Object e){}));
+  }
+  Future<void> dispatch(String? input,{bool initial=false}) async {
+    if(PlayTarget.parse(input)!=null){await openTarget(input,initial:initial);return;}
+    final uri=parseLocalMedia(input)??parseDirectMedia(input);
+    if(uri!=null){await playExternal(uri,initial:initial);return;}
+    if(initial)unawaited(ads.finishStartup());
+  }
+  Future<void> pickLocal() async {
+    try {
+      final raw=await bridge.invokeMethod<String>('pickVideo');
+      final uri=parseLocalMedia(raw);
+      if(uri!=null&&mounted)await playExternal(uri);
+    } catch(_){if(mounted)setState(()=>error=t('تعذر فتح ملف الفيديو','Unable to open video file'));}
+  }
+  Future<void> enterLink() async {
+    String input='';
+    final result=await showDialog<String>(context:context,builder:(ctx)=>Directionality(
+      textDirection:ar?TextDirection.rtl:TextDirection.ltr,child:AlertDialog(
+      title:Text(t('تشغيل رابط مباشر','Play a direct link')),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(autofocus:true,keyboardType:TextInputType.url,textDirection:TextDirection.ltr,
+          autocorrect:false,enableSuggestions:false,
+          decoration:const InputDecoration(hintText:'https://example.com/video.m3u8'),
+          onChanged:(v)=>input=v,onSubmitted:(v)=>Navigator.pop(ctx,v)),
+        const SizedBox(height:12),
+        Text(t('أدخل رابط فيديو أو بث مباشر مصرح به، وليس رابط صفحة ويب.','Enter an authorized direct video or stream URL, not a web page.')),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:Text(t('إلغاء','Cancel'))),
+        FilledButton(onPressed:()=>Navigator.pop(ctx,input),child:Text(t('تشغيل','Play')))],
+    )));
+    if(result==null||!mounted)return;
+    final uri=parseDirectMedia(result);
+    if(uri==null){setState(()=>error=t('أدخل رابط HTTPS مباشر صالحاً','Enter a valid direct HTTPS URL'));return;}
+    await playExternal(uri);
+  }
+  Future<void> playExternal(Uri uri,{bool initial=false}) async {
+    if(!mounted)return;
+    if(!initial)unawaited(ads.finishStartup());
+    final op=++generation;
+    final old=video;video=null;
+    final local=uri.scheme=='content';
+    String name=local?t('فيديو من الهاتف','Local video'):t('بث مباشر / فيديو','Network video');
+    setState((){target=null;externalMedia=uri;externalName=name;title=name;sources=[];index=-1;busy=true;error='';locked=false;});
+    await old?.dispose();
+    VideoPlayerController? candidate;
+    try{
+      if(local){
+        try{
+          final display=await bridge.invokeMethod<String>('videoName',uri.toString());
+          if(display!=null&&display.trim().isNotEmpty)name=display;
+        }catch(_){}
+      }
+      if(!mounted||generation!=op)return;
+      if(initial)ads.beginStartup();
+      candidate=local?VideoPlayerController.contentUri(uri):
+        VideoPlayerController.networkUrl(uri,formatHint:formatFor(uri));
+      await candidate.initialize().timeout(const Duration(seconds:25));
+      if(!mounted||generation!=op){await candidate.dispose();return;}
+      await candidate.setPlaybackSpeed(speed);
+      await ads.finishStartup();
+      if(!mounted||generation!=op){await candidate.dispose();return;}
+      await candidate.play();
+      if(!mounted||generation!=op){await candidate.dispose();return;}
+      setState((){video=candidate;title=name;externalName=name;busy=false;});
+      showControls();
+    }catch(_){
+      await candidate?.dispose();
+      unawaited(ads.finishStartup());
+      if(mounted&&generation==op)setState((){busy=false;error=t('تعذر تشغيل الفيديو. تحقق من الرابط أو صيغة الملف.','Unable to play video. Check the URL or file format.');});
+    }
+  }
+  Future<void> retryCurrent() async {
+    final uri=externalMedia;
+    if(uri!=null){await playExternal(uri);return;}
+    final current=target;
+    if(current==null)return;
+    if(sources.isNotEmpty){await select(index<0?0:index);return;}
+    await openTarget(Uri(scheme:'egyplayer',host:'play',queryParameters:{
+      'type':current.type,'id':current.id.toString(),'lang':ar?'ar':'en'}).toString());
   }
   Future<Map<String,dynamic>> request(String path,{Map<String,dynamic>? body}) async {
     final uri=Uri.parse(origin+path);
@@ -75,7 +172,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if(!initial)unawaited(ads.finishStartup());
     final op=++generation;
     final old=video;video=null;
-    setState((){target=next;ar=next.ar;title='EGY Player';sources=[];index=-1;busy=true;error='';locked=false;});
+    setState((){target=next;externalMedia=null;externalName='';ar=next.ar;title='EGY Player';sources=[];index=-1;busy=true;error='';locked=false;});
     await old?.dispose();
     try {
       final path='/api/v1/mobile/guest/player?type=${next.type}&id=${next.id}';
@@ -157,8 +254,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       const CircularProgressIndicator(color:red):Column(mainAxisSize:MainAxisSize.min,children:[
         const Icon(Icons.play_circle_outline,size:58,color:red),
         if(error.isNotEmpty)Padding(padding:const EdgeInsets.all(16),child:Text(error,textAlign:TextAlign.center)),
-        if(target!=null&&error.isNotEmpty)TextButton.icon(onPressed:()=>sources.isEmpty?
-          openTarget(Uri(scheme:'egyplayer',host:'play',queryParameters:{'type':target!.type,'id':'${target!.id}','lang':ar?'ar':'en'}).toString()):select(index<0?0:index),icon:const Icon(Icons.refresh),label:Text(t('إعادة المحاولة','Retry')))
+        if((target!=null||externalMedia!=null)&&error.isNotEmpty)TextButton.icon(onPressed:retryCurrent,icon:const Icon(Icons.refresh),label:Text(t('إعادة المحاولة','Retry')))
       ])));
     return ValueListenableBuilder<VideoPlayerValue>(valueListenable:v,builder:(context,state,_){
       final duration=state.duration.inMilliseconds;
@@ -168,7 +264,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           const ColoredBox(color:Colors.black),
           Center(child:AspectRatio(aspectRatio:state.aspectRatio>0?state.aspectRatio:16/9,child:VideoPlayer(v))),
           if(state.isBuffering)const Center(child:CircularProgressIndicator(color:red)),
-          if(state.hasError)Center(child:FilledButton.icon(onPressed:()=>select(index<0?0:index),icon:const Icon(Icons.refresh),label:Text(t('إعادة تشغيل السيرفر','Retry server')))),
+          if(state.hasError)Center(child:FilledButton.icon(onPressed:retryCurrent,icon:const Icon(Icons.refresh),label:Text(t('إعادة التشغيل','Retry playback')))),
           if(controls&&!state.hasError)DecoratedBox(decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Color(0x66000000),Colors.transparent,Color(0xaa000000)])),child:Column(children:[
             Row(children:[
               IconButton(onPressed:()=>setState(()=>locked=!locked),icon:Icon(locked?Icons.lock:Icons.lock_open)),
@@ -192,11 +288,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
   @override Widget build(BuildContext context)=>Directionality(textDirection:ar?TextDirection.rtl:TextDirection.ltr,child:PopScope(canPop:!full,onPopInvokedWithResult:(didPop,_) {if(!didPop&&full)unawaited(toggleFull());},child:Scaffold(
     appBar:full?null:AppBar(title:Text(title,maxLines:1,overflow:TextOverflow.ellipsis),actions:[
+      IconButton(tooltip:'AR/EN',icon:const Icon(Icons.translate),onPressed:()=>setState(()=>ar=!ar)),
       if(ads.privacyRequired)IconButton(tooltip:t('خصوصية الإعلانات','Ad privacy'),icon:const Icon(Icons.privacy_tip_outlined),onPressed:ads.privacyOptions),
     ]),
     body:full?surface():SafeArea(child:ListView(children:[
       AspectRatio(aspectRatio:16/9,child:surface()),
-      if(target==null)Padding(padding:const EdgeInsets.all(28),child:Text(t('افتح فيلماً أو حلقة من تطبيق EGYSHOW للبدء.','Open a movie or episode in EGYSHOW to start.'),textAlign:TextAlign.center)),
+      Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+        if(target==null&&externalMedia==null)Text(t('مشغل الفيديو الخاص بك','Your video player'),style:const TextStyle(fontSize:24,fontWeight:FontWeight.bold)),
+        if(target==null&&externalMedia==null)Padding(padding:const EdgeInsets.only(top:8,bottom:16),child:Text(t('شغّل رابطاً مباشراً أو فيديو من هاتفك أو افتح المشغل من EGYSHOW.','Play a direct URL, a video on your phone, or open from EGYSHOW.'))),
+        FilledButton.icon(onPressed:enterLink,icon:const Icon(Icons.link),label:Text(t('فتح رابط فيديو','Open video URL'))),
+        const SizedBox(height:8),
+        OutlinedButton.icon(onPressed:pickLocal,icon:const Icon(Icons.folder_open),label:Text(t('فيديوهات الهاتف','Browse phone videos'))),
+      ])),
+      if(externalMedia!=null)Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:Row(children:[
+        const Icon(Icons.speed),const SizedBox(width:8),Text(t('سرعة التشغيل','Playback speed')),const Spacer(),
+        DropdownButton<double>(value:speed,items:[0.5,0.75,1.0,1.25,1.5,2.0].map((v)=>DropdownMenuItem(value:v,child:Text('${v}x'))).toList(),onChanged:(v){if(v!=null){setState(()=>speed=v);video?.setPlaybackSpeed(v);}})
+      ])),
       if(target!=null)Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Text(title,style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
         const SizedBox(height:12),
@@ -206,7 +313,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         Wrap(spacing:8,runSpacing:8,children:List.generate(sources.length,(i)=>ChoiceChip(label:Text(t('سيرفر ${i+1}','Server ${i+1}')),selected:index==i,onSelected:busy?null:(_)=>select(i)))),
         if(error.isNotEmpty)Padding(padding:const EdgeInsets.only(top:16),child:Text(error,style:const TextStyle(color:Colors.orangeAccent))),
       ])),
-      if(target!=null && video?.value.isInitialized==true) PlayerNativeAd(ads:ads,ar:ar),
+      if((target!=null || externalMedia!=null) && video?.value.isInitialized==true) PlayerNativeAd(ads:ads,ar:ar),
     ])),
   )));
 }

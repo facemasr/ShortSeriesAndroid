@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
 import 'player_ads.dart';
@@ -9,13 +11,33 @@ import 'player_ads.dart';
 const origin = 'https://egyshow.com';
 const bridge = MethodChannel('com.egyshow.player/launch');
 const red = Color(0xffe50914);
-void main() {
+bool useArabic(String? saved, String deviceLanguage) =>
+    saved == 'ar' || (saved != 'en' && deviceLanguage.toLowerCase() == 'ar');
+
+final playerLocale = ValueNotifier<Locale>(const Locale('en'));
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(MaterialApp(debugShowCheckedModeBanner: false, title: 'EGY Player',
-    theme: ThemeData.dark(useMaterial3: true).copyWith(
-      scaffoldBackgroundColor: const Color(0xff09090c),
-      colorScheme: ColorScheme.fromSeed(seedColor: red, brightness: Brightness.dark)),
-    home: const PlayerScreen()));
+  final deviceLanguage = WidgetsBinding.instance.platformDispatcher.locale.languageCode;
+  String? saved;
+  try {
+    saved = (await SharedPreferences.getInstance()).getString('player_language');
+  } catch (_) {}
+  playerLocale.value = Locale(useArabic(saved, deviceLanguage) ? 'ar' : 'en');
+  runApp(ValueListenableBuilder<Locale>(
+    valueListenable: playerLocale,
+    builder: (context, locale, _) => MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'EGY Player',
+      locale: locale,
+      supportedLocales: const [Locale('ar'), Locale('en')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      theme: ThemeData.dark(useMaterial3: true).copyWith(
+        scaffoldBackgroundColor: const Color(0xff09090c),
+        colorScheme: ColorScheme.fromSeed(seedColor: red, brightness: Brightness.dark)),
+      home: const PlayerScreen(),
+    ),
+  ));
 }
 Map<String,dynamic> object(dynamic v) => v is Map ? Map<String,dynamic>.from(v) : {};
 class PlayTarget {
@@ -63,9 +85,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
   VideoPlayerController? video;
   List<Map<String,dynamic>> sources=[];
   int generation=0,index=-1;
-  bool ar=true,busy=false,full=false,locked=false,controls=true;
+  bool get ar => playerLocale.value.languageCode == 'ar';
+  bool busy=false,full=false,locked=false,controls=true;
   double speed=1;
-  String title='EGY Player',error='';
+  String titleAr='', titleEn='';
+  String errorAr='', errorEn='';
+  String get title => (ar ? titleAr : titleEn).isNotEmpty
+      ? (ar ? titleAr : titleEn)
+      : ((ar ? titleEn : titleAr).isNotEmpty ? (ar ? titleEn : titleAr) : 'EGY Player');
+  String get error => ar ? errorAr : errorEn;
+  void clearError(){errorAr='';errorEn='';}
+  void setError(String a,String e){errorAr=a;errorEn=e;}
+  void setTitles(String a,String e){titleAr=a;titleEn=e;}
+  Future<void> chooseLanguage() async {
+    final choice=await showDialog<String>(context:context,builder:(ctx)=>SimpleDialog(
+      title:Text(t('اللغة','Language')),
+      children:[
+        SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'ar'),child:const Text('العربية')),
+        SimpleDialogOption(onPressed:()=>Navigator.pop(ctx,'en'),child:const Text('English')),
+      ],
+    ));
+    if(choice==null||!mounted)return;
+    setState(()=>playerLocale.value=Locale(choice));
+    try{await (await SharedPreferences.getInstance()).setString('player_language',choice);}catch(_){}
+  }
   Timer? hideTimer;
   String t(String a,String e)=>ar?a:e;
   @override void initState(){
@@ -89,7 +132,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final raw=await bridge.invokeMethod<String>('pickVideo');
       final uri=parseLocalMedia(raw);
       if(uri!=null&&mounted)await playExternal(uri);
-    } catch(_){if(mounted)setState(()=>error=t('تعذر فتح ملف الفيديو','Unable to open video file'));}
+    } catch(_){if(mounted)setState(()=>setError('تعذر فتح ملف الفيديو','Unable to open video file'));}
   }
   Future<void> enterLink() async {
     String input='';
@@ -109,7 +152,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     )));
     if(result==null||!mounted)return;
     final uri=parseDirectMedia(result);
-    if(uri==null){setState(()=>error=t('أدخل رابط HTTPS مباشر صالحاً','Enter a valid direct HTTPS URL'));return;}
+    if(uri==null){setState(()=>setError('أدخل رابط HTTPS مباشر صالحاً','Enter a valid direct HTTPS URL'));return;}
     await playExternal(uri);
   }
   Future<void> playExternal(Uri uri,{bool initial=false}) async {
@@ -118,8 +161,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final op=++generation;
     final old=video;video=null;
     final local=uri.scheme=='content';
-    String name=local?t('فيديو من الهاتف','Local video'):t('بث مباشر / فيديو','Network video');
-    setState((){target=null;externalMedia=uri;externalName=name;title=name;sources=[];index=-1;busy=true;error='';locked=false;});
+    String name='';
+    setState((){target=null;externalMedia=uri;externalName=name;setTitles(local?'فيديو من الهاتف':'فيديو عبر الإنترنت',local?'Local video':'Network video');sources=[];index=-1;busy=true;clearError();locked=false;});
     await old?.dispose();
     VideoPlayerController? candidate;
     try{
@@ -140,12 +183,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if(!mounted||generation!=op){await candidate.dispose();return;}
       await candidate.play();
       if(!mounted||generation!=op){await candidate.dispose();return;}
-      setState((){video=candidate;title=name;externalName=name;busy=false;});
+      setState((){video=candidate;if(name.isNotEmpty)setTitles(name,name);externalName=name;busy=false;});
       showControls();
     }catch(_){
       await candidate?.dispose();
       unawaited(ads.finishStartup());
-      if(mounted&&generation==op)setState((){busy=false;error=t('تعذر تشغيل الفيديو. تحقق من الرابط أو صيغة الملف.','Unable to play video. Check the URL or file format.');});
+      if(mounted&&generation==op)setState((){busy=false;setError('تعذر تشغيل الفيديو. تحقق من الرابط أو صيغة الملف.','Unable to play video. Check the URL or file format.');});
     }
   }
   Future<void> retryCurrent() async {
@@ -172,18 +215,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if(!initial)unawaited(ads.finishStartup());
     final op=++generation;
     final old=video;video=null;
-    setState((){target=next;externalMedia=null;externalName='';ar=next.ar;title='EGY Player';sources=[];index=-1;busy=true;error='';locked=false;});
+    setState((){target=next;externalMedia=null;externalName='';setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;});
     await old?.dispose();
     try {
       final path='/api/v1/mobile/guest/player?type=${next.type}&id=${next.id}';
       final data=await request(path);
       if(!mounted||generation!=op)return;
       final items=(data['sources'] as List? ?? []).map(object).where((m)=>m['id'] is num).toList();
-      setState((){title=(data[ar?'title_ar':'title_en']??data[ar?'title_en':'title_ar']??'EGY Player').toString();sources=items;busy=false;});
-      if(items.isEmpty){unawaited(ads.finishStartup());setState(()=>error=t('لا توجد سيرفرات مشاهدة متاحة','No available servers'));return;}
+      setState((){setTitles((data['title_ar']??'').toString(),(data['title_en']??'').toString());sources=items;busy=false;});
+      if(items.isEmpty){unawaited(ads.finishStartup());setState(()=>setError('لا توجد سيرفرات مشاهدة متاحة','No available servers'));return;}
       if(initial)ads.beginStartup();
       await select(0,automatic:true);
-    }catch(_){unawaited(ads.finishStartup());if(mounted&&generation==op)setState((){busy=false;error=t('تعذر تحميل بيانات المشاهدة','Unable to load playback data');});}
+    }catch(_){unawaited(ads.finishStartup());if(mounted&&generation==op)setState((){busy=false;setError('تعذر تحميل بيانات المشاهدة','Unable to load playback data');});}
   }
   Future<void> select(int next,{bool automatic=false}) async {
     final current=target;
@@ -192,7 +235,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final old=video;
     final resume=old?.value.isInitialized==true?old!.value.position:Duration.zero;
     video=null;
-    setState((){busy=true;index=next;error='';controls=true;});
+    setState((){busy=true;index=next;clearError();controls=true;});
     await old?.dispose();
     final end=automatic?(next+3).clamp(0,sources.length).toInt():next+1;
     for(var i=next;i<end;i++){
@@ -222,7 +265,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
     }
     await ads.finishStartup();
-    if(mounted&&generation==op)setState((){busy=false;error=t('تعذر تشغيل السيرفر. جرّب سيرفراً آخر.','Playback unavailable. Try another server.');});
+    if(mounted&&generation==op)setState((){busy=false;setError('تعذر تشغيل السيرفر. جرّب سيرفراً آخر.','Playback unavailable. Try another server.');});
   }
   void showControls(){
     if(!mounted)return;
@@ -267,15 +310,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if(state.hasError)Center(child:FilledButton.icon(onPressed:retryCurrent,icon:const Icon(Icons.refresh),label:Text(t('إعادة التشغيل','Retry playback')))),
           if(controls&&!state.hasError)DecoratedBox(decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Color(0x66000000),Colors.transparent,Color(0xaa000000)])),child:Column(children:[
             Row(children:[
-              IconButton(onPressed:()=>setState(()=>locked=!locked),icon:Icon(locked?Icons.lock:Icons.lock_open)),
+              IconButton(tooltip:locked?t('إلغاء القفل','Unlock'):t('قفل الشاشة','Lock controls'),onPressed:()=>setState(()=>locked=!locked),icon:Icon(locked?Icons.lock:Icons.lock_open)),
               const Spacer(),
-              if(!locked)IconButton(onPressed:toggleFull,icon:Icon(full?Icons.fullscreen_exit:Icons.fullscreen)),
+              if(!locked)IconButton(tooltip:full?t('الخروج من ملء الشاشة','Exit fullscreen'):t('ملء الشاشة','Fullscreen'),onPressed:toggleFull,icon:Icon(full?Icons.fullscreen_exit:Icons.fullscreen)),
             ]),
             const Spacer(),
             if(!locked)Row(mainAxisAlignment:MainAxisAlignment.center,children:[
-              IconButton(iconSize:36,onPressed:()=>seek(-10),icon:const Icon(Icons.replay_10)),
-              IconButton(iconSize:56,onPressed:()async{state.isPlaying?await v.pause():await v.play();showControls();},icon:Icon(state.isPlaying?Icons.pause_circle_filled:Icons.play_circle_fill)),
-              IconButton(iconSize:36,onPressed:()=>seek(10),icon:const Icon(Icons.forward_10)),
+              IconButton(tooltip:t('رجوع 10 ثوانٍ','Back 10 seconds'),iconSize:36,onPressed:()=>seek(-10),icon:const Icon(Icons.replay_10)),
+              IconButton(tooltip:state.isPlaying?t('إيقاف مؤقت','Pause'):t('تشغيل','Play'),iconSize:56,onPressed:()async{state.isPlaying?await v.pause():await v.play();showControls();},icon:Icon(state.isPlaying?Icons.pause_circle_filled:Icons.play_circle_fill)),
+              IconButton(tooltip:t('تقديم 10 ثوانٍ','Forward 10 seconds'),iconSize:36,onPressed:()=>seek(10),icon:const Icon(Icons.forward_10)),
             ]),
             const Spacer(),
             if(!locked&&duration>0)Slider(value:position,max:duration.toDouble(),activeColor:red,onChanged:(x)=>v.seekTo(Duration(milliseconds:x.round()))),
@@ -288,7 +331,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
   @override Widget build(BuildContext context)=>Directionality(textDirection:ar?TextDirection.rtl:TextDirection.ltr,child:PopScope(canPop:!full,onPopInvokedWithResult:(didPop,_) {if(!didPop&&full)unawaited(toggleFull());},child:Scaffold(
     appBar:full?null:AppBar(title:Text(title,maxLines:1,overflow:TextOverflow.ellipsis),actions:[
-      IconButton(tooltip:'AR/EN',icon:const Icon(Icons.translate),onPressed:()=>setState(()=>ar=!ar)),
+      IconButton(tooltip:t('اللغة','Language'),icon:const Icon(Icons.translate),onPressed:chooseLanguage),
       if(ads.privacyRequired)IconButton(tooltip:t('خصوصية الإعلانات','Ad privacy'),icon:const Icon(Icons.privacy_tip_outlined),onPressed:ads.privacyOptions),
     ]),
     body:full?surface():SafeArea(child:ListView(children:[

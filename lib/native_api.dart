@@ -116,22 +116,22 @@ class EgyApi {
     return result;
   }
   Future<Map<String, List<Media>>> home() async {
-    final json = await call('/api/v1/home');
+    final json = await call('/api/v1/mobile/guest/home');
     return {for (final key in ['featured', 'trending', 'latest'])
       key: asList(json[key]).map((e) => Media(asMap(e))).toList()};
   }
   Future<List<Media>> catalog(String type, {int page = 1}) async {
-    final response = await call('/api/v1/media?type=' + Uri.encodeQueryComponent(type) +
+    final response = await call('/api/v1/mobile/guest/media?type=' + Uri.encodeQueryComponent(type) +
         '&page=' + page.toString() + '&limit=24');
     return asList(response['items']).map((v) => Media(asMap(v))).toList();
   }
   Future<List<Media>> search(String query) async {
     if (query.trim().isEmpty) return [];
-    final response = await call('/api/v1/search?q=' + Uri.encodeQueryComponent(query.trim()) + '&limit=40');
+    final response = await call('/api/v1/mobile/guest/search?q=' + Uri.encodeQueryComponent(query.trim()) + '&limit=40');
     return asList(response['items']).map((v) => Media(asMap(v))).toList();
   }
   Future<Media> details(int id) async =>
-      Media(asMap((await call('/api/v1/media/' + id.toString()))['media']));
+      Media(asMap((await call('/api/v1/mobile/guest/media/' + id.toString()))['media']));
   Future<List<LiveChannel>> live({int page = 1}) async {
     // Live TV metadata comes from the provider on this Android device,
     // not from the EGYSHOW website or a cached server-side channel map.

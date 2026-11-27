@@ -295,7 +295,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       AspectRatio(aspectRatio:16/9,child:surface()),
       Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
         if(target==null&&externalMedia==null)Text(t('مشغل الفيديو الخاص بك','Your video player'),style:const TextStyle(fontSize:24,fontWeight:FontWeight.bold)),
-        if(target==null&&externalMedia==null)Padding(padding:const EdgeInsets.only(top:8,bottom:16),child:Text(t('شغّل رابطاً مباشراً أو فيديو من هاتفك أو افتح المشغل من EGYSHOW.','Play a direct URL, a video on your phone, or open from EGYSHOW.'))),
+        if(target==null&&externalMedia==null)Padding(padding:const EdgeInsets.only(top:8,bottom:16),child:Text(t('شغّل الفيديوهات من هاتفك أو عبر رابط مباشر.','Play videos from your phone or a direct link.'))),
         FilledButton.icon(onPressed:enterLink,icon:const Icon(Icons.link),label:Text(t('فتح رابط فيديو','Open video URL'))),
         const SizedBox(height:8),
         OutlinedButton.icon(onPressed:pickLocal,icon:const Icon(Icons.folder_open),label:Text(t('فيديوهات الهاتف','Browse phone videos'))),

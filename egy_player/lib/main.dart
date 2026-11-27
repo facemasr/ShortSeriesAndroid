@@ -330,7 +330,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
   @override Widget build(BuildContext context)=>Directionality(textDirection:ar?TextDirection.rtl:TextDirection.ltr,child:PopScope(canPop:!full,onPopInvokedWithResult:(didPop,_) {if(!didPop&&full)unawaited(toggleFull());},child:Scaffold(
-    appBar:full?null:AppBar(title:Text(title,maxLines:1,overflow:TextOverflow.ellipsis),actions:[
+    appBar:full?null:AppBar(title:Row(children:[Image.asset('assets/brand/logo-full.png',height:30,width:95,fit:BoxFit.contain),const SizedBox(width:8),Expanded(child:Text(title,maxLines:1,overflow:TextOverflow.ellipsis))]),actions:[
       IconButton(tooltip:t('اللغة','Language'),icon:const Icon(Icons.translate),onPressed:chooseLanguage),
       if(ads.privacyRequired)IconButton(tooltip:t('خصوصية الإعلانات','Ad privacy'),icon:const Icon(Icons.privacy_tip_outlined),onPressed:ads.privacyOptions),
     ]),

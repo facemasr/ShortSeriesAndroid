@@ -109,7 +109,7 @@ jobs:
         run: |
           flutter create --platforms=android --org com.egyshow --project-name player "$RUNNER_TEMP/egy_player"
           cp egy_player/pubspec.yaml "$RUNNER_TEMP/egy_player/pubspec.yaml"
-          cp egy_player/lib/main.dart "$RUNNER_TEMP/egy_player/lib/main.dart"
+          cp egy_player/lib/*.dart "$RUNNER_TEMP/egy_player/lib/"
           cp egy_player/android-template/MainActivity.kt "$RUNNER_TEMP/egy_player/android/app/src/main/kotlin/com/egyshow/player/MainActivity.kt"
           rm -f "$RUNNER_TEMP/egy_player/test/widget_test.dart"
           cp egy_player/test/launch_contract_test.dart "$RUNNER_TEMP/egy_player/test/"
@@ -127,6 +127,7 @@ jobs:
           root.insert(0,permission)
           application=root.find('application')
           application.set(attr('label'),'EGY Player')
+          ET.SubElement(application,'meta-data',{attr('name'):'com.google.android.gms.ads.APPLICATION_ID',attr('value'):'ca-app-pub-8994881827340014~1912860117'})
           application.set(attr('usesCleartextTraffic'),'false')
           activity=application.find('activity')
           activity.set(attr('launchMode'),'singleTop')
@@ -142,9 +143,9 @@ jobs:
         run: |
           cd "$RUNNER_TEMP/egy_player"
           flutter pub get
-          flutter analyze lib/main.dart --no-fatal-infos
+          flutter analyze lib --no-fatal-infos
           flutter test
-          flutter build apk --release
+          flutter build apk --release --dart-define=EGY_LIVE_ADS=false
           APK=build/app/outputs/flutter-apk/app-release.apk
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"

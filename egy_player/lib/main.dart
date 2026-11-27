@@ -57,7 +57,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     bridge.setMethodCallHandler((call) async {
       if(call.method=='open') await openTarget(call.arguments as String?);
     });
-    unawaited(bridge.invokeMethod<String>('initialLink').then(openTarget)
+    unawaited(bridge.invokeMethod<String>('initialLink').then((link)=>openTarget(link,initial:true))
       .catchError((Object e){}));
   }
   Future<Map<String,dynamic>> request(String path,{Map<String,dynamic>? body}) async {
@@ -69,9 +69,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if(response.statusCode!=200||data['ok']!=true) throw StateError('unavailable');
     return data;
   }
-  Future<void> openTarget(String? input) async {
+  Future<void> openTarget(String? input,{bool initial=false}) async {
     final next=PlayTarget.parse(input);
-    if(next==null||!mounted)return;
+    if(next==null||!mounted){if(initial)unawaited(ads.finishStartup());return;}
+    if(!initial)unawaited(ads.finishStartup());
     final op=++generation;
     final old=video;video=null;
     setState((){target=next;ar=next.ar;title='EGY Player';sources=[];index=-1;busy=true;error='';locked=false;});
@@ -82,9 +83,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if(!mounted||generation!=op)return;
       final items=(data['sources'] as List? ?? []).map(object).where((m)=>m['id'] is num).toList();
       setState((){title=(data[ar?'title_ar':'title_en']??data[ar?'title_en':'title_ar']??'EGY Player').toString();sources=items;busy=false;});
-      if(items.isEmpty){setState(()=>error=t('لا توجد سيرفرات مشاهدة متاحة','No available servers'));return;}
+      if(items.isEmpty){unawaited(ads.finishStartup());setState(()=>error=t('لا توجد سيرفرات مشاهدة متاحة','No available servers'));return;}
+      if(initial)ads.beginStartup();
       await select(0,automatic:true);
-    }catch(_){if(mounted&&generation==op)setState((){busy=false;error=t('تعذر تحميل بيانات المشاهدة','Unable to load playback data');});}
+    }catch(_){unawaited(ads.finishStartup());if(mounted&&generation==op)setState((){busy=false;error=t('تعذر تحميل بيانات المشاهدة','Unable to load playback data');});}
   }
   Future<void> select(int next,{bool automatic=false}) async {
     final current=target;
@@ -111,6 +113,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if(!mounted||generation!=op){await candidate.dispose();return;}
         if(resume>Duration.zero&&resume<candidate.value.duration)await candidate.seekTo(resume);
         await candidate.setPlaybackSpeed(speed);
+        await ads.finishStartup();
+        if(!mounted||generation!=op){await candidate.dispose();return;}
         await candidate.play();
         if(!mounted||generation!=op){await candidate.dispose();return;}
         setState((){video=candidate;index=i;busy=false;});
@@ -120,6 +124,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if(!mounted||generation!=op)return;
       }
     }
+    await ads.finishStartup();
     if(mounted&&generation==op)setState((){busy=false;error=t('تعذر تشغيل السيرفر. جرّب سيرفراً آخر.','Playback unavailable. Try another server.');});
   }
   void showControls(){

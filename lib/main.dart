@@ -480,8 +480,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
     return Directionality(textDirection: ar ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('EGYSHOW', style: TextStyle(
-            color: red, fontWeight: FontWeight.w900, letterSpacing: 1.6)),
+          title: Image.asset('assets/brand/logo-full.png', height: 38, fit: BoxFit.contain, semanticLabel: 'EGYSHOW'),
           actions: [
             IconButton(
               tooltip: tr(ar, 'بحث', 'Search'),

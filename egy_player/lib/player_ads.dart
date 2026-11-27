@@ -8,7 +8,87 @@ const testUnit = 'ca-app-pub-3940256099942544/2247696110';
 const liveAds = bool.fromEnvironment('EGY_LIVE_ADS', defaultValue: false);
 String get playerAdUnit => kReleaseMode && liveAds ? productionUnit : testUnit;
 
+const productionOpenUnit = 'ca-app-pub-8994881827340014/6863748552';
+const testOpenUnit = 'ca-app-pub-3940256099942544/9257395921';
+String get playerOpenUnit => kReleaseMode && liveAds ? productionOpenUnit : testOpenUnit;
+
 class PlayerAds extends ChangeNotifier {
+  AppOpenAd? _openAd;
+  DateTime? _openLoadedAt;
+  bool _openRequested = false, _startupWindow = false, _startupClosed = false;
+  Completer<void>? _openShowing;
+  int _openEpoch = 0;
+
+  // Only the initial launch may open this window, while a real stream loads.
+  void beginStartup() {
+    if (_closed || _startupClosed) return;
+    _startupWindow = true;
+    _tryShowOpen();
+  }
+
+  Future<void> finishStartup() async {
+    _startupWindow = false;
+    _startupClosed = true;
+    _openEpoch++;
+    _openAd?.dispose();
+    _openAd = null;
+    final showing = _openShowing;
+    if (showing != null) await showing.future;
+  }
+
+  void _loadOpen() {
+    if (_closed || _startupClosed || _openRequested) return;
+    _openRequested = true;
+    final epoch = _openEpoch;
+    unawaited(AppOpenAd.load(
+      adUnitId: playerOpenUnit,
+      adRequest: const AdRequest(),
+      adLoadCallback: AppOpenAdLoadCallback(
+        onAdLoaded: (loaded) {
+          if (_closed || _startupClosed || epoch != _openEpoch) {
+            loaded.dispose();
+            return;
+          }
+          _openAd = loaded;
+          _openLoadedAt = DateTime.now();
+          _tryShowOpen();
+        },
+        onAdFailedToLoad: (_) {},
+      ),
+    ).catchError((Object _) {}));
+  }
+
+  void _tryShowOpen() {
+    final loaded = _openAd;
+    final time = _openLoadedAt;
+    if (_closed || _startupClosed || !_startupWindow ||
+        _openShowing != null || loaded == null || time == null ||
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+    if (DateTime.now().difference(time) >= const Duration(hours: 4)) {
+      _openAd = null;
+      loaded.dispose();
+      return;
+    }
+    _openAd = null;
+    _startupClosed = true;
+    _startupWindow = false;
+    final showing = Completer<void>();
+    _openShowing = showing;
+    bool completed = false;
+    void complete() {
+      if (completed) return;
+      completed = true;
+      loaded.dispose();
+      _openShowing = null;
+      if (!showing.isCompleted) showing.complete();
+    }
+    loaded.fullScreenContentCallback = FullScreenContentCallback<AppOpenAd>(
+      onAdDismissedFullScreenContent: (_) => complete(),
+      onAdFailedToShowFullScreenContent: (_, __) => complete(),
+    );
+    unawaited(loaded.show().catchError((Object _) { complete(); }));
+  }
+
   NativeAd? ad;
   bool ready = false, privacyRequired = false, _closed = false, _loading = false;
   bool _initialized = false;
@@ -39,6 +119,7 @@ class PlayerAds extends ChangeNotifier {
     final permitted = await ConsentInformation.instance.canRequestAds();
     if (_closed) return;
     if (!permitted) {
+      unawaited(finishStartup());
       _generation++;
       final old = ad;
       ad = null; ready = false; _loading = false;
@@ -52,6 +133,7 @@ class PlayerAds extends ChangeNotifier {
       if (_closed) return;
       _initialized = true;
     }
+    _loadOpen();
     if (ad != null || _loading) return;
     _loading = true;
     final op = ++_generation;
@@ -82,6 +164,7 @@ class PlayerAds extends ChangeNotifier {
   void privacyOptions() {
     ConsentForm.showPrivacyOptionsForm((error) {
       if (_closed || error != null) return;
+      unawaited(finishStartup());
       final old = ad;
       _generation++;
       ad = null; ready = false; _loading = false;
@@ -92,6 +175,7 @@ class PlayerAds extends ChangeNotifier {
   }
   @override void dispose() {
     _closed = true; _generation++;
+    unawaited(finishStartup());
     ad?.dispose(); ad = null;
     super.dispose();
   }

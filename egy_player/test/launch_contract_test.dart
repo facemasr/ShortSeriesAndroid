@@ -21,4 +21,12 @@ void main(){
     expect(formatFor(Uri.parse('https://example.com/STREAM.M3U8?x=1')).toString(),'VideoFormat.hls');
     expect(formatFor(Uri.parse('https://example.com/video.mpd')).toString(),'VideoFormat.dash');
   });
+  test('language preference takes priority over device locale',(){
+    expect(useArabic(null,'ar'),isTrue);
+    expect(useArabic(null,'en'),isFalse);
+    expect(useArabic(null,'hi'),isFalse);
+    expect(useArabic('ar','en'),isTrue);
+    expect(useArabic('en','ar'),isFalse);
+    expect(useArabic('invalid','ar'),isTrue);
+  });
 }

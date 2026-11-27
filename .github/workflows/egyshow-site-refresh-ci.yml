@@ -137,6 +137,12 @@ jobs:
           ET.SubElement(intent,'category',{attr('name'):'android.intent.category.DEFAULT'})
           ET.SubElement(intent,'category',{attr('name'):'android.intent.category.BROWSABLE'})
           ET.SubElement(intent,'data',{attr('scheme'):'egyplayer',attr('host'):'play'})
+          # Allow opening direct HTTPS video and permission-scoped local content.
+          for scheme in ('content','https'):
+              video_filter=ET.SubElement(activity,'intent-filter')
+              ET.SubElement(video_filter,'action',{attr('name'):'android.intent.action.VIEW'})
+              ET.SubElement(video_filter,'category',{attr('name'):'android.intent.category.DEFAULT'})
+              ET.SubElement(video_filter,'data',{attr('scheme'):scheme,attr('mimeType'):'video/*'})
           tree.write(p,encoding='utf-8',xml_declaration=True)
           PY
       - name: Test and build EGY Player

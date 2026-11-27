@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
+import 'player_ads.dart';
 
 const origin = 'https://egyshow.com';
 const bridge = MethodChannel('com.egyshow.player/launch');
@@ -38,6 +39,8 @@ class PlayerScreen extends StatefulWidget {
 }
 class _PlayerScreenState extends State<PlayerScreen> {
   final client=http.Client();
+  final ads=PlayerAds();
+  void onAdChanged(){if(mounted)setState((){});}
   PlayTarget? target;
   VideoPlayerController? video;
   List<Map<String,dynamic>> sources=[];
@@ -49,6 +52,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String t(String a,String e)=>ar?a:e;
   @override void initState(){
     super.initState();
+    ads.addListener(onAdChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {if(mounted)unawaited(ads.prepare());});
     bridge.setMethodCallHandler((call) async {
       if(call.method=='open') await openTarget(call.arguments as String?);
     });
@@ -137,6 +142,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
   String stamp(Duration d)=>'${d.inHours>0?'${d.inHours}:':''}${(d.inMinutes%60).toString().padLeft(2,'0')}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
   @override void dispose(){
+    ads.removeListener(onAdChanged);ads.dispose();
     generation++;hideTimer?.cancel();bridge.setMethodCallHandler(null);video?.dispose();client.close();
     SystemChrome.setPreferredOrientations([]);SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);super.dispose();
   }
@@ -180,7 +186,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
   @override Widget build(BuildContext context)=>Directionality(textDirection:ar?TextDirection.rtl:TextDirection.ltr,child:PopScope(canPop:!full,onPopInvokedWithResult:(didPop,_) {if(!didPop&&full)unawaited(toggleFull());},child:Scaffold(
-    appBar:full?null:AppBar(title:Text(title,maxLines:1,overflow:TextOverflow.ellipsis)),
+    appBar:full?null:AppBar(title:Text(title,maxLines:1,overflow:TextOverflow.ellipsis),actions:[
+      if(ads.privacyRequired)IconButton(tooltip:t('خصوصية الإعلانات','Ad privacy'),icon:const Icon(Icons.privacy_tip_outlined),onPressed:ads.privacyOptions),
+    ]),
     body:full?surface():SafeArea(child:ListView(children:[
       AspectRatio(aspectRatio:16/9,child:surface()),
       if(target==null)Padding(padding:const EdgeInsets.all(28),child:Text(t('افتح فيلماً أو حلقة من تطبيق EGYSHOW للبدء.','Open a movie or episode in EGYSHOW to start.'),textAlign:TextAlign.center)),
@@ -193,6 +201,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         Wrap(spacing:8,runSpacing:8,children:List.generate(sources.length,(i)=>ChoiceChip(label:Text(t('سيرفر ${i+1}','Server ${i+1}')),selected:index==i,onSelected:busy?null:(_)=>select(i)))),
         if(error.isNotEmpty)Padding(padding:const EdgeInsets.only(top:16),child:Text(error,style:const TextStyle(color:Colors.orangeAccent))),
       ])),
+      if(target!=null && video?.value.isInitialized==true) PlayerNativeAd(ads:ads,ar:ar),
     ])),
   )));
 }

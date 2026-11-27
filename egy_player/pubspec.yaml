@@ -1,7 +1,7 @@
 name: player
 description: EGY Player standalone Android playback app
 publish_to: none
-version: 1.0.0+1
+version: 1.0.1+2
 environment:
   sdk: ">=3.6.0 <4.0.0"
 dependencies:
@@ -18,3 +18,5 @@ dev_dependencies:
     sdk: flutter
 flutter:
   uses-material-design: true
+  assets:
+    - assets/brand/logo-full.png

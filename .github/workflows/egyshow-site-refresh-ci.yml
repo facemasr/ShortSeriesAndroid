@@ -145,6 +145,27 @@ jobs:
               ET.SubElement(video_filter,'data',{attr('scheme'):scheme,attr('mimeType'):'video/*'})
           tree.write(p,encoding='utf-8',xml_declaration=True)
           PY
+      - name: Work around WebView dependency lint compiler crash (CI preview only)
+        run: |
+          # The generated AndroidWebkitLibrary.g.kt crashes the Android lint engine.
+          # Leave app lint, Dart analysis and regression tests enabled.
+          mkdir -p "$HOME/.gradle/init.d"
+          cat > "$HOME/.gradle/init.d/egyshow-webview-preview.gradle" <<'GRADLE'
+          gradle.beforeProject { p ->
+              if (p.path == ':webview_flutter_android') {
+                  p.pluginManager.withPlugin('com.android.library') {
+                      p.extensions.getByName('androidComponents').finalizeDsl { dsl ->
+                          dsl.lint.checkReleaseBuilds = false
+                      }
+                  }
+                  p.tasks.configureEach { t ->
+                      if (t.name.startsWith('lintVital') && t.name.endsWith('Release')) {
+                          t.enabled = false
+                      }
+                  }
+              }
+          }
+          GRADLE
       - name: Test and build EGY Player
         run: |
           cd "$RUNNER_TEMP/egy_player"

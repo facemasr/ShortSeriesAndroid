@@ -1,7 +1,7 @@
 name: egyshow_mobile
-description: Native Flutter EGYSHOW catalog with the official website player and the same ads.
+description: Native EGYSHOW guest catalog with external EGY Player.
 publish_to: none
-version: 2.0.35+43
+version: 2.0.36+44
 
 environment:
   sdk: ">=3.6.0 <4.0.0"

@@ -172,15 +172,26 @@ jobs:
           flutter pub get
           flutter analyze lib --no-fatal-infos
           flutter test
-          flutter build apk --release --dart-define=EGY_LIVE_ADS=false
+          # Preserve Room generated implementations and WorkManager startup classes.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('android/app/build.gradle.kts')
+          s=p.read_text()
+          anchor='buildTypes {'
+          assert anchor in s
+          # Disable R8 for this recovery release to avoid reflective Room startup failures.
+          s=s.replace('release {','release {\n            isMinifyEnabled = false\n            isShrinkResources = false',1)
+          p.write_text(s)
+          PY
+          flutter build apk --release --build-name=1.0.1 --build-number=2 --dart-define=EGY_LIVE_ADS=false
           APK=build/app/outputs/flutter-apk/app-release.apk
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.player' versionCode='1' versionName='1.0.0'"
-          cp "$APK" "$GITHUB_WORKSPACE/EGY-Player-v1.0.0.apk"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.player' versionCode='2' versionName='1.0.1'"
+          cp "$APK" "$GITHUB_WORKSPACE/EGY-Player-v1.0.1.apk"
       - uses: actions/upload-artifact@v4
         with:
-          name: EGY-Player-Android-1.0.0-CI-UNSIGNED
-          path: EGY-Player-v1.0.0.apk
+          name: EGY-Player-Android-1.0.1-CI-UNSIGNED
+          path: EGY-Player-v1.0.1.apk
           if-no-files-found: error
           retention-days: 14

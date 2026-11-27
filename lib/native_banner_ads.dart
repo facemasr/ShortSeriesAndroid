@@ -35,6 +35,7 @@ class _EgyshowBannerAdState extends State<EgyshowBannerAd> {
     final now = DateTime.now();
     if (_lastOpenedUrl == target.toString() && _lastOpen != null &&
         now.difference(_lastOpen!) < const Duration(seconds: 2)) return;
+    _lastGesture = null; // Consume the real tap; do not open additional redirects.
     _lastOpen = now;
     _lastOpenedUrl = target.toString();
     try { await launchUrl(target, mode: LaunchMode.externalApplication); }
@@ -63,7 +64,7 @@ class _EgyshowBannerAdState extends State<EgyshowBannerAd> {
     var link = e.target && e.target.closest && e.target.closest('a[href]');
     if (!link) return;
     e.preventDefault();
-    e.stopImmediatePropagation();
+    
     forward(link.href);
   }, true);
   // Reject automatic pop-unders; forward user-initiated popup URLs instead.

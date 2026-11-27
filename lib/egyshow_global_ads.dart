@@ -49,6 +49,7 @@ class _EgyshowAdPlacementState extends State<EgyshowAdPlacement> {
     if (_lastOpenedUrl == uri.toString() && _lastOpen != null &&
         now.difference(_lastOpen!) < const Duration(seconds: 2)) return;
     _lastOpenedUrl = uri.toString();
+    _lastGesture = null; // Consume the real tap; do not open additional redirects.
     _lastOpen = now;
     try { await launchUrl(uri, mode: LaunchMode.externalApplication); }
     catch (_) { /* Keep the app and ad slot in place on failure. */ }
@@ -76,7 +77,7 @@ class _EgyshowAdPlacementState extends State<EgyshowAdPlacement> {
     var a = event.target && event.target.closest && event.target.closest('a[href]');
     if (!a) return;
     event.preventDefault();
-    event.stopImmediatePropagation();
+    
     forward(a.href);
   }, true);
   // Open only user-initiated script destinations, never timer pop-unders.

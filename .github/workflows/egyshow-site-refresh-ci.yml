@@ -46,6 +46,21 @@ jobs:
           PY
           # flutter create generates a placeholder test for a different app template.
           rm -f test/widget_test.dart
+          mkdir -p assets/brand
+          curl --fail --silent --show-error --location https://egyshow.com/assets/brand/logo-full.png -o assets/brand/logo-full.png
+          echo 'd09b7f25afff2fd5cf491aae69559b5a237925467964210b91fd0cf81697e1af  assets/brand/logo-full.png' | sha256sum -c -
+          python3 -m pip install --quiet Pillow
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          logo=Image.open('assets/brand/logo-full.png').convert('RGBA')
+          for folder,size in [('mdpi',48),('hdpi',72),('xhdpi',96),('xxhdpi',144),('xxxhdpi',192)]:
+              icon=Image.new('RGBA',(size,size),(15,15,18,255))
+              art=logo.copy()
+              art.thumbnail((int(size*.92),int(size*.92)),Image.Resampling.LANCZOS)
+              icon.alpha_composite(art,((size-art.width)//2,(size-art.height)//2))
+              icon.save(Path('android/app/src/main/res')/('mipmap-'+folder)/'ic_launcher.png')
+          PY
       - name: Install Flutter dependencies
         run: flutter pub get
       - name: Analyze EGYSHOW application
@@ -82,11 +97,11 @@ jobs:
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='44' versionName='2.0.36'"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='45' versionName='2.0.37'"
           echo "Unsigned CI candidate only. Production release must use the existing EGYSHOW signing key."
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYSHOW-Android-2.0.36-CI-UNSIGNED
+          name: EGYSHOW-Android-2.0.37-CI-UNSIGNED
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
@@ -114,6 +129,21 @@ jobs:
           rm -f "$RUNNER_TEMP/egy_player/test/widget_test.dart"
           cp egy_player/test/launch_contract_test.dart "$RUNNER_TEMP/egy_player/test/"
           cd "$RUNNER_TEMP/egy_player"
+          mkdir -p assets/brand
+          curl --fail --silent --show-error --location https://egyshow.com/assets/brand/logo-full.png -o assets/brand/logo-full.png
+          echo 'd09b7f25afff2fd5cf491aae69559b5a237925467964210b91fd0cf81697e1af  assets/brand/logo-full.png' | sha256sum -c -
+          python3 -m pip install --quiet Pillow
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          logo=Image.open('assets/brand/logo-full.png').convert('RGBA')
+          for folder,size in [('mdpi',48),('hdpi',72),('xhdpi',96),('xxhdpi',144),('xxxhdpi',192)]:
+              icon=Image.new('RGBA',(size,size),(15,15,18,255))
+              art=logo.copy()
+              art.thumbnail((int(size*.92),int(size*.92)),Image.Resampling.LANCZOS)
+              icon.alpha_composite(art,((size-art.width)//2,(size-art.height)//2))
+              icon.save(Path('android/app/src/main/res')/('mipmap-'+folder)/'ic_launcher.png')
+          PY
           python3 - <<'PY'
           from pathlib import Path
           import xml.etree.ElementTree as ET
@@ -183,7 +213,7 @@ jobs:
           s=s.replace('release {','release {\n            isMinifyEnabled = false\n            isShrinkResources = false',1)
           p.write_text(s)
           PY
-          flutter build apk --release --build-name=1.0.1 --build-number=2 --dart-define=EGY_LIVE_ADS=false
+          flutter build apk --release --build-name=1.0.1 --build-number=2 --dart-define=EGY_LIVE_ADS=true
           APK=build/app/outputs/flutter-apk/app-release.apk
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"

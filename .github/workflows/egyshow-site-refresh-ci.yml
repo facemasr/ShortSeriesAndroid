@@ -5,6 +5,7 @@ on:
     branches:
       - feature/egyshow-site-refresh-no-tv-20261121
       - fix/egyshow-member-playback-ads-20261125
+      - feature/egyshow-guest-external-player-20261127
   pull_request:
     branches:
       - feature/egyshow-direct-yacine-channels-20261104
@@ -39,6 +40,8 @@ jobs:
           if "android.permission.ACCESS_NETWORK_STATE" not in s:
               s = s.replace("<application", '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <application', 1)
           s = re.sub(r'android:label="[^"]*"', 'android:label="EGYSHOW"', s, count=1)
+          if "com.egyshow.player" not in s:
+              s=s.replace("<application", '<queries><package android:name="com.egyshow.player" /></queries>\n    <application',1)
           p.write_text(s)
           PY
           # flutter create generates a placeholder test for a different app template.
@@ -79,11 +82,77 @@ jobs:
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='43' versionName='2.0.35'"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='44' versionName='2.0.36'"
           echo "Unsigned CI candidate only. Production release must use the existing EGYSHOW signing key."
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYSHOW-Android-2.0.35-CI-UNSIGNED
+          name: EGYSHOW-Android-2.0.36-CI-UNSIGNED
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  player:
+    if: github.ref == 'refs/heads/feature/egyshow-guest-external-player-20261127'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate independent EGY Player Android project
+        run: |
+          flutter create --platforms=android --org com.egyshow --project-name player "$RUNNER_TEMP/egy_player"
+          cp egy_player/pubspec.yaml "$RUNNER_TEMP/egy_player/pubspec.yaml"
+          cp egy_player/lib/main.dart "$RUNNER_TEMP/egy_player/lib/main.dart"
+          cp egy_player/android-template/MainActivity.kt "$RUNNER_TEMP/egy_player/android/app/src/main/kotlin/com/egyshow/player/MainActivity.kt"
+          rm -f "$RUNNER_TEMP/egy_player/test/widget_test.dart"
+          cp egy_player/test/launch_contract_test.dart "$RUNNER_TEMP/egy_player/test/"
+          cd "$RUNNER_TEMP/egy_player"
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          ns='http://schemas.android.com/apk/res/android'
+          ET.register_namespace('android',ns)
+          attr=lambda k:'{'+ns+'}'+k
+          p=Path('android/app/src/main/AndroidManifest.xml')
+          tree=ET.parse(p)
+          root=tree.getroot()
+          permission=ET.Element('uses-permission',{attr('name'):'android.permission.INTERNET'})
+          root.insert(0,permission)
+          application=root.find('application')
+          application.set(attr('label'),'EGY Player')
+          application.set(attr('usesCleartextTraffic'),'false')
+          activity=application.find('activity')
+          activity.set(attr('launchMode'),'singleTop')
+          ET.SubElement(activity,'meta-data',{attr('name'):'flutter_deeplinking_enabled',attr('value'):'false'})
+          intent=ET.SubElement(activity,'intent-filter')
+          ET.SubElement(intent,'action',{attr('name'):'android.intent.action.VIEW'})
+          ET.SubElement(intent,'category',{attr('name'):'android.intent.category.DEFAULT'})
+          ET.SubElement(intent,'category',{attr('name'):'android.intent.category.BROWSABLE'})
+          ET.SubElement(intent,'data',{attr('scheme'):'egyplayer',attr('host'):'play'})
+          tree.write(p,encoding='utf-8',xml_declaration=True)
+          PY
+      - name: Test and build EGY Player
+        run: |
+          cd "$RUNNER_TEMP/egy_player"
+          flutter pub get
+          flutter analyze lib/main.dart --no-fatal-infos
+          flutter test
+          flutter build apk --release
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
+          AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.player' versionCode='1' versionName='1.0.0'"
+          cp "$APK" "$GITHUB_WORKSPACE/EGY-Player-v1.0.0.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EGY-Player-Android-1.0.0-CI-UNSIGNED
+          path: EGY-Player-v1.0.0.apk
           if-no-files-found: error
           retention-days: 14

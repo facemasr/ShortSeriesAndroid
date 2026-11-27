@@ -7,6 +7,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  shared_preferences: ^2.5.3
   http: ^1.5.0
   video_player: ^2.9.5
   google_mobile_ads: ^7.0.0

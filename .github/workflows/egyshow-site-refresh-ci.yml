@@ -89,7 +89,7 @@ jobs:
           }
           GRADLE
       - name: Build Android release candidate
-        run: flutter build apk --release
+        run: flutter build apk --release --build-name=1.0.0 --build-number=1
       - name: Verify package and version
         run: |
           APK=build/app/outputs/flutter-apk/app-release.apk
@@ -97,11 +97,11 @@ jobs:
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='45' versionName='2.0.37'"
-          echo "Unsigned CI candidate only. Production release must use the existing EGYSHOW signing key."
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.egyshow_mobile' versionCode='1' versionName='1.0.0'"
+          echo "CI candidate only; verify installation before production release."
       - uses: actions/upload-artifact@v4
         with:
-          name: EGYSHOW-Android-2.0.37-CI-UNSIGNED
+          name: EGYSHOW-Android-1.0.0-CI-CANDIDATE
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
@@ -213,15 +213,15 @@ jobs:
           s=s.replace('release {','release {\n            isMinifyEnabled = false\n            isShrinkResources = false',1)
           p.write_text(s)
           PY
-          flutter build apk --release --build-name=1.0.1 --build-number=2 --dart-define=EGY_LIVE_ADS=true
+          flutter build apk --release --build-name=1.0.0 --build-number=1 --dart-define=EGY_LIVE_ADS=true
           APK=build/app/outputs/flutter-apk/app-release.apk
           SDK_DIR=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
           AAPT="$(find "$SDK_DIR/build-tools" -maxdepth 2 -type f -name aapt | sort -V | tail -n 1)"
-          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.player' versionCode='2' versionName='1.0.1'"
-          cp "$APK" "$GITHUB_WORKSPACE/EGY-Player-v1.0.1.apk"
+          "$AAPT" dump badging "$APK" | grep -E "^package: name='com.egyshow.player' versionCode='1' versionName='1.0.0'"
+          cp "$APK" "$GITHUB_WORKSPACE/EGY-Player-v1.0.0.apk"
       - uses: actions/upload-artifact@v4
         with:
-          name: EGY-Player-Android-1.0.1-CI-UNSIGNED
-          path: EGY-Player-v1.0.1.apk
+          name: EGY-Player-Android-1.0.0-CI-CANDIDATE
+          path: EGY-Player-v1.0.0.apk
           if-no-files-found: error
           retention-days: 14

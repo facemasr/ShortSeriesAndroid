@@ -42,7 +42,7 @@ class PlayerAds extends ChangeNotifier {
     final epoch = _openEpoch;
     unawaited(AppOpenAd.load(
       adUnitId: playerOpenUnit,
-      adRequest: const AdRequest(),
+      request: const AdRequest(),
       adLoadCallback: AppOpenAdLoadCallback(
         onAdLoaded: (loaded) {
           if (_closed || _startupClosed || epoch != _openEpoch) {

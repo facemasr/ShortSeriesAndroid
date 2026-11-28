@@ -28,7 +28,8 @@ void main(){
     expect(target?.reels,isTrue);
     final url=siteWatchEntry('episode',15,8,true);
     expect(url.host,'egyshow.com');
-    expect(url.path,'/watch');
+    expect(url.path,'/mobile-player');
+    expect(isOfficialWatch(url),isTrue);
     expect(url.queryParameters['episode_id'],'15');
     expect(url.queryParameters['media_id'],'8');
     expect(isOfficialWatch(Uri.parse('https://egyshow.com/watch/abcdefghijklmnopqrstuvwxyz123456')),isTrue);

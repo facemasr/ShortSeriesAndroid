@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
@@ -8,13 +7,13 @@ const siteHost = 'egyshow.com';
 bool isOfficialSite(Uri? uri) => uri != null && uri.scheme == 'https' &&
     uri.host == siteHost && uri.port == 443 && uri.userInfo.isEmpty;
 Uri siteWatchEntry(String type, int id, int mediaId, bool ar) =>
-    Uri.https(siteHost, '/watch', {
+    Uri.https(siteHost, '/mobile-player', {
       'target_type': type, 'target_id': '$id', 'media_id': '$mediaId',
       if (type == 'episode') 'episode_id': '$id',
       'lang': ar ? 'ar' : 'en',
     });
 bool isOfficialWatch(Uri? uri) => isOfficialSite(uri) &&
-    RegExp(r'^/watch/[A-Za-z0-9_-]{32}$').hasMatch(uri!.path);
+    (uri!.path == '/mobile-player' || RegExp(r'^/watch/[A-Za-z0-9_-]{32}$').hasMatch(uri.path));
 bool isCatalogueEntry(Uri? uri) => isOfficialSite(uri) &&
     RegExp(r'^/(ar|en)/(movie|series|short-series)/[^/]+(?:/season/[0-9]+/episode/[0-9]+)?/?$').hasMatch(uri!.path);
 
@@ -31,8 +30,7 @@ class SiteWatchView extends StatefulWidget {
 
 class _SiteWatchViewState extends State<SiteWatchView> {
   late final WebViewController controller;
-  bool loading = true, watching = false, attempted = false;
-  bool failed = false;
+  bool loading = true, failed = false;
   Uri? externalLink;
   String t(String ar, String en) => widget.ar ? ar : en;
   Uri get entry => siteWatchEntry(widget.type, widget.id, widget.mediaId, widget.ar);
@@ -46,7 +44,7 @@ class _SiteWatchViewState extends State<SiteWatchView> {
         onNavigationRequest: (request) {
           if (!request.isMainFrame) return NavigationDecision.navigate;
           final uri = Uri.tryParse(request.url);
-          if (isOfficialSite(uri)) return NavigationDecision.navigate;
+          if (isOfficialWatch(uri)) return NavigationDecision.navigate;
           if (uri != null && uri.scheme == 'https' && uri.userInfo.isEmpty && mounted) {
             setState(() => externalLink = uri);
           }
@@ -54,15 +52,13 @@ class _SiteWatchViewState extends State<SiteWatchView> {
         },
         onPageStarted: (url) {
           if (!mounted) return;
-          setState(() { loading = true; failed = false; watching = isOfficialWatch(Uri.tryParse(url)); });
+          setState(() { loading = true; failed = false; });
         },
         onPageFinished: (url) async {
           if (!mounted) return;
-          final uri = Uri.tryParse(url);
-          setState(() { loading = false; watching = isOfficialWatch(uri); });
-          if (!attempted && isCatalogueEntry(uri)) {
-            attempted = true;
-            await openVisibleWatchLink();
+          setState(() => loading = false);
+          if (widget.reels && isOfficialWatch(Uri.tryParse(url))) {
+            await installReelsNavigation();
           }
         },
         onWebResourceError: (error) {
@@ -78,40 +74,39 @@ class _SiteWatchViewState extends State<SiteWatchView> {
     controller.loadRequest(entry);
   }
 
-  // Use the site's own visible Watch action. Its normal access checks and
-  // one-time link creation remain in charge; never copy or read credentials.
-  Future<void> openVisibleWatchLink() async {
+  Future<void> installReelsNavigation() async {
     final current = Uri.tryParse(await controller.currentUrl() ?? '');
-    if (!mounted || !isCatalogueEntry(current)) return;
-    final expected = jsonEncode({'type': widget.type, 'id': widget.id});
+    if (!mounted || !isOfficialWatch(current)) return;
     try {
       await controller.runJavaScript('''
 (() => {
-  const expected = $expected;
-  let attempts = 0;
-  const find = () => {
-    if (location.origin !== 'https://egyshow.com' || ++attempts > 12) return;
-    for (const a of document.querySelectorAll('a[href]')) {
-      let u; try { u = new URL(a.href, location.origin); } catch (_) { continue; }
-      if (u.origin !== location.origin || u.pathname !== '/watch') continue;
-      if (u.searchParams.get('target_type') !== expected.type ||
-          Number(u.searchParams.get('target_id') || u.searchParams.get('episode_id')) !== expected.id) continue;
-      if (!a.getClientRects().length || a.closest('[hidden],[inert],.hidden') ||
-          a.matches('[disabled],[aria-disabled="true"],.disabled') ||
-          getComputedStyle(a).pointerEvents === 'none') continue;
-      a.click(); return;
-    }
-    setTimeout(find, 350);
-  };
-  find();
+  if (location.origin !== 'https://egyshow.com' || location.pathname !== '/mobile-player' || window.__egyReelsInstalled) return;
+  const root = document.getElementById('playerRoot');
+  if (!root) return;
+  window.__egyReelsInstalled = true;
+  let start = null;
+  const interactive = el => el?.closest?.('button,a,input,select,textarea,.drawer,.settings-panel,[role="slider"]');
+  root.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1 || interactive(e.target) || root.classList.contains('drawer-open') || root.classList.contains('gesture-locked')) { start = null; return; }
+    start = {x:e.touches[0].clientX,y:e.touches[0].clientY};
+  }, {passive:true});
+  root.addEventListener('touchcancel', () => { start=null; }, {passive:true});
+  root.addEventListener('touchend', e => {
+    if (!start || !e.changedTouches.length) return;
+    const dx=e.changedTouches[0].clientX-start.x, dy=e.changedTouches[0].clientY-start.y;
+    start=null;
+    if (Math.abs(dy)<75 || Math.abs(dy)<Math.abs(dx)*1.5 || root.classList.contains('drawer-open') || root.classList.contains('gesture-locked')) return;
+    const items=Array.from(document.querySelectorAll('#episodeList button.episode-item'));
+    const index=items.findIndex(x=>x.classList.contains('active'));
+    const button=index<0?null:items[index+(dy<0?1:-1)];
+    if(button&&!button.disabled) button.click();
+  }, {passive:true});
 })();''');
     } catch (_) {}
   }
 
   Future<void> retry() async {
-    attempted = false;
     if (mounted) setState(() { failed = false; loading = true; });
-    // Never reload a consumed watch token; restart the normal watch flow.
     await controller.loadRequest(entry);
   }
 
@@ -119,11 +114,7 @@ class _SiteWatchViewState extends State<SiteWatchView> {
     color: Colors.black, child: Column(children: [
       SafeArea(bottom: false, child: Row(children: [
         IconButton(onPressed: widget.onClose, tooltip: t('إغلاق المشغل','Close player'), icon: const Icon(Icons.arrow_back)),
-        Expanded(child: Text(watching ? t('مشغل EGYSHOW','EGYSHOW player') :
-          t('EGYSHOW · المشاهدة عبر الموقع','EGYSHOW · website playback'),
-          maxLines: 1, overflow: TextOverflow.ellipsis)),
-        if (!watching && !loading) IconButton(onPressed: openVisibleWatchLink,
-          tooltip: t('فتح المشغل','Open player'), icon: const Icon(Icons.play_circle_outline)),
+        Expanded(child: Text(t('مشغل EGYSHOW','EGYSHOW player'), maxLines: 1, overflow: TextOverflow.ellipsis)),
         IconButton(onPressed: retry, tooltip: t('إعادة فتح المشاهدة','Reopen playback'), icon: const Icon(Icons.refresh)),
       ])),
       if (loading) const LinearProgressIndicator(minHeight: 2),
@@ -134,7 +125,7 @@ class _SiteWatchViewState extends State<SiteWatchView> {
           TextButton(onPressed: () => setState(() => externalLink = null), child: Text(t('إلغاء','Cancel'))),
         ]),
       if (failed) Expanded(child: Center(child: FilledButton.icon(onPressed: retry,
-        icon: const Icon(Icons.refresh), label: Text(t('تعذر فتح الموقع · إعادة المحاولة','Could not open site · Retry')))))
+        icon: const Icon(Icons.refresh), label: Text(t('تعذر فتح المشغل · إعادة المحاولة','Could not open player · Retry')))))
       else Expanded(child: WebViewWidget(controller: controller)),
     ]),
   );

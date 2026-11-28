@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:player/main.dart';
+import 'package:player/site_watch_view.dart';
 void main(){
   test('accepts movies and episodes only',(){
     expect(PlayTarget.parse('egyplayer://play?type=movie&id=12&lang=en')?.id,12);
@@ -20,6 +21,20 @@ void main(){
     expect(parseLocalMedia('file:///private/video.mp4'),isNull);
     expect(formatFor(Uri.parse('https://example.com/STREAM.M3U8?x=1')).toString(),'VideoFormat.hls');
     expect(formatFor(Uri.parse('https://example.com/video.mpd')).toString(),'VideoFormat.dash');
+  });
+  test('site route uses official HTTPS and includes parent episode ID',(){
+    final target=PlayTarget.parse('egyplayer://play?type=episode&id=15&media_id=8&mode=reels&lang=ar');
+    expect(target?.mediaId,8);
+    expect(target?.reels,isTrue);
+    final url=siteWatchEntry('episode',15,8,true);
+    expect(url.host,'egyshow.com');
+    expect(url.path,'/watch');
+    expect(url.queryParameters['episode_id'],'15');
+    expect(url.queryParameters['media_id'],'8');
+    expect(isOfficialWatch(Uri.parse('https://egyshow.com/watch/abcdefghijklmnopqrstuvwxyz123456')),isTrue);
+    expect(isOfficialWatch(Uri.parse('https://example.org/watch/abcdefghijklmnopqrstuvwxyz123456')),isFalse);
+    expect(isOfficialSite(Uri.parse('https://egyshow.com.example.org/watch')),isFalse);
+    expect(isCatalogueEntry(Uri.parse('https://egyshow.com/ar/series/demo/season/1/episode/2')),isTrue);
   });
   test('language preference takes priority over device locale',(){
     expect(useArabic(null,'ar'),isTrue);

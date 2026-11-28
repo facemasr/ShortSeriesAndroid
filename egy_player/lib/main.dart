@@ -122,6 +122,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
   VideoPlayerController? video;
   List<Map<String,dynamic>> sources=[];
   int generation=0,index=-1;
+  bool automaticServers=true;
+  final Set<int> failedServers={};
+  Duration pendingResume=Duration.zero;
+  String serverName(int i)=>t('سيرفر ${i+1}','Server ${i+1}');
+  Future<void> chooseServer() async {
+    if(target==null||sources.isEmpty||busy)return;
+    final current=target;
+    final selected=await showModalBottomSheet<int>(context:context,isScrollControlled:true,builder:(ctx)=>SafeArea(child:FractionallySizedBox(heightFactor:0.65,child:Column(children:[
+      Padding(padding:const EdgeInsets.all(16),child:Text(t('اختيار سيرفر المشاهدة','Choose playback server'),style:Theme.of(ctx).textTheme.titleLarge)),
+      Expanded(child:ListView.builder(itemCount:sources.length,itemBuilder:(ctx,i)=>ListTile(
+        leading:Icon(i==index&&video?.value.isInitialized==true&&!failedServers.contains(i)?Icons.check_circle:failedServers.contains(i)?Icons.error_outline:Icons.dns_outlined,color:failedServers.contains(i)?Colors.orangeAccent:i==index?red:null),
+        title:Text(serverName(i)),subtitle:failedServers.contains(i)?Text(t('لم ينجح آخر اتصال، اضغط لإعادة المحاولة','Last attempt failed — tap to retry')):i==index&&video?.value.isInitialized==true?Text(t('السيرفر الحالي','Current server')):null,
+        onTap:()=>Navigator.pop(ctx,i)))),
+    ]))));
+    if(!mounted||target!=current||selected==null||busy)return;
+    await switchServer(selected);
+  }
+  Future<void> switchServer(int i) async {
+    if(busy||i<0||i>=sources.length)return;
+    if(i==index&&video?.value.isInitialized==true&&video?.value.hasError!=true)return;
+    recoveryAttempts=0;
+    await select(i);
+  }
   List<Map<String,dynamic>> episodes=[];
   bool autoNext=true, episodeTransition=false;
   Timer? nextEpisodeTimer;
@@ -157,13 +180,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     try {
       final p=await SharedPreferences.getInstance();
       if(!mounted)return;
-      setState(()=>autoNext=p.getBool('player_auto_next')??true);
+      setState((){autoNext=p.getBool('player_auto_next')??true;automaticServers=p.getBool('player_auto_servers')??true;});
     }catch(_){}
   }
   void changeAutoNext(bool value){
     setState(()=>autoNext=value);
     if(!value)cancelNextEpisode();
     unawaited(SharedPreferences.getInstance().then((p)=>p.setBool('player_auto_next',value)).then<void>((_){}).catchError((Object _){}));
+  }
+  void changeAutomaticServers(bool value){
+    setState(()=>automaticServers=value);
+    unawaited(SharedPreferences.getInstance().then((p)=>p.setBool('player_auto_servers',value)).then<void>((_){}).catchError((Object _){}));
   }
   Future<void> chooseSpeed() async {
     final values=[0.5,0.75,1.0,1.25,1.5,2.0];
@@ -225,7 +252,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int recoveryAttempts=0;
   bool recovering=false;
   void recoverPlayback(VideoPlayerController controller){
-    if(!mounted||busy||recovering||video!=controller||!controller.value.hasError||recoveryAttempts>=2)return;
+    if(!mounted||busy||recovering||video!=controller||!controller.value.hasError||recoveryAttempts>=2||(target!=null&&!automaticServers))return;
     recovering=true;recoveryAttempts++;
     final op=generation;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -330,7 +357,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if(uri!=null){await playExternal(uri);return;}
     final current=target;
     if(current==null)return;
-    if(sources.isNotEmpty){await select(index<0?0:index,automatic:true);return;}
+    if(sources.isNotEmpty){await select(index<0?0:index,automatic:automaticServers);return;}
     await openTarget(Uri(scheme:'egyplayer',host:'play',queryParameters:{
       'type':current.type,'id':current.id.toString(),'lang':ar?'ar':'en'}).toString());
   }
@@ -354,7 +381,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     recoveryAttempts=0;
     final op=++generation;
     final old=video;video=null;
-    cancelNextEpisode(refresh:false);scrubPosition=null;scrubController=null;
+    cancelNextEpisode(refresh:false);scrubPosition=null;scrubController=null;failedServers.clear();pendingResume=Duration.zero;
     setState((){target=next;episodes=[];episodeTransition=false;externalMedia=null;externalName='';setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;});
     await old?.dispose();
     try {
@@ -366,7 +393,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if(next.type=='episode'&&data['media_id'] is num){try{final detail=await request('/api/v1/mobile/guest/media/${data['media_id']}');if(!mounted||generation!=op)return;setState(()=>episodes=(object(detail['media'])['episodes'] as List? ?? []).map(object).toList());}catch(_){}}
       if(items.isEmpty){unawaited(ads.finishStartup());setState(()=>setError('لا توجد سيرفرات مشاهدة متاحة','No available servers'));return;}
       if(initial)ads.beginStartup();
-      await select(0,automatic:true);
+      await select(0,automatic:automaticServers);
     }catch(_){unawaited(ads.finishStartup());if(mounted&&generation==op)setState((){busy=false;setError('تعذر تحميل بيانات المشاهدة','Unable to load playback data');});}
   }
   Future<void> select(int next,{bool automatic=false}) async {
@@ -374,7 +401,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if(current==null||next<0||next>=sources.length)return;
     final op=++generation;
     final old=video;
-    final resume=old?.value.isInitialized==true?old!.value.position:await savedProgress();
+    final resume=old?.value.isInitialized==true?old!.value.position:pendingResume>Duration.zero?pendingResume:await savedProgress();
+    final wasPlaying=old?.value.isInitialized==true?old!.value.isPlaying:true;
+    pendingResume=resume;
     if(!mounted||generation!=op)return;
     video=null;
     cancelNextEpisode(refresh:false);episodeTransition=false;scrubPosition=null;scrubController=null;
@@ -382,6 +411,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await old?.dispose();
     final order=automatic?List<int>.generate(sources.length,(offset)=>(next+offset)%sources.length):[next];
     for(final i in order){
+      if(!mounted||generation!=op)return;
+      setState(()=>index=i);
       VideoPlayerController? candidate;
       try{
         final data=await request('/api/v1/mobile/guest/player/lease',body:{
@@ -399,14 +430,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       await candidate.setVolume(volume);
         await ads.finishStartup();
         if(!mounted||generation!=op){await candidate.dispose();return;}
-        await candidate.play();
+        if(wasPlaying||automatic)await candidate.play();
         if(!mounted||generation!=op){await candidate.dispose();return;}
-        setState((){video=candidate;index=i;busy=false;});
+        setState((){video=candidate;index=i;busy=false;failedServers.remove(i);pendingResume=Duration.zero;});
         await syncFullscreenOrientation();
         if(mounted&&generation==op)showControls();return;
       }catch(_){
         await candidate?.dispose();
         if(!mounted||generation!=op)return;
+        setState(()=>failedServers.add(i));
       }
     }
     await ads.finishStartup();
@@ -439,10 +471,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget surface(){
     final v=video;
     if(v==null)return ColoredBox(color:Colors.black,child:Center(child:busy?
-      const CircularProgressIndicator(color:red):Column(mainAxisSize:MainAxisSize.min,children:[
+      Column(mainAxisSize:MainAxisSize.min,children:[const CircularProgressIndicator(color:red),if(target!=null&&index>=0)Padding(padding:const EdgeInsets.all(12),child:Text(t('جاري الاتصال بـ ${serverName(index)}','Connecting to ${serverName(index)}')))]):Column(mainAxisSize:MainAxisSize.min,children:[
         const Icon(Icons.play_circle_outline,size:58,color:red),
         if(error.isNotEmpty)Padding(padding:const EdgeInsets.all(16),child:Text(error,textAlign:TextAlign.center)),
-        if((target!=null||externalMedia!=null)&&error.isNotEmpty)TextButton.icon(onPressed:retryCurrent,icon:const Icon(Icons.refresh),label:Text(t('إعادة المحاولة','Retry')))
+        if((target!=null||externalMedia!=null)&&error.isNotEmpty)TextButton.icon(onPressed:retryCurrent,icon:const Icon(Icons.refresh),label:Text(t('إعادة المحاولة','Retry'))),
+        if(target!=null&&sources.isNotEmpty)TextButton.icon(onPressed:chooseServer,icon:const Icon(Icons.dns_outlined),label:Text(t('تغيير السيرفر','Change server')))
       ])));
     return ValueListenableBuilder<VideoPlayerValue>(valueListenable:v,builder:(context,state,_){
       if(state.isCompleted)episodeEnded();
@@ -459,11 +492,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
           const ColoredBox(color:Colors.black),
           ClipRect(child:LayoutBuilder(builder:(context,space){final ratio=state.aspectRatio>0?state.aspectRatio:16/9;final boxRatio=space.maxWidth/space.maxHeight;final useWidth=fillVideo?boxRatio>ratio:boxRatio<ratio;final width=useWidth?space.maxWidth:space.maxHeight*ratio;final height=width/ratio;return Center(child:OverflowBox(minWidth:width,maxWidth:width,minHeight:height,maxHeight:height,child:VideoPlayer(v)));})),
           if(state.isBuffering)const Center(child:CircularProgressIndicator(color:red)),
-          if(state.hasError)Center(child:FilledButton.icon(onPressed:recovering?null:(){recoveryAttempts=0;unawaited(retryCurrent());},icon:const Icon(Icons.refresh),label:Text(t('إعادة التشغيل','Retry playback')))),
+          if(state.hasError)Center(child:Wrap(alignment:WrapAlignment.center,spacing:8,children:[FilledButton.icon(onPressed:recovering?null:(){recoveryAttempts=0;unawaited(retryCurrent());},icon:const Icon(Icons.refresh),label:Text(t('إعادة التشغيل','Retry playback'))),if(target!=null&&sources.isNotEmpty)OutlinedButton.icon(onPressed:busy?null:chooseServer,icon:const Icon(Icons.dns_outlined),label:Text(t('السيرفرات','Servers')))])),
           if(controls&&!state.hasError)DecoratedBox(decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Color(0x66000000),Colors.transparent,Color(0xaa000000)])),child:SafeArea(child:Column(children:[
             Row(children:[
               IconButton(tooltip:locked?t('إلغاء القفل','Unlock'):t('قفل الشاشة','Lock controls'),onPressed:()=>setState(()=>locked=!locked),icon:Icon(locked?Icons.lock:Icons.lock_open)),
               const Spacer(),
+              if(!locked&&target!=null&&sources.isNotEmpty)IconButton(tooltip:t('السيرفرات','Servers'),onPressed:busy?null:chooseServer,icon:const Icon(Icons.dns_outlined)),
               if(!locked&&episodeIndex>0)IconButton(tooltip:t('الحلقة السابقة','Previous episode'),onPressed:()=>goEpisode(-1),icon:const Icon(Icons.skip_previous)),
               if(!locked&&episodeIndex>=0&&episodeIndex+1<episodes.length)IconButton(tooltip:t('الحلقة التالية','Next episode'),onPressed:()=>goEpisode(1),icon:const Icon(Icons.skip_next)),
               if(!locked)IconButton(tooltip:full?t('الخروج من ملء الشاشة','Exit fullscreen'):t('ملء الشاشة','Fullscreen'),onPressed:toggleFull,icon:Icon(full?Icons.fullscreen_exit:Icons.fullscreen)),
@@ -515,7 +549,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if(episodeIndex>=0) ...[Row(children:[IconButton(onPressed:episodeIndex>0&&!busy?()=>goEpisode(-1):null,icon:const Icon(Icons.skip_previous)),Expanded(child:Text(t('الحلقة ${episodes[episodeIndex]['episode_number']}','Episode ${episodes[episodeIndex]['episode_number']}'),textAlign:TextAlign.center)),IconButton(onPressed:episodeIndex+1<episodes.length&&!busy?()=>goEpisode(1):null,icon:const Icon(Icons.skip_next))]),SwitchListTile(contentPadding:EdgeInsets.zero,title:Text(t('التشغيل التلقائي','Autoplay next episode')),value:autoNext,onChanged:changeAutoNext),OutlinedButton.icon(onPressed:busy?null:chooseEpisode,icon:const Icon(Icons.playlist_play),label:Text(t('كل الحلقات','All episodes'))),],
         const SizedBox(height:12),Text(t('سيرفرات المشاهدة','Playback servers'),style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         const SizedBox(height:10),
-        Wrap(spacing:8,runSpacing:8,children:List.generate(sources.length,(i)=>ChoiceChip(label:Text(t('سيرفر ${i+1}','Server ${i+1}')),selected:index==i,onSelected:busy?null:(_)=>select(i)))),
+        SwitchListTile(contentPadding:EdgeInsets.zero,title:Text(t('التبديل التلقائي عند فشل السيرفر','Automatic server fallback')),value:automaticServers,onChanged:busy?null:changeAutomaticServers),
+        Wrap(spacing:8,runSpacing:8,children:List.generate(sources.length,(i)=>ChoiceChip(avatar:failedServers.contains(i)?const Icon(Icons.error_outline,size:18,color:Colors.orangeAccent):null,label:Text(serverName(i)),selected:index==i&&!failedServers.contains(i),onSelected:busy?null:(_)=>switchServer(i)))),
+        if(sources.isNotEmpty)OutlinedButton.icon(onPressed:busy?null:chooseServer,icon:const Icon(Icons.dns_outlined),label:Text(t('اختيار السيرفر','Choose server'))),
         if(error.isNotEmpty)Padding(padding:const EdgeInsets.only(top:16),child:Text(error,style:const TextStyle(color:Colors.orangeAccent))),
       ])),
       if((target!=null || externalMedia!=null) && video?.value.isInitialized==true) PlayerNativeAd(ads:ads,ar:ar),

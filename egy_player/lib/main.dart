@@ -71,6 +71,21 @@ VideoFormat? formatFor(Uri uri) {
   if(path.endsWith('.mpd'))return VideoFormat.dash;
   return null; // let Media3 infer progressive media
 }
+// Probe authorized direct media without downloading the entire response.
+Future<VideoFormat?> detectMediaFormat(http.Client client,Uri uri) async {
+  final known=formatFor(uri);
+  if(known!=null)return known;
+  try {
+    final response=await client.head(uri).timeout(const Duration(seconds:5));
+    if(response.statusCode<200||response.statusCode>=300)return null;
+    final mime=(response.headers['content-type']??'').split(';').first.trim().toLowerCase();
+    if(mime.contains('mpegurl'))return VideoFormat.hls;
+    if(mime=='application/dash+xml')return VideoFormat.dash;
+    if(mime.startsWith('video/')||mime.startsWith('audio/'))return VideoFormat.other;
+    if(mime=='text/html')throw const FormatException('html_not_media');
+  } on FormatException {rethrow;} catch (_) {}
+  return null;
+}
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
   @override State<PlayerScreen> createState()=>_PlayerScreenState();
@@ -184,8 +199,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       if(!mounted||generation!=op)return;
       if(initial)ads.beginStartup();
+      final detected=local?null:await detectMediaFormat(client,uri);
+      if(!mounted||generation!=op)return;
       candidate=local?VideoPlayerController.contentUri(uri,viewType:VideoViewType.platformView):
-        VideoPlayerController.networkUrl(uri,formatHint:formatFor(uri),viewType:VideoViewType.platformView);
+        VideoPlayerController.networkUrl(uri,formatHint:detected,viewType:VideoViewType.platformView);
       await candidate.initialize().timeout(const Duration(seconds:25));
       if(!mounted||generation!=op){await candidate.dispose();return;}
       await candidate.setPlaybackSpeed(speed);
@@ -195,10 +212,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if(!mounted||generation!=op){await candidate.dispose();return;}
       setState((){video=candidate;if(name.isNotEmpty)setTitles(name,name);externalName=name;busy=false;});
       showControls();
-    }catch(_){
+    }catch(e){
       await candidate?.dispose();
       unawaited(ads.finishStartup());
-      if(mounted&&generation==op)setState((){busy=false;setError('تعذر تشغيل الفيديو. تحقق من الرابط أو صيغة الملف.','Unable to play video. Check the URL or file format.');});
+      if(mounted&&generation==op)setState((){busy=false;if(e is FormatException){setError('الرابط صفحة ويب وليس مصدر فيديو مباشر. استخدم رابط البث الرسمي.','This is a web page, not a direct media source. Use the official stream URL.');}else{setError('تعذر تشغيل الفيديو. تحقق من الرابط أو صيغة الملف.','Unable to play video. Check the URL or file format.');}});
     }
   }
   Future<void> retryCurrent() async {
@@ -206,7 +223,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if(uri!=null){await playExternal(uri);return;}
     final current=target;
     if(current==null)return;
-    if(sources.isNotEmpty){await select(index<0?0:index);return;}
+    if(sources.isNotEmpty){await select(index<0?0:index,automatic:true);return;}
     await openTarget(Uri(scheme:'egyplayer',host:'play',queryParameters:{
       'type':current.type,'id':current.id.toString(),'lang':ar?'ar':'en'}).toString());
   }
@@ -249,8 +266,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     video=null;
     setState((){busy=true;index=next;clearError();controls=true;});
     await old?.dispose();
-    final end=automatic?(next+3).clamp(0,sources.length).toInt():next+1;
-    for(var i=next;i<end;i++){
+    final order=automatic?List<int>.generate(sources.length,(offset)=>(next+offset)%sources.length):[next];
+    for(final i in order){
       VideoPlayerController? candidate;
       try{
         final data=await request('/api/v1/mobile/guest/player/lease',body:{

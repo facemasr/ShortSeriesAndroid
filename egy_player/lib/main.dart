@@ -461,32 +461,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> openTarget(String? input,{bool initial=false,bool fromEpisode=false}) async {
     final next=PlayTarget.parse(input);
     if(next==null||!mounted){if(initial)unawaited(ads.finishStartup());return;}
+    if(!initial)unawaited(ads.finishStartup());
     final op=++generation;
     await saveProgress();
     if(!mounted||generation!=op)return;
+    recoveryAttempts=0;
     final old=video;video=null;
-    cancelNextEpisode(refresh:false);hideTimer?.cancel();
-    final mediaId=next.type=='movie'?next.id:next.mediaId;
-    setState((){siteTarget=next;siteMediaId=mediaId;siteLoading=mediaId==null;
-      target=null;episodes=[];episodeMediaId=null;episodesLoading=false;reelsMode=false;
-      externalMedia=null;externalName='';sources=[];index=-1;busy=false;full=false;locked=false;clearError();});
+    cancelNextEpisode(refresh:false);scrubPosition=null;scrubController=null;failedServers.clear();serverFormats.clear();pendingResume=Duration.zero;
+    final keepQueue=fromEpisode&&next.type=='episode'&&episodes.any((e)=>episodeNumber(e['id'])==next.id);
+    final enterReels=next.reels&&(!fromEpisode||full);
+    setState((){siteTarget=null;siteMediaId=null;siteLoading=false;target=next;if(!keepQueue){episodes=[];episodeMediaId=null;episodesLoading=false;}reelsMode=next.reels;if(enterReels)full=true;else if(!fromEpisode)full=false;episodeTransition=false;externalMedia=null;externalName='';if(!keepQueue)setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;controls=true;});
+    if(enterReels){try{await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);}catch(_){}}
     await old?.dispose();
-    if(!mounted||generation!=op)return;
-    try{
-      await SystemChrome.setPreferredOrientations(next.reels?[DeviceOrientation.portraitUp]:[]);
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    }catch(_){}
-    if(!mounted||generation!=op)return;
-    unawaited(ads.finishStartup());
-    // Legacy launch links omit the parent media ID. Retrieve only catalogue
-    // metadata through the existing approved API; never issue a native lease.
-    if(mediaId==null){
-      try{
-        final data=await request('/api/v1/mobile/guest/player?type=episode&id=${next.id}');
-        final parent=episodeNumber(data['media_id']);
-        if(mounted&&generation==op)setState(()=>siteMediaId=parent>0?parent:null);
-      }catch(_){}finally{if(mounted&&generation==op)setState(()=>siteLoading=false);}
-    }
+    try {
+      final path='/api/v1/mobile/guest/player?type=${next.type}&id=${next.id}';
+      final data=await request(path);
+      if(!mounted||generation!=op)return;
+      final items=(data['sources'] as List? ?? []).map(object).where((m)=>m['id'] is num).toList();
+      setState((){setTitles((data['title_ar']??'').toString(),(data['title_en']??'').toString());sources=items;});
+      final mediaId=episodeNumber(data['media_id']);
+      if(next.type=='episode'&&mediaId>0&&(!keepQueue||episodeMediaId!=mediaId)){
+        // Catalogue metadata is independent of the playback lease.
+        // Load the published episode queue concurrently with stream initialization.
+        unawaited(loadEpisodes(next,mediaId,enterReels:!fromEpisode));
+      }
+      if(!mounted||generation!=op)return;
+      if(items.isEmpty){unawaited(ads.finishStartup());setState((){busy=false;setError('لا توجد سيرفرات مشاهدة متاحة','No available servers');});return;}
+      if(initial)ads.beginStartup();
+      await select(0,automatic:automaticServers);
+    }catch(_){unawaited(ads.finishStartup());if(mounted&&generation==op)setState((){busy=false;setError('تعذر تحميل بيانات المشاهدة','Unable to load playback data');});}
   }
   void closeSite(){
     generation++;

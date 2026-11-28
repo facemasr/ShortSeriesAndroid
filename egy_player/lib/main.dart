@@ -282,7 +282,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
   Future<void> toggleFull() async {
     setState(()=>full=!full);
-    await SystemChrome.setPreferredOrientations(full?[DeviceOrientation.landscapeLeft,DeviceOrientation.landscapeRight]:[]);
+    await SystemChrome.setPreferredOrientations(full?(video?.value.aspectRatio != null && video!.value.aspectRatio < 1 ? [DeviceOrientation.portraitUp] : [DeviceOrientation.landscapeLeft,DeviceOrientation.landscapeRight]):[]);
     await SystemChrome.setEnabledSystemUIMode(full?SystemUiMode.immersiveSticky:SystemUiMode.edgeToEdge);
   }
   String stamp(Duration d)=>'${d.inHours>0?'${d.inHours}:':''}${(d.inMinutes%60).toString().padLeft(2,'0')}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
@@ -335,8 +335,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if(ads.privacyRequired)IconButton(tooltip:t('خصوصية الإعلانات','Ad privacy'),icon:const Icon(Icons.privacy_tip_outlined),onPressed:ads.privacyOptions),
     ]),
     body:full?surface():SafeArea(child:ListView(children:[
-      AspectRatio(aspectRatio:16/9,child:surface()),
-      Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+      AspectRatio(aspectRatio:video?.value.isInitialized==true ? video!.value.aspectRatio.clamp(0.5,2.4).toDouble() : 16/9,child:surface()),
+      if(target==null) Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
         if(target==null&&externalMedia==null)Text(t('مشغل الفيديو الخاص بك','Your video player'),style:const TextStyle(fontSize:24,fontWeight:FontWeight.bold)),
         if(target==null&&externalMedia==null)Padding(padding:const EdgeInsets.only(top:8,bottom:16),child:Text(t('شغّل الفيديوهات من هاتفك أو عبر رابط مباشر.','Play videos from your phone or a direct link.'))),
         FilledButton.icon(onPressed:enterLink,icon:const Icon(Icons.link),label:Text(t('فتح رابط فيديو','Open video URL'))),

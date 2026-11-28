@@ -114,10 +114,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(()=>playerLocale.value=Locale(choice));
     try{await (await SharedPreferences.getInstance()).setString('player_language',choice);}catch(_){}
   }
-  Timer? hideTimer;
+  Timer? hideTimer, progressTimer;
+  String? get progressKey => target==null?null:'resume_${target!.type}_${target!.id}';
+  Future<void> saveProgress() async {final key=progressKey;final v=video?.value;if(key==null||v==null||!v.isInitialized)return;try{final p=await SharedPreferences.getInstance();if(v.isCompleted){await p.remove(key);}else if(v.position.inSeconds>=5){await p.setInt(key,v.position.inMilliseconds);}}catch(_){}}
+  Future<Duration> savedProgress() async {final key=progressKey;if(key==null)return Duration.zero;try{return Duration(milliseconds:(await SharedPreferences.getInstance()).getInt(key)??0);}catch(_){return Duration.zero;}}
   String t(String a,String e)=>ar?a:e;
   @override void initState(){
     super.initState();
+    progressTimer=Timer.periodic(const Duration(seconds:5),(_)=>unawaited(saveProgress()));
     ads.addListener(onAdChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {if(mounted)unawaited(ads.prepare());});
     bridge.setMethodCallHandler((call) async {
@@ -163,6 +167,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> playExternal(Uri uri,{bool initial=false}) async {
     if(!mounted)return;
     if(!initial)unawaited(ads.finishStartup());
+    unawaited(saveProgress());
     final op=++generation;
     final old=video;video=null;
     final local=uri.scheme=='content';
@@ -239,7 +244,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if(current==null||next<0||next>=sources.length)return;
     final op=++generation;
     final old=video;
-    final resume=old?.value.isInitialized==true?old!.value.position:Duration.zero;
+    final resume=old?.value.isInitialized==true?old!.value.position:await savedProgress();
+    if(!mounted||generation!=op)return;
     video=null;
     setState((){busy=true;index=next;clearError();controls=true;});
     await old?.dispose();
@@ -294,7 +300,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String stamp(Duration d)=>'${d.inHours>0?'${d.inHours}:':''}${(d.inMinutes%60).toString().padLeft(2,'0')}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
   @override void dispose(){
     ads.removeListener(onAdChanged);ads.dispose();
-    generation++;hideTimer?.cancel();bridge.setMethodCallHandler(null);video?.dispose();client.close();
+    unawaited(saveProgress());progressTimer?.cancel();generation++;hideTimer?.cancel();bridge.setMethodCallHandler(null);video?.dispose();client.close();
     SystemChrome.setPreferredOrientations([]);SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);super.dispose();
   }
   Widget surface(){
@@ -319,6 +325,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             Row(children:[
               IconButton(tooltip:locked?t('إلغاء القفل','Unlock'):t('قفل الشاشة','Lock controls'),onPressed:()=>setState(()=>locked=!locked),icon:Icon(locked?Icons.lock:Icons.lock_open)),
               const Spacer(),
+              if(!locked&&episodeIndex>0)IconButton(tooltip:t('الحلقة السابقة','Previous episode'),onPressed:()=>goEpisode(-1),icon:const Icon(Icons.skip_previous)),
+              if(!locked&&episodeIndex>=0&&episodeIndex+1<episodes.length)IconButton(tooltip:t('الحلقة التالية','Next episode'),onPressed:()=>goEpisode(1),icon:const Icon(Icons.skip_next)),
               if(!locked)IconButton(tooltip:full?t('الخروج من ملء الشاشة','Exit fullscreen'):t('ملء الشاشة','Fullscreen'),onPressed:toggleFull,icon:Icon(full?Icons.fullscreen_exit:Icons.fullscreen)),
             ]),
             const Spacer(),

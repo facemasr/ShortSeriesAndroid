@@ -85,6 +85,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   VideoPlayerController? video;
   List<Map<String,dynamic>> sources=[];
   int generation=0,index=-1;
+  List<Map<String,dynamic>> episodes=[];
+  bool autoNext=true, episodeTransition=false;
+  int get episodeIndex=>episodes.indexWhere((e)=>e['id']==target?.id);
+  void goEpisode(int offset){final i=episodeIndex+offset;if(episodeIndex<0||i<0||i>=episodes.length||busy)return; final id=episodes[i]['id']; unawaited(openTarget(Uri(scheme:'egyplayer',host:'play',queryParameters:{'type':'episode','id':'$id','lang':ar?'ar':'en'}).toString()));}
+  void episodeEnded(){if(!mounted||episodeTransition||!autoNext||episodeIndex<0||episodeIndex+1>=episodes.length||video?.value.isCompleted!=true)return;episodeTransition=true;WidgetsBinding.instance.addPostFrameCallback((_) {if(mounted&&episodeTransition&&video?.value.isCompleted==true)goEpisode(1);});}
   bool get ar => playerLocale.value.languageCode == 'ar';
   bool busy=false,full=false,locked=false,controls=true;
   double speed=1;
@@ -215,7 +220,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if(!initial)unawaited(ads.finishStartup());
     final op=++generation;
     final old=video;video=null;
-    setState((){target=next;externalMedia=null;externalName='';setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;});
+    setState((){target=next;episodes=[];episodeTransition=false;externalMedia=null;externalName='';setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;});
     await old?.dispose();
     try {
       final path='/api/v1/mobile/guest/player?type=${next.type}&id=${next.id}';
@@ -223,6 +228,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if(!mounted||generation!=op)return;
       final items=(data['sources'] as List? ?? []).map(object).where((m)=>m['id'] is num).toList();
       setState((){setTitles((data['title_ar']??'').toString(),(data['title_en']??'').toString());sources=items;busy=false;});
+      if(next.type=='episode'&&data['media_id'] is num){try{final detail=await request('/api/v1/mobile/guest/media/${data['media_id']}');if(!mounted||generation!=op)return;setState(()=>episodes=(object(detail['media'])['episodes'] as List? ?? []).map(object).toList());}catch(_){}}
       if(items.isEmpty){unawaited(ads.finishStartup());setState(()=>setError('لا توجد سيرفرات مشاهدة متاحة','No available servers'));return;}
       if(initial)ads.beginStartup();
       await select(0,automatic:true);
@@ -300,6 +306,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if((target!=null||externalMedia!=null)&&error.isNotEmpty)TextButton.icon(onPressed:retryCurrent,icon:const Icon(Icons.refresh),label:Text(t('إعادة المحاولة','Retry')))
       ])));
     return ValueListenableBuilder<VideoPlayerValue>(valueListenable:v,builder:(context,state,_){
+      if(state.isCompleted)episodeEnded();
       final duration=state.duration.inMilliseconds;
       final position=state.position.inMilliseconds.clamp(0,duration>0?duration:0).toDouble();
       return GestureDetector(onTap:()=>locked?showControls():(controls?setState(()=>controls=false):showControls()),
@@ -351,6 +358,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         Text(title,style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
         const SizedBox(height:12),
         Row(children:[Text(t('سرعة التشغيل','Playback speed')),const Spacer(),DropdownButton<double>(value:speed,items:[0.5,0.75,1.0,1.25,1.5,2.0].map((v)=>DropdownMenuItem(value:v,child:Text('${v}x'))).toList(),onChanged:(v){if(v!=null){setState(()=>speed=v);video?.setPlaybackSpeed(v);}})]),
+        if(episodeIndex>=0) ...[Row(children:[IconButton(onPressed:episodeIndex>0&&!busy?()=>goEpisode(-1):null,icon:const Icon(Icons.skip_previous)),Expanded(child:Text(t('الحلقة ${episodes[episodeIndex]['episode_number']}','Episode ${episodes[episodeIndex]['episode_number']}'),textAlign:TextAlign.center)),IconButton(onPressed:episodeIndex+1<episodes.length&&!busy?()=>goEpisode(1):null,icon:const Icon(Icons.skip_next))]),SwitchListTile(contentPadding:EdgeInsets.zero,title:Text(t('التشغيل التلقائي','Autoplay next episode')),value:autoNext,onChanged:(v)=>setState(()=>autoNext=v)),],
         const SizedBox(height:12),Text(t('سيرفرات المشاهدة','Playback servers'),style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         const SizedBox(height:10),
         Wrap(spacing:8,runSpacing:8,children:List.generate(sources.length,(i)=>ChoiceChip(label:Text(t('سيرفر ${i+1}','Server ${i+1}')),selected:index==i,onSelected:busy?null:(_)=>select(i)))),

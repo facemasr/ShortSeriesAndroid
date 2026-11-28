@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
 import 'player_ads.dart';
 import 'local_media_resolver.dart';
+import 'site_watch_view.dart';
 
 const origin = 'https://egyshow.com';
 const bridge = MethodChannel('com.egyshow.player/launch');
@@ -44,10 +45,11 @@ Future<void> main() async {
 }
 Map<String,dynamic> object(dynamic v) => v is Map ? Map<String,dynamic>.from(v) : {};
 class PlayTarget {
-  const PlayTarget(this.type,this.id,this.ar,{this.reels=false});
+  const PlayTarget(this.type,this.id,this.ar,{this.reels=false,this.mediaId});
   final String type;
   final int id;
   final bool ar,reels;
+  final int? mediaId;
   static PlayTarget? parse(String? input) {
     final u=Uri.tryParse(input??'');
     if(u==null||u.scheme!='egyplayer'||u.host!='play'||u.path.isNotEmpty||
@@ -55,7 +57,8 @@ class PlayTarget {
     final type=u.queryParameters['type'];
     final id=int.tryParse(u.queryParameters['id']??'');
     if(!['movie','episode'].contains(type)||id==null||id<1) return null;
-    return PlayTarget(type!,id,u.queryParameters['lang']!='en',reels:type=='episode'&&u.queryParameters['mode']=='reels');
+    final mediaId=int.tryParse(u.queryParameters['media_id']??'');
+    return PlayTarget(type!,id,u.queryParameters['lang']!='en',reels:type=='episode'&&u.queryParameters['mode']=='reels',mediaId:mediaId!=null&&mediaId>0?mediaId:null);
   }
 }
 // Only direct HTTPS media or Android's permission-scoped content URIs.
@@ -118,6 +121,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final ads=PlayerAds();
   void onAdChanged(){if(mounted)setState((){});}
   PlayTarget? target;
+  PlayTarget? siteTarget;
+  int? siteMediaId;
+  bool siteLoading=false;
   Uri? externalMedia;
   String externalName='';
   VideoPlayerController? video;
@@ -381,7 +387,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final local=uri.scheme=='content';
     cancelNextEpisode(refresh:false);episodes=[];episodeMediaId=null;episodesLoading=false;serverFormats.clear();reelsMode=false;episodeTransition=false;recoveryAttempts=0;scrubPosition=null;scrubController=null;
     String name='';
-    setState((){target=null;externalMedia=uri;externalName=name;setTitles(local?'فيديو من الهاتف':'فيديو عبر الإنترنت',local?'Local video':'Network video');sources=[];index=-1;busy=true;clearError();locked=false;});
+    setState((){siteTarget=null;siteMediaId=null;siteLoading=false;target=null;externalMedia=uri;externalName=name;setTitles(local?'فيديو من الهاتف':'فيديو عبر الإنترنت',local?'Local video':'Network video');sources=[];index=-1;busy=true;clearError();locked=false;});
     await old?.dispose();
     VideoPlayerController? candidate;
     try{
@@ -455,35 +461,49 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> openTarget(String? input,{bool initial=false,bool fromEpisode=false}) async {
     final next=PlayTarget.parse(input);
     if(next==null||!mounted){if(initial)unawaited(ads.finishStartup());return;}
-    if(!initial)unawaited(ads.finishStartup());
     final op=++generation;
     await saveProgress();
     if(!mounted||generation!=op)return;
-    recoveryAttempts=0;
     final old=video;video=null;
-    cancelNextEpisode(refresh:false);scrubPosition=null;scrubController=null;failedServers.clear();serverFormats.clear();pendingResume=Duration.zero;
-    final keepQueue=fromEpisode&&next.type=='episode'&&episodes.any((e)=>episodeNumber(e['id'])==next.id);
-    final enterReels=next.reels&&(!fromEpisode||full);
-    setState((){target=next;if(!keepQueue){episodes=[];episodeMediaId=null;episodesLoading=false;}reelsMode=next.reels;if(enterReels)full=true;episodeTransition=false;externalMedia=null;externalName='';if(!keepQueue)setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;controls=true;});
-    if(enterReels){try{await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);}catch(_){}}
+    cancelNextEpisode(refresh:false);hideTimer?.cancel();
+    final mediaId=next.type=='movie'?next.id:next.mediaId;
+    setState((){siteTarget=next;siteMediaId=mediaId;siteLoading=mediaId==null;
+      target=null;episodes=[];episodeMediaId=null;episodesLoading=false;reelsMode=false;
+      externalMedia=null;externalName='';sources=[];index=-1;busy=false;full=false;locked=false;clearError();});
     await old?.dispose();
-    try {
-      final path='/api/v1/mobile/guest/player?type=${next.type}&id=${next.id}';
-      final data=await request(path);
-      if(!mounted||generation!=op)return;
-      final items=(data['sources'] as List? ?? []).map(object).where((m)=>m['id'] is num).toList();
-      setState((){setTitles((data['title_ar']??'').toString(),(data['title_en']??'').toString());sources=items;});
-      final mediaId=episodeNumber(data['media_id']);
-      if(next.type=='episode'&&mediaId>0&&(!keepQueue||episodeMediaId!=mediaId)){
-        // Catalogue metadata is independent of the playback lease.
-        // Load the published episode queue concurrently with stream initialization.
-        unawaited(loadEpisodes(next,mediaId,enterReels:!fromEpisode));
-      }
-      if(!mounted||generation!=op)return;
-      if(items.isEmpty){unawaited(ads.finishStartup());setState((){busy=false;setError('لا توجد سيرفرات مشاهدة متاحة','No available servers');});return;}
-      if(initial)ads.beginStartup();
-      await select(0,automatic:automaticServers);
-    }catch(_){unawaited(ads.finishStartup());if(mounted&&generation==op)setState((){busy=false;setError('تعذر تحميل بيانات المشاهدة','Unable to load playback data');});}
+    if(!mounted||generation!=op)return;
+    try{
+      await SystemChrome.setPreferredOrientations(next.reels?[DeviceOrientation.portraitUp]:[]);
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }catch(_){}
+    if(!mounted||generation!=op)return;
+    unawaited(ads.finishStartup());
+    // Legacy launch links omit the parent media ID. Retrieve only catalogue
+    // metadata through the existing approved API; never issue a native lease.
+    if(mediaId==null){
+      try{
+        final data=await request('/api/v1/mobile/guest/player?type=episode&id=${next.id}');
+        final parent=episodeNumber(data['media_id']);
+        if(mounted&&generation==op)setState(()=>siteMediaId=parent>0?parent:null);
+      }catch(_){}finally{if(mounted&&generation==op)setState(()=>siteLoading=false);}
+    }
+  }
+  void closeSite(){
+    generation++;
+    setState((){siteTarget=null;siteMediaId=null;siteLoading=false;clearError();});
+    unawaited(SystemChrome.setPreferredOrientations([]));
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+  }
+  Widget siteScreen(){
+    final current=siteTarget!,parent=siteMediaId;
+    return Directionality(textDirection:current.ar?TextDirection.rtl:TextDirection.ltr,child:PopScope(
+      canPop:false,onPopInvokedWithResult:(didPop,_){if(!didPop)closeSite();},
+      child:Scaffold(body:parent!=null?SiteWatchView(key:ValueKey('${current.type}:${current.id}:$parent'),type:current.type,id:current.id,mediaId:parent,ar:current.ar,reels:current.reels,onClose:closeSite):
+        SafeArea(child:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[
+          if(siteLoading)const CircularProgressIndicator(color:red) else Text(current.ar?'تعذر تحديد المسلسل. افتحه مجدداً من EGYSHOW.':'Could not identify series. Reopen it from EGYSHOW.'),
+          TextButton(onPressed:closeSite,child:Text(current.ar?'إغلاق':'Close')),
+        ])))),
+    ));
   }
   Future<void> select(int next,{bool automatic=false}) async {
     final current=target;
@@ -639,7 +659,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     IconButton.filledTonal(onPressed:action,tooltip:label,icon:Icon(icon),style:IconButton.styleFrom(backgroundColor:const Color(0xb5222226),foregroundColor:Colors.white)),
     Text(label,style:const TextStyle(fontSize:10,shadows:[Shadow(color:Colors.black,blurRadius:6)])),
   ]));
-  @override Widget build(BuildContext context)=>Directionality(textDirection:ar?TextDirection.rtl:TextDirection.ltr,child:PopScope(canPop:!full,onPopInvokedWithResult:(didPop,_) {if(!didPop&&full)unawaited(toggleFull());},child:Scaffold(
+  @override Widget build(BuildContext context)=>siteTarget!=null?siteScreen():Directionality(textDirection:ar?TextDirection.rtl:TextDirection.ltr,child:PopScope(canPop:!full,onPopInvokedWithResult:(didPop,_) {if(!didPop&&full)unawaited(toggleFull());},child:Scaffold(
     appBar:full?null:AppBar(title:Row(children:[Image.asset('assets/brand/logo-full.png',height:30,width:95,fit:BoxFit.contain),const SizedBox(width:8),Expanded(child:Text(title,maxLines:1,overflow:TextOverflow.ellipsis))]),actions:[
       IconButton(tooltip:t('اللغة','Language'),icon:const Icon(Icons.translate),onPressed:chooseLanguage),
       if(ads.privacyRequired)IconButton(tooltip:t('خصوصية الإعلانات','Ad privacy'),icon:const Icon(Icons.privacy_tip_outlined),onPressed:ads.privacyOptions),

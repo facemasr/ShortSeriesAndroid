@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
 import 'player_ads.dart';
+import 'local_media_resolver.dart';
 
 const origin = 'https://egyshow.com';
 const bridge = MethodChannel('com.egyshow.player/launch');
@@ -320,7 +321,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           decoration:const InputDecoration(hintText:'https://example.com/video.m3u8'),
           onChanged:(v)=>input=v,onSubmitted:(v)=>Navigator.pop(ctx,v)),
         const SizedBox(height:12),
-        Text(t('أدخل رابط فيديو أو بث مباشر مصرح به، وليس رابط صفحة ويب.','Enter an authorized direct video or stream URL, not a web page.')),
+        Text(t('أدخل رابط فيديو مصرح به أو صفحة فيديو مباشرة من EGYSHOW.','Enter an authorized direct stream or an EGYSHOW video page.')),
       ]),
       actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:Text(t('إلغاء','Cancel'))),
         FilledButton(onPressed:()=>Navigator.pop(ctx,input),child:Text(t('تشغيل','Play')))],
@@ -351,11 +352,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       if(!mounted||generation!=op)return;
       if(initial)ads.beginStartup();
-      final detected=local?null:await detectMediaFormat(client,uri);
-      if(!mounted||generation!=op)return;
-      candidate=local?VideoPlayerController.contentUri(uri,viewType:VideoViewType.platformView):
-        VideoPlayerController.networkUrl(uri,formatHint:detected,viewType:VideoViewType.platformView);
-      await candidate.initialize().timeout(const Duration(seconds:25));
+      if(local){
+        candidate=VideoPlayerController.contentUri(uri,viewType:VideoViewType.platformView);
+        await candidate.initialize().timeout(const Duration(seconds:25));
+      }else{
+        List<DeclaredVideoSource> inputs;
+        try{
+          final detected=await detectMediaFormat(client,uri);
+          inputs=[DeclaredVideoSource(uri,detected)];
+        }on FormatException{
+          if(!isFirstPartyPage(uri))rethrow;
+          inputs=await readDeclaredVideoSources(client,uri);
+          if(inputs.isEmpty)rethrow;
+        }
+        for(final input in inputs.take(4)){
+          if(!mounted||generation!=op)return;
+          final nextCandidate=VideoPlayerController.networkUrl(input.uri,formatHint:input.format,viewType:VideoViewType.platformView);
+          try{
+            await nextCandidate.initialize().timeout(const Duration(seconds:25));
+            candidate=nextCandidate;break;
+          }catch(_){await nextCandidate.dispose();}
+        }
+        if(candidate==null)throw StateError('No playable declared source');
+      }
       if(!mounted||generation!=op){await candidate.dispose();return;}
       await candidate.setPlaybackSpeed(speed);
       await candidate.setVolume(volume);
@@ -451,7 +470,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final uri=Uri.parse(origin).resolve(data['playUrl']?.toString()??'');
         if(uri.scheme!='https'||uri.host.isEmpty||uri.userInfo.isNotEmpty||
           data['playUrl']==null)throw StateError('invalid stream');
-        final format=switch(data['type']){'hls'=>VideoFormat.hls,'dash'=>VideoFormat.dash,'video'=>VideoFormat.other,_=>throw StateError('unsupported stream')};
+        final format=switch(data['type']){'hls'=>VideoFormat.hls,'dash'=>VideoFormat.dash,'video'=>VideoFormat.other,_=>declaredFormat(uri,'')??(throw StateError('unsupported stream'))};
+        // Do not probe or fetch the leased URL twice: Media3 opens it once.
         candidate=VideoPlayerController.networkUrl(uri,formatHint:format,viewType:VideoViewType.platformView);
         await candidate.initialize().timeout(const Duration(seconds:25));
         if(!mounted||generation!=op){await candidate.dispose();return;}

@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:cronet_http/cronet_http.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -92,6 +94,26 @@ class PlayerScreen extends StatefulWidget {
 }
 class _PlayerScreenState extends State<PlayerScreen> {
   final client=http.Client();
+  http.Client? metadataClient;
+  http.Client? createMetadataClient(){
+    if(!Platform.isAndroid)return null;
+    try{return CronetClient.defaultCronetEngine();}catch(_){return null;}
+  }
+  bool transientStatus(int code)=>const {408,500,502,503,504}.contains(code);
+  Future<http.Response> getMetadata(Uri uri) async {
+    const headers={'Accept':'application/json'};
+    final primary=metadataClient;
+    if(primary!=null){
+      try{
+        final response=await primary.get(uri,headers:headers).timeout(const Duration(seconds:12));
+        if(!transientStatus(response.statusCode))return response;
+      } on TimeoutException { /* fallback for read-only metadata */ }
+      on http.ClientException { /* fallback with normal TLS validation */ }
+      on Exception { /* platform transport may be unavailable */ }
+      if(!mounted)throw StateError('player closed');
+    }
+    return client.get(uri,headers:headers).timeout(const Duration(seconds:20));
+  }
   final ads=PlayerAds();
   void onAdChanged(){if(mounted)setState((){});}
   PlayTarget? target;
@@ -216,6 +238,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String t(String a,String e)=>ar?a:e;
   @override void initState(){
     super.initState();
+    metadataClient=createMetadataClient();
     unawaited(restorePlayerPreferences());
     progressTimer=Timer.periodic(const Duration(seconds:5),(_)=>unawaited(saveProgress()));
     ads.addListener(onAdChanged);
@@ -313,11 +336,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
   Future<Map<String,dynamic>> request(String path,{Map<String,dynamic>? body}) async {
     final uri=Uri.parse(origin+path);
-    final response=await (body==null?client.get(uri,headers:{'Accept':'application/json'}):
-      client.post(uri,headers:{'Accept':'application/json','Content-Type':'application/json'},body:jsonEncode(body)))
+    // Keep lease issuance single-shot: never replay POST on transport failure.
+    final response=body==null?await getMetadata(uri):await client.post(uri,
+      headers:{'Accept':'application/json','Content-Type':'application/json'},body:jsonEncode(body))
       .timeout(const Duration(seconds:35));
+    if(response.statusCode!=200)throw StateError('unavailable (${response.statusCode})');
     final data=object(jsonDecode(utf8.decode(response.bodyBytes)));
-    if(response.statusCode!=200||data['ok']!=true) throw StateError('unavailable');
+    if(data['ok']!=true)throw StateError('unavailable');
     return data;
   }
   Future<void> openTarget(String? input,{bool initial=false}) async {
@@ -408,7 +433,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String stamp(Duration d)=>'${d.inHours>0?'${d.inHours}:':''}${(d.inMinutes%60).toString().padLeft(2,'0')}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
   @override void dispose(){
     ads.removeListener(onAdChanged);ads.dispose();
-    unawaited(saveProgress());progressTimer?.cancel();nextEpisodeTimer?.cancel();generation++;hideTimer?.cancel();bridge.setMethodCallHandler(null);video?.dispose();client.close();
+    unawaited(saveProgress());progressTimer?.cancel();nextEpisodeTimer?.cancel();generation++;hideTimer?.cancel();bridge.setMethodCallHandler(null);video?.dispose();metadataClient?.close();client.close();
     SystemChrome.setPreferredOrientations([]);SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);super.dispose();
   }
   Widget surface(){

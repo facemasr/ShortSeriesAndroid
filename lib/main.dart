@@ -261,15 +261,16 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
 
   void _openReels(Media media, int episodeIndex) {
     if (episodeIndex < 0 || episodeIndex >= media.episodes.length) return;
-    _play('episode', media.episodes[episodeIndex].id, media.title(ar), media.id.toString());
+    _play('episode', media.episodes[episodeIndex].id, media.title(ar), media.id.toString(), true);
   }
 
-  void _play(String type, int id, String title, [String mediaKey = '']) async {
+  void _play(String type, int id, String title, [String mediaKey = '', bool reels = false]) async {
     if (openingPlayer || id < 1 || !['movie','episode'].contains(type)) return;
     openingPlayer = true;
     try {
       final uri = Uri(scheme: 'egyplayer', host: 'play', queryParameters: {
         'type': type, 'id': id.toString(), 'lang': ar ? 'ar' : 'en',
+        if (reels && type == 'episode') 'mode': 'reels',
       });
       final intent = AndroidIntent(action: 'action_view',
         package: 'com.egyshow.player', data: uri.toString());

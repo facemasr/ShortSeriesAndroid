@@ -34,7 +34,7 @@ Future<void> main() async {
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       theme: ThemeData.dark(useMaterial3: true).copyWith(
         scaffoldBackgroundColor: const Color(0xff09090c),
-        colorScheme: ColorScheme.fromSeed(seedColor: red, brightness: Brightness.dark)),
+        colorScheme: ColorScheme.fromSeed(seedColor: red, brightness: Brightness.dark).copyWith(primary: red, onPrimary: Colors.white, secondary: red, surface: const Color(0xff141418))),
       home: const PlayerScreen(),
     ),
   ));

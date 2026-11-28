@@ -134,7 +134,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       Padding(padding:const EdgeInsets.all(16),child:Text(t('اختيار سيرفر المشاهدة','Choose playback server'),style:Theme.of(ctx).textTheme.titleLarge)),
       Expanded(child:ListView.builder(itemCount:sources.length,itemBuilder:(ctx,i)=>ListTile(
         leading:Icon(i==index&&video?.value.isInitialized==true&&!failedServers.contains(i)?Icons.check_circle:failedServers.contains(i)?Icons.error_outline:Icons.dns_outlined,color:failedServers.contains(i)?Colors.orangeAccent:i==index?red:null),
-        title:Text(serverName(i)),subtitle:failedServers.contains(i)?Text(t('لم ينجح آخر اتصال، اضغط لإعادة المحاولة','Last attempt failed — tap to retry')):i==index&&video?.value.isInitialized==true?Text(t('السيرفر الحالي','Current server')):null,
+        title:Text(serverFormats.containsKey(i)?'${serverName(i)} · ${serverFormats[i]}':serverName(i)),subtitle:failedServers.contains(i)?Text(t('لم ينجح آخر اتصال، اضغط لإعادة المحاولة','Last attempt failed — tap to retry')):i==index&&video?.value.isInitialized==true?Text(t('السيرفر الحالي','Current server')):null,
         onTap:()=>Navigator.pop(ctx,i)))),
     ]))));
     if(!mounted||target!=current||selected==null||busy)return;
@@ -149,6 +149,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
   List<Map<String,dynamic>> episodes=[];
   bool reelsMode=false;
   int? episodeMediaId;
+  bool episodesLoading=false,episodePickerOpen=false;
+  final Map<int,String> serverFormats={};
+  String formatName(VideoFormat f)=>switch(f){VideoFormat.hls=>'HLS',VideoFormat.dash=>'DASH',VideoFormat.other=>t('فيديو مباشر','Direct video'),_=>t('تلقائي','Auto')};
+  Future<void> loadEpisodes(PlayTarget current,int mediaId,{bool enterReels=false}) async {
+    if(!mounted||target!=current||mediaId<1)return;
+    setState((){episodeMediaId=mediaId;episodesLoading=true;});
+    try{
+      final detail=await request('/api/v1/mobile/guest/media/$mediaId');
+      if(!mounted||target!=current)return;
+      final media=object(detail['media']);
+      setState((){episodes=normalizedEpisodes(media['episodes']);reelsMode=media['media_type']=='short_series'||current.reels;if(reelsMode&&enterReels)full=true;});
+      if(reelActive&&enterReels){try{await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);if(mounted&&target==current&&reelActive)await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);}catch(_){}}
+    }catch(_){}finally{if(mounted&&target==current)setState(()=>episodesLoading=false);}
+  }
   bool get reelActive=>reelsMode&&full;
   int episodeNumber(dynamic value)=>int.tryParse(value.toString())??0;
   String episodeLabel(Map<String,dynamic> e,int i){final number=episodeNumber(e['episode_number']);final season=episodeNumber(e['season_number']);final label=t('الحلقة ${number>0?number:i+1}','Episode ${number>0?number:i+1}');return season>0&&!reelsMode?t('الموسم $season · $label','Season $season · $label'):label;}
@@ -177,15 +191,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int get episodeIndex=>episodes.indexWhere((e)=>episodeNumber(e['id'])==target?.id);
   void goEpisode(int offset){if(episodeIndex<0)return;unawaited(openEpisode(episodeIndex+offset));}
   void episodeEnded(){
-    if(!mounted||episodeTransition||!autoNext||episodeIndex<0||episodeIndex+1>=episodes.length||video?.value.isCompleted!=true)return;
+    if(!mounted||episodePickerOpen||episodeTransition||!autoNext||episodeIndex<0||episodeIndex+1>=episodes.length||video?.value.isCompleted!=true)return;
     episodeTransition=true;
     final completed=video, op=generation;
     WidgetsBinding.instance.addPostFrameCallback((_){
-      if(!mounted||generation!=op||video!=completed||video?.value.isCompleted!=true||!autoNext)return;
+      if(!mounted||generation!=op||video!=completed||video?.value.isCompleted!=true||!autoNext||episodePickerOpen)return;
       if(reelActive){goEpisode(1);return;}
       setState(()=>nextEpisodeSeconds=5);
       nextEpisodeTimer=Timer.periodic(const Duration(seconds:1),(timer){
-        if(!mounted||generation!=op||video!=completed||video?.value.isCompleted!=true||!autoNext){cancelNextEpisode();return;}
+        if(!mounted||generation!=op||video!=completed||video?.value.isCompleted!=true||!autoNext||episodePickerOpen){cancelNextEpisode();return;}
         if(nextEpisodeSeconds<=1){goEpisode(1);}else{setState(()=>nextEpisodeSeconds--);}
       });
     });
@@ -232,16 +246,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if(mounted)showControls();
   }
   Future<void> chooseEpisode() async {
+    if(episodes.isEmpty||episodePickerOpen||busy)return;
     final current=target;
     final list=List<Map<String,dynamic>>.of(episodes);
-    final selected=await showModalBottomSheet<int>(context:context,isScrollControlled:true,builder:(ctx)=>SafeArea(child:FractionallySizedBox(heightFactor:0.72,child:Column(children:[
-      Padding(padding:const EdgeInsets.all(16),child:Text(t('الحلقات','Episodes'),style:Theme.of(ctx).textTheme.titleLarge)),
-      Expanded(child:ListView.builder(itemCount:list.length,itemBuilder:(ctx,i){final e=list[i];return ListTile(leading:Icon(e['id']==current?.id?Icons.play_circle_fill:Icons.play_circle_outline,color:e['id']==current?.id?red:null),title:Text(episodeLabel(e,i)),onTap:()=>Navigator.pop(ctx,i));})),
-    ]))));
+    final seasons=list.map((e)=>episodeNumber(e['season_number'])).toSet().toList()..sort();
+    int season=episodeIndex>=0?episodeNumber(episodes[episodeIndex]['season_number']):seasons.first;
+    episodePickerOpen=true;
+    cancelNextEpisode();
+    int? selected;
+    try{
+      selected=await showModalBottomSheet<int>(context:context,isScrollControlled:true,builder:(ctx)=>SafeArea(child:FractionallySizedBox(heightFactor:0.82,child:StatefulBuilder(builder:(ctx,refresh){
+        final indexes=[for(int i=0;i<list.length;i++)if(episodeNumber(list[i]['season_number'])==season)i];
+        return Column(children:[
+          ListTile(title:Text(t('جميع الحلقات','All episodes'),style:Theme.of(ctx).textTheme.titleLarge),subtitle:Text('$currentEpisodeLabel · ${list.length}'),trailing:IconButton(onPressed:()=>Navigator.pop(ctx),icon:const Icon(Icons.close))),
+          if(seasons.length>1)Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:DropdownButton<int>(isExpanded:true,value:season,items:[for(final value in seasons)DropdownMenuItem(value:value,child:Text(t('الموسم $value','Season $value')))],onChanged:(value){if(value!=null)refresh(()=>season=value);})),
+          Expanded(child:GridView.builder(padding:const EdgeInsets.all(16),gridDelegate:const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent:76,mainAxisExtent:54,crossAxisSpacing:8,mainAxisSpacing:8),itemCount:indexes.length,itemBuilder:(ctx,k){
+            final i=indexes[k], e=list[i];final active=episodeNumber(e['id'])==current?.id;
+            return OutlinedButton(style:OutlinedButton.styleFrom(padding:EdgeInsets.zero,backgroundColor:active?red:null,foregroundColor:active?Colors.white:null),onPressed:()=>Navigator.pop(ctx,i),child:Text('${episodeNumber(e['episode_number'])>0?episodeNumber(e['episode_number']):i+1}',style:const TextStyle(fontWeight:FontWeight.bold)));
+          })),
+        ]);
+      }))));
+    }finally{episodePickerOpen=false;}
     if(!mounted||selected==null||target!=current||busy)return;
     final id=episodeNumber(list[selected]['id']);
     if(id==current?.id)return;
     await openEpisode(episodes.indexWhere((e)=>episodeNumber(e['id'])==id));
+  }
+  Widget episodeStrip({bool compact=false}){
+    final active=episodeIndex;
+    if(episodes.isEmpty)return episodesLoading?const LinearProgressIndicator(minHeight:2):const SizedBox.shrink();
+    final start=(active<0?0:active-2).clamp(0,episodes.length-1).toInt();
+    final end=(start+6).clamp(0,episodes.length).toInt();
+    return Material(color:compact?const Color(0xdd101014):Colors.transparent,borderRadius:BorderRadius.circular(12),child:Padding(padding:const EdgeInsets.symmetric(horizontal:8,vertical:6),child:Row(children:[
+      Expanded(child:SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(children:[for(int i=start;i<end;i++) Padding(padding:const EdgeInsets.symmetric(horizontal:3),child:ChoiceChip(
+        label:Text('${episodeNumber(episodes[i]['episode_number'])>0?episodeNumber(episodes[i]['episode_number']):i+1}'),selected:i==active,onSelected:busy?null:(_)=>unawaited(openEpisode(i)),
+      ))]))),
+      IconButton(tooltip:t('جميع الحلقات','All episodes'),onPressed:busy?null:chooseEpisode,icon:const Icon(Icons.grid_view)),
+    ])));
   }
   Future<void> syncFullscreenOrientation() async {
     if(!full||!mounted)return;
@@ -338,7 +379,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final op=++generation;
     final old=video;video=null;
     final local=uri.scheme=='content';
-    cancelNextEpisode(refresh:false);episodes=[];episodeMediaId=null;reelsMode=false;episodeTransition=false;recoveryAttempts=0;scrubPosition=null;scrubController=null;
+    cancelNextEpisode(refresh:false);episodes=[];episodeMediaId=null;episodesLoading=false;serverFormats.clear();reelsMode=false;episodeTransition=false;recoveryAttempts=0;scrubPosition=null;scrubController=null;
     String name='';
     setState((){target=null;externalMedia=uri;externalName=name;setTitles(local?'فيديو من الهاتف':'فيديو عبر الإنترنت',local?'Local video':'Network video');sources=[];index=-1;busy=true;clearError();locked=false;});
     await old?.dispose();
@@ -420,10 +461,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if(!mounted||generation!=op)return;
     recoveryAttempts=0;
     final old=video;video=null;
-    cancelNextEpisode(refresh:false);scrubPosition=null;scrubController=null;failedServers.clear();pendingResume=Duration.zero;
+    cancelNextEpisode(refresh:false);scrubPosition=null;scrubController=null;failedServers.clear();serverFormats.clear();pendingResume=Duration.zero;
     final keepQueue=fromEpisode&&next.type=='episode'&&episodes.any((e)=>episodeNumber(e['id'])==next.id);
     final enterReels=next.reels&&(!fromEpisode||full);
-    setState((){target=next;if(!keepQueue){episodes=[];episodeMediaId=null;}reelsMode=next.reels;if(enterReels)full=true;episodeTransition=false;externalMedia=null;externalName='';if(!keepQueue)setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;controls=true;});
+    setState((){target=next;if(!keepQueue){episodes=[];episodeMediaId=null;episodesLoading=false;}reelsMode=next.reels;if(enterReels)full=true;episodeTransition=false;externalMedia=null;externalName='';if(!keepQueue)setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;controls=true;});
     if(enterReels){try{await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);}catch(_){}}
     await old?.dispose();
     try {
@@ -434,10 +475,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       setState((){setTitles((data['title_ar']??'').toString(),(data['title_en']??'').toString());sources=items;});
       final mediaId=episodeNumber(data['media_id']);
       if(next.type=='episode'&&mediaId>0&&(!keepQueue||episodeMediaId!=mediaId)){
-        try{final detail=await request('/api/v1/mobile/guest/media/$mediaId');if(!mounted||generation!=op)return;final media=object(detail['media']);final isShort=media['media_type']=='short_series';
-          setState((){episodes=normalizedEpisodes(media['episodes']);episodeMediaId=mediaId;reelsMode=isShort||next.reels;if(reelsMode&&!fromEpisode)full=true;});
-          if(reelActive){try{await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);}catch(_){}}
-        }catch(_){}
+        // Catalogue metadata is independent of the playback lease.
+        // Load the published episode queue concurrently with stream initialization.
+        unawaited(loadEpisodes(next,mediaId,enterReels:!fromEpisode));
       }
       if(!mounted||generation!=op)return;
       if(items.isEmpty){unawaited(ads.finishStartup());setState((){busy=false;setError('لا توجد سيرفرات مشاهدة متاحة','No available servers');});return;}
@@ -471,7 +511,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if(uri.scheme!='https'||uri.host.isEmpty||uri.userInfo.isNotEmpty||
           data['playUrl']==null)throw StateError('invalid stream');
         final format=switch(data['type']){'hls'=>VideoFormat.hls,'dash'=>VideoFormat.dash,'video'=>VideoFormat.other,_=>declaredFormat(uri,'')??(throw StateError('unsupported stream'))};
-        // Do not probe or fetch the leased URL twice: Media3 opens it once.
+        // The approved stream is classified locally; do not consume the lease with a probe.
+        if(mounted&&generation==op)setState(()=>serverFormats[i]=formatName(format));
         candidate=VideoPlayerController.networkUrl(uri,formatHint:format,viewType:VideoViewType.platformView);
         await candidate.initialize().timeout(const Duration(seconds:25));
         if(!mounted||generation!=op){await candidate.dispose();return;}
@@ -548,6 +589,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               IconButton(tooltip:locked?t('إلغاء القفل','Unlock'):t('قفل الشاشة','Lock controls'),onPressed:()=>setState(()=>locked=!locked),icon:Icon(locked?Icons.lock:Icons.lock_open)),
               const Spacer(),
               if(!reelActive&&!locked&&target!=null&&sources.isNotEmpty)IconButton(tooltip:t('السيرفرات','Servers'),onPressed:busy?null:chooseServer,icon:const Icon(Icons.dns_outlined)),
+              if(!reelActive&&!locked&&episodes.isNotEmpty&&constraints.maxWidth>=340)IconButton(tooltip:t('جميع الحلقات','All episodes'),onPressed:busy?null:chooseEpisode,icon:const Icon(Icons.grid_view)),
               if(!reelActive&&!locked&&episodeIndex>0)IconButton(tooltip:t('الحلقة السابقة','Previous episode'),onPressed:()=>goEpisode(-1),icon:const Icon(Icons.skip_previous)),
               if(!reelActive&&!locked&&episodeIndex>=0&&episodeIndex+1<episodes.length)IconButton(tooltip:t('الحلقة التالية','Next episode'),onPressed:()=>goEpisode(1),icon:const Icon(Icons.skip_next)),
               if(!locked)IconButton(tooltip:full?t('الخروج من ملء الشاشة','Exit fullscreen'):t('ملء الشاشة','Fullscreen'),onPressed:toggleFull,icon:Icon(full?Icons.fullscreen_exit:Icons.fullscreen)),
@@ -578,6 +620,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final canNavigate=!busy&&!locked&&episodeIndex>=0;
     return Stack(fit:StackFit.expand,children:[
       surface(),
+      if(!locked&&!controls&&episodes.isNotEmpty)PositionedDirectional(start:8,end:8,bottom:8,child:SafeArea(child:episodeStrip(compact:true))),
       if(!locked&&(!controls||video==null))PositionedDirectional(top:12,start:12,end:64,child:SafeArea(child:IgnorePointer(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Text(title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:16,fontWeight:FontWeight.bold,shadows:[Shadow(color:Colors.black,blurRadius:8)])),
         if(episodeIndex>=0)Text('$currentEpisodeLabel · ${episodeIndex+1}/${episodes.length}',style:const TextStyle(shadows:[Shadow(color:Colors.black,blurRadius:8)])),
@@ -618,11 +661,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
         Text(title,style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
         const SizedBox(height:12),
         Row(children:[Text(t('سرعة التشغيل','Playback speed')),const Spacer(),DropdownButton<double>(value:speed,items:[0.5,0.75,1.0,1.25,1.5,2.0].map((v)=>DropdownMenuItem(value:v,child:Text('${v}x'))).toList(),onChanged:(v){if(v!=null){setState(()=>speed=v);video?.setPlaybackSpeed(v);}})]),
+        if(target?.type=='episode')...[
+          if(episodesLoading)const LinearProgressIndicator(minHeight:2),
+          if(episodes.isEmpty&&!episodesLoading&&episodeMediaId!=null)TextButton.icon(onPressed:()=>loadEpisodes(target!,episodeMediaId!),icon:const Icon(Icons.refresh),label:Text(t('إعادة تحميل الحلقات','Reload episodes'))),
+          if(episodes.isNotEmpty)episodeStrip(),
+        ],
         if(episodeIndex>=0) ...[Row(children:[IconButton(onPressed:episodeIndex>0&&!busy?()=>goEpisode(-1):null,icon:const Icon(Icons.skip_previous)),Expanded(child:Text(currentEpisodeLabel,textAlign:TextAlign.center)),IconButton(onPressed:episodeIndex+1<episodes.length&&!busy?()=>goEpisode(1):null,icon:const Icon(Icons.skip_next))]),SwitchListTile(contentPadding:EdgeInsets.zero,title:Text(t('التشغيل التلقائي','Autoplay next episode')),value:autoNext,onChanged:changeAutoNext),OutlinedButton.icon(onPressed:busy?null:chooseEpisode,icon:const Icon(Icons.playlist_play),label:Text(t('كل الحلقات','All episodes'))),if(reelsMode)FilledButton.icon(onPressed:busy?null:toggleFull,icon:const Icon(Icons.swipe_vertical),label:Text(t('مشاهدة ريلز','Watch reels'))),],
         const SizedBox(height:12),Text(t('سيرفرات المشاهدة','Playback servers'),style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         const SizedBox(height:10),
         SwitchListTile(contentPadding:EdgeInsets.zero,title:Text(t('التبديل التلقائي عند فشل السيرفر','Automatic server fallback')),value:automaticServers,onChanged:busy?null:changeAutomaticServers),
-        Wrap(spacing:8,runSpacing:8,children:List.generate(sources.length,(i)=>ChoiceChip(avatar:failedServers.contains(i)?const Icon(Icons.error_outline,size:18,color:Colors.orangeAccent):null,label:Text(serverName(i)),selected:index==i&&!failedServers.contains(i),onSelected:busy?null:(_)=>switchServer(i)))),
+        Wrap(spacing:8,runSpacing:8,children:List.generate(sources.length,(i)=>ChoiceChip(avatar:failedServers.contains(i)?const Icon(Icons.error_outline,size:18,color:Colors.orangeAccent):null,label:Text(serverFormats.containsKey(i)?'${serverName(i)} · ${serverFormats[i]}':serverName(i)),selected:index==i&&!failedServers.contains(i),onSelected:busy?null:(_)=>switchServer(i)))),
         if(sources.isNotEmpty)OutlinedButton.icon(onPressed:busy?null:chooseServer,icon:const Icon(Icons.dns_outlined),label:Text(t('اختيار السيرفر','Choose server'))),
         if(error.isNotEmpty)Padding(padding:const EdgeInsets.only(top:16),child:Text(error,style:const TextStyle(color:Colors.orangeAccent))),
       ])),

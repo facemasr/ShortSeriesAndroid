@@ -174,8 +174,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       if(!mounted||generation!=op)return;
       if(initial)ads.beginStartup();
-      candidate=local?VideoPlayerController.contentUri(uri):
-        VideoPlayerController.networkUrl(uri,formatHint:formatFor(uri));
+      candidate=local?VideoPlayerController.contentUri(uri,viewType:VideoViewType.platformView):
+        VideoPlayerController.networkUrl(uri,formatHint:formatFor(uri),viewType:VideoViewType.platformView);
       await candidate.initialize().timeout(const Duration(seconds:25));
       if(!mounted||generation!=op){await candidate.dispose();return;}
       await candidate.setPlaybackSpeed(speed);
@@ -248,7 +248,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if(uri.scheme!='https'||uri.host.isEmpty||uri.userInfo.isNotEmpty||
           data['playUrl']==null)throw StateError('invalid stream');
         final format=switch(data['type']){'hls'=>VideoFormat.hls,'dash'=>VideoFormat.dash,'video'=>VideoFormat.other,_=>throw StateError('unsupported stream')};
-        candidate=VideoPlayerController.networkUrl(uri,formatHint:format);
+        candidate=VideoPlayerController.networkUrl(uri,formatHint:format,viewType:VideoViewType.platformView);
         await candidate.initialize().timeout(const Duration(seconds:25));
         if(!mounted||generation!=op){await candidate.dispose();return;}
         if(resume>Duration.zero&&resume<candidate.value.duration)await candidate.seekTo(resume);

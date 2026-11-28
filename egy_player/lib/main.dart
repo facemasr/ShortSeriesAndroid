@@ -402,9 +402,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final op=++generation;
     final old=video;
     final resume=old?.value.isInitialized==true?old!.value.position:pendingResume>Duration.zero?pendingResume:await savedProgress();
-    final wasPlaying=old?.value.isInitialized==true?old!.value.isPlaying:true;
-    pendingResume=resume;
+    final wasPlaying=old?.value.isInitialized==true?(old!.value.isPlaying||old.value.hasError):true;
     if(!mounted||generation!=op)return;
+    pendingResume=resume;
     video=null;
     cancelNextEpisode(refresh:false);episodeTransition=false;scrubPosition=null;scrubController=null;
     setState((){busy=true;index=next;clearError();controls=true;});

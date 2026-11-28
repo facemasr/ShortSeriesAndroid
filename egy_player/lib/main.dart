@@ -107,7 +107,57 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void episodeEnded(){if(!mounted||episodeTransition||!autoNext||episodeIndex<0||episodeIndex+1>=episodes.length||video?.value.isCompleted!=true)return;episodeTransition=true;WidgetsBinding.instance.addPostFrameCallback((_) {if(mounted&&episodeTransition&&video?.value.isCompleted==true)goEpisode(1);});}
   bool get ar => playerLocale.value.languageCode == 'ar';
   bool busy=false,full=false,locked=false,controls=true;
-  double speed=1;
+  double speed=1, volume=1;
+  double? scrubPosition;
+  VideoPlayerController? scrubController;
+  bool fillVideo=false;
+  double tapX=0, tapWidth=1;
+  Future<void> restorePlayerPreferences() async {
+    try {
+      final p=await SharedPreferences.getInstance();
+      if(!mounted)return;
+      setState(()=>autoNext=p.getBool('player_auto_next')??true);
+    }catch(_){}
+  }
+  void changeAutoNext(bool value){
+    setState(()=>autoNext=value);
+    unawaited(SharedPreferences.getInstance().then((p)=>p.setBool('player_auto_next',value)).then<void>((_){}).catchError((Object _){}));
+  }
+  Future<void> chooseSpeed() async {
+    final values=[0.5,0.75,1.0,1.25,1.5,2.0];
+    final selected=await showModalBottomSheet<double>(context:context,builder:(ctx)=>SafeArea(child:ListView(shrinkWrap:true,children:[
+      Padding(padding:const EdgeInsets.all(16),child:Text(t('سرعة التشغيل','Playback speed'),style:Theme.of(ctx).textTheme.titleLarge)),
+      for(final value in values) ListTile(title:Text('${value}x'),trailing:value==speed?const Icon(Icons.check,color:red):null,onTap:()=>Navigator.pop(ctx,value)),
+    ])));
+    if(selected==null||!mounted)return;
+    setState(()=>speed=selected);
+    await video?.setPlaybackSpeed(selected);
+    if(mounted)showControls();
+  }
+  Future<void> chooseVolume() async {
+    await showModalBottomSheet<void>(context:context,builder:(ctx)=>SafeArea(child:StatefulBuilder(builder:(ctx,refresh)=>Padding(padding:const EdgeInsets.all(20),child:Column(mainAxisSize:MainAxisSize.min,children:[
+      Text(t('مستوى الصوت','Volume'),style:Theme.of(ctx).textTheme.titleLarge),
+      Row(children:[IconButton(tooltip:t('كتم الصوت','Mute'),onPressed:(){refresh(()=>volume=0);unawaited(video?.setVolume(0));},icon:const Icon(Icons.volume_off)),Expanded(child:Slider(value:volume,onChanged:(value){refresh(()=>volume=value);unawaited(video?.setVolume(value));})),Text('${(volume*100).round()}%')]),
+    ])))));
+    if(mounted)showControls();
+  }
+  Future<void> chooseEpisode() async {
+    final current=target;
+    final list=List<Map<String,dynamic>>.of(episodes);
+    final selected=await showModalBottomSheet<int>(context:context,isScrollControlled:true,builder:(ctx)=>SafeArea(child:FractionallySizedBox(heightFactor:0.72,child:Column(children:[
+      Padding(padding:const EdgeInsets.all(16),child:Text(t('الحلقات','Episodes'),style:Theme.of(ctx).textTheme.titleLarge)),
+      Expanded(child:ListView.builder(itemCount:list.length,itemBuilder:(ctx,i){final e=list[i];return ListTile(leading:Icon(e['id']==current?.id?Icons.play_circle_fill:Icons.play_circle_outline,color:e['id']==current?.id?red:null),title:Text(t('الحلقة ${e['episode_number']??i+1}','Episode ${e['episode_number']??i+1}')),onTap:()=>Navigator.pop(ctx,i));})),
+    ]))));
+    if(!mounted||selected==null||target!=current||busy)return;
+    final id=list[selected]['id'];
+    if(id==current?.id)return;
+    await openTarget(Uri(scheme:'egyplayer',host:'play',queryParameters:{'type':'episode','id':'$id','lang':ar?'ar':'en'}).toString());
+  }
+  Future<void> syncFullscreenOrientation() async {
+    if(!full||!mounted)return;
+    final ratio=video?.value.aspectRatio??16/9;
+    await SystemChrome.setPreferredOrientations(ratio<1?[DeviceOrientation.portraitUp]:[DeviceOrientation.landscapeLeft,DeviceOrientation.landscapeRight]);
+  }
   String titleAr='', titleEn='';
   String errorAr='', errorEn='';
   String get title => (ar ? titleAr : titleEn).isNotEmpty
@@ -146,6 +196,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String t(String a,String e)=>ar?a:e;
   @override void initState(){
     super.initState();
+    unawaited(restorePlayerPreferences());
     progressTimer=Timer.periodic(const Duration(seconds:5),(_)=>unawaited(saveProgress()));
     ads.addListener(onAdChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {if(mounted)unawaited(ads.prepare());});
@@ -196,6 +247,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final op=++generation;
     final old=video;video=null;
     final local=uri.scheme=='content';
+    episodes=[];episodeTransition=false;recoveryAttempts=0;scrubPosition=null;scrubController=null;
     String name='';
     setState((){target=null;externalMedia=uri;externalName=name;setTitles(local?'فيديو من الهاتف':'فيديو عبر الإنترنت',local?'Local video':'Network video');sources=[];index=-1;busy=true;clearError();locked=false;});
     await old?.dispose();
@@ -216,12 +268,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       await candidate.initialize().timeout(const Duration(seconds:25));
       if(!mounted||generation!=op){await candidate.dispose();return;}
       await candidate.setPlaybackSpeed(speed);
+      await candidate.setVolume(volume);
       await ads.finishStartup();
       if(!mounted||generation!=op){await candidate.dispose();return;}
       await candidate.play();
       if(!mounted||generation!=op){await candidate.dispose();return;}
       setState((){video=candidate;if(name.isNotEmpty)setTitles(name,name);externalName=name;busy=false;});
-      showControls();
+      await syncFullscreenOrientation();
+      if(mounted&&generation==op)showControls();
     }catch(e){
       await candidate?.dispose();
       unawaited(ads.finishStartup());
@@ -255,6 +309,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     recoveryAttempts=0;
     final op=++generation;
     final old=video;video=null;
+    scrubPosition=null;scrubController=null;
     setState((){target=next;episodes=[];episodeTransition=false;externalMedia=null;externalName='';setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;});
     await old?.dispose();
     try {
@@ -277,6 +332,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final resume=old?.value.isInitialized==true?old!.value.position:await savedProgress();
     if(!mounted||generation!=op)return;
     video=null;
+    scrubPosition=null;scrubController=null;
     setState((){busy=true;index=next;clearError();controls=true;});
     await old?.dispose();
     final order=automatic?List<int>.generate(sources.length,(offset)=>(next+offset)%sources.length):[next];
@@ -295,12 +351,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if(!mounted||generation!=op){await candidate.dispose();return;}
         if(resume>Duration.zero&&resume<candidate.value.duration)await candidate.seekTo(resume);
         await candidate.setPlaybackSpeed(speed);
+      await candidate.setVolume(volume);
         await ads.finishStartup();
         if(!mounted||generation!=op){await candidate.dispose();return;}
         await candidate.play();
         if(!mounted||generation!=op){await candidate.dispose();return;}
         setState((){video=candidate;index=i;busy=false;});
-        showControls();return;
+        await syncFullscreenOrientation();
+        if(mounted&&generation==op)showControls();return;
       }catch(_){
         await candidate?.dispose();
         if(!mounted||generation!=op)return;
@@ -345,14 +403,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if(state.isCompleted)episodeEnded();
       if(state.hasError)recoverPlayback(v);
       final duration=state.duration.inMilliseconds;
-      final position=state.position.inMilliseconds.clamp(0,duration>0?duration:0).toDouble();
-      return GestureDetector(onTap:()=>locked?showControls():(controls?setState(()=>controls=false):showControls()),
+      final position=(scrubController==v&&scrubPosition!=null?scrubPosition!:state.position.inMilliseconds.toDouble()).clamp(0.0,duration>0?duration.toDouble():0.0).toDouble();
+      return LayoutBuilder(builder:(context,constraints)=>GestureDetector(onDoubleTapDown:(details){tapX=details.localPosition.dx;tapWidth=constraints.maxWidth;},onDoubleTap:(){if(!locked&&!state.hasError)unawaited(seek(tapX<tapWidth/2?-10:10));},onTap:()=>locked?showControls():(controls?setState(()=>controls=false):showControls()),
         child:Stack(fit:StackFit.expand,children:[
           const ColoredBox(color:Colors.black),
-          Center(child:AspectRatio(aspectRatio:state.aspectRatio>0?state.aspectRatio:16/9,child:VideoPlayer(v))),
+          ClipRect(child:LayoutBuilder(builder:(context,space){final ratio=state.aspectRatio>0?state.aspectRatio:16/9;final boxRatio=space.maxWidth/space.maxHeight;final useWidth=fillVideo?boxRatio>ratio:boxRatio<ratio;final width=useWidth?space.maxWidth:space.maxHeight*ratio;final height=width/ratio;return Center(child:OverflowBox(minWidth:width,maxWidth:width,minHeight:height,maxHeight:height,child:VideoPlayer(v)));})),
           if(state.isBuffering)const Center(child:CircularProgressIndicator(color:red)),
           if(state.hasError)Center(child:FilledButton.icon(onPressed:recovering?null:(){recoveryAttempts=0;unawaited(retryCurrent());},icon:const Icon(Icons.refresh),label:Text(t('إعادة التشغيل','Retry playback')))),
-          if(controls&&!state.hasError)DecoratedBox(decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Color(0x66000000),Colors.transparent,Color(0xaa000000)])),child:Column(children:[
+          if(controls&&!state.hasError)DecoratedBox(decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Color(0x66000000),Colors.transparent,Color(0xaa000000)])),child:SafeArea(child:Column(children:[
             Row(children:[
               IconButton(tooltip:locked?t('إلغاء القفل','Unlock'):t('قفل الشاشة','Lock controls'),onPressed:()=>setState(()=>locked=!locked),icon:Icon(locked?Icons.lock:Icons.lock_open)),
               const Spacer(),
@@ -360,6 +418,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
               if(!locked&&episodeIndex>=0&&episodeIndex+1<episodes.length)IconButton(tooltip:t('الحلقة التالية','Next episode'),onPressed:()=>goEpisode(1),icon:const Icon(Icons.skip_next)),
               if(!locked)IconButton(tooltip:full?t('الخروج من ملء الشاشة','Exit fullscreen'):t('ملء الشاشة','Fullscreen'),onPressed:toggleFull,icon:Icon(full?Icons.fullscreen_exit:Icons.fullscreen)),
             ]),
+            if(!locked&&constraints.maxHeight>=260)SingleChildScrollView(scrollDirection:Axis.horizontal,child:Row(mainAxisAlignment:MainAxisAlignment.center,children:[
+              IconButton(tooltip:t('سرعة التشغيل','Playback speed'),onPressed:chooseSpeed,icon:const Icon(Icons.speed)),
+              IconButton(tooltip:t('الصوت','Volume'),onPressed:chooseVolume,icon:Icon(volume==0?Icons.volume_off:Icons.volume_up)),
+              IconButton(tooltip:fillVideo?t('احتواء الفيديو','Fit video'):t('ملء المساحة','Fill video'),onPressed:(){setState(()=>fillVideo=!fillVideo);showControls();},icon:Icon(fillVideo?Icons.fit_screen:Icons.aspect_ratio)),
+              if(episodes.isNotEmpty)IconButton(tooltip:t('قائمة الحلقات','Episodes'),onPressed:chooseEpisode,icon:const Icon(Icons.playlist_play)),
+            ])),
             const Spacer(),
             if(!locked)Row(mainAxisAlignment:MainAxisAlignment.center,children:[
               IconButton(tooltip:t('رجوع 10 ثوانٍ','Back 10 seconds'),iconSize:36,onPressed:()=>seek(-10),icon:const Icon(Icons.replay_10)),
@@ -367,12 +431,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
               IconButton(tooltip:t('تقديم 10 ثوانٍ','Forward 10 seconds'),iconSize:36,onPressed:()=>seek(10),icon:const Icon(Icons.forward_10)),
             ]),
             const Spacer(),
-            if(!locked&&duration>0)Slider(value:position,max:duration.toDouble(),activeColor:red,onChanged:(x)=>v.seekTo(Duration(milliseconds:x.round()))),
+            if(!locked&&duration>0)Slider(value:position,max:duration.toDouble(),activeColor:red,onChangeStart:(x){hideTimer?.cancel();setState((){scrubController=v;scrubPosition=x;});},onChanged:(x)=>setState(()=>scrubPosition=x),onChangeEnd:(x) async {setState((){scrubController=null;scrubPosition=null;});if(video==v)await v.seekTo(Duration(milliseconds:x.round()));if(mounted)showControls();}),
             if(!locked)Padding(padding:const EdgeInsets.fromLTRB(12,0,12,8),child:Row(children:[
-              Text(stamp(state.position)),const Spacer(),Text(stamp(state.duration)),
+              Text(stamp(Duration(milliseconds:position.round()))),const Spacer(),Text(stamp(state.duration)),
             ])),
-          ]))
-        ]));
+          ])))
+        ])));
     });
   }
   @override Widget build(BuildContext context)=>Directionality(textDirection:ar?TextDirection.rtl:TextDirection.ltr,child:PopScope(canPop:!full,onPopInvokedWithResult:(didPop,_) {if(!didPop&&full)unawaited(toggleFull());},child:Scaffold(
@@ -397,7 +461,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         Text(title,style:const TextStyle(fontSize:22,fontWeight:FontWeight.bold)),
         const SizedBox(height:12),
         Row(children:[Text(t('سرعة التشغيل','Playback speed')),const Spacer(),DropdownButton<double>(value:speed,items:[0.5,0.75,1.0,1.25,1.5,2.0].map((v)=>DropdownMenuItem(value:v,child:Text('${v}x'))).toList(),onChanged:(v){if(v!=null){setState(()=>speed=v);video?.setPlaybackSpeed(v);}})]),
-        if(episodeIndex>=0) ...[Row(children:[IconButton(onPressed:episodeIndex>0&&!busy?()=>goEpisode(-1):null,icon:const Icon(Icons.skip_previous)),Expanded(child:Text(t('الحلقة ${episodes[episodeIndex]['episode_number']}','Episode ${episodes[episodeIndex]['episode_number']}'),textAlign:TextAlign.center)),IconButton(onPressed:episodeIndex+1<episodes.length&&!busy?()=>goEpisode(1):null,icon:const Icon(Icons.skip_next))]),SwitchListTile(contentPadding:EdgeInsets.zero,title:Text(t('التشغيل التلقائي','Autoplay next episode')),value:autoNext,onChanged:(v)=>setState(()=>autoNext=v)),],
+        if(episodeIndex>=0) ...[Row(children:[IconButton(onPressed:episodeIndex>0&&!busy?()=>goEpisode(-1):null,icon:const Icon(Icons.skip_previous)),Expanded(child:Text(t('الحلقة ${episodes[episodeIndex]['episode_number']}','Episode ${episodes[episodeIndex]['episode_number']}'),textAlign:TextAlign.center)),IconButton(onPressed:episodeIndex+1<episodes.length&&!busy?()=>goEpisode(1):null,icon:const Icon(Icons.skip_next))]),SwitchListTile(contentPadding:EdgeInsets.zero,title:Text(t('التشغيل التلقائي','Autoplay next episode')),value:autoNext,onChanged:changeAutoNext),OutlinedButton.icon(onPressed:busy?null:chooseEpisode,icon:const Icon(Icons.playlist_play),label:Text(t('كل الحلقات','All episodes'))),],
         const SizedBox(height:12),Text(t('سيرفرات المشاهدة','Playback servers'),style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
         const SizedBox(height:10),
         Wrap(spacing:8,runSpacing:8,children:List.generate(sources.length,(i)=>ChoiceChip(label:Text(t('سيرفر ${i+1}','Server ${i+1}')),selected:index==i,onSelected:busy?null:(_)=>select(i)))),

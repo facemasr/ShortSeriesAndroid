@@ -271,6 +271,7 @@ class _NativeShellState extends State<NativeShell> with WidgetsBindingObserver {
       final uri = Uri(scheme: 'egyplayer', host: 'play', queryParameters: {
         'type': type, 'id': id.toString(), 'lang': ar ? 'ar' : 'en',
         if (reels && type == 'episode') 'mode': 'reels',
+        if (type == 'episode' && (int.tryParse(mediaKey) ?? 0) > 0) 'media_id': mediaKey,
       });
       final intent = AndroidIntent(action: 'action_view',
         package: 'com.egyshow.player', data: uri.toString());

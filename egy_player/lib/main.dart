@@ -102,9 +102,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int generation=0,index=-1;
   List<Map<String,dynamic>> episodes=[];
   bool autoNext=true, episodeTransition=false;
+  Timer? nextEpisodeTimer;
+  int nextEpisodeSeconds=0;
+  double swipeDistance=0;
+  void cancelNextEpisode({bool refresh=true}){
+    nextEpisodeTimer?.cancel();nextEpisodeTimer=null;
+    if(refresh&&mounted){setState(()=>nextEpisodeSeconds=0);}else{nextEpisodeSeconds=0;}
+  }
   int get episodeIndex=>episodes.indexWhere((e)=>e['id']==target?.id);
-  void goEpisode(int offset){final i=episodeIndex+offset;if(episodeIndex<0||i<0||i>=episodes.length||busy)return; final id=episodes[i]['id']; unawaited(openTarget(Uri(scheme:'egyplayer',host:'play',queryParameters:{'type':'episode','id':'$id','lang':ar?'ar':'en'}).toString()));}
-  void episodeEnded(){if(!mounted||episodeTransition||!autoNext||episodeIndex<0||episodeIndex+1>=episodes.length||video?.value.isCompleted!=true)return;episodeTransition=true;WidgetsBinding.instance.addPostFrameCallback((_) {if(mounted&&episodeTransition&&video?.value.isCompleted==true)goEpisode(1);});}
+  void goEpisode(int offset){final i=episodeIndex+offset;if(episodeIndex<0||i<0||i>=episodes.length||busy)return;cancelNextEpisode(); final id=episodes[i]['id']; unawaited(openTarget(Uri(scheme:'egyplayer',host:'play',queryParameters:{'type':'episode','id':'$id','lang':ar?'ar':'en'}).toString()));}
+  void episodeEnded(){
+    if(!mounted||episodeTransition||!autoNext||episodeIndex<0||episodeIndex+1>=episodes.length||video?.value.isCompleted!=true)return;
+    episodeTransition=true;
+    final completed=video, op=generation;
+    WidgetsBinding.instance.addPostFrameCallback((_){
+      if(!mounted||generation!=op||video!=completed||video?.value.isCompleted!=true||!autoNext)return;
+      setState(()=>nextEpisodeSeconds=5);
+      nextEpisodeTimer=Timer.periodic(const Duration(seconds:1),(timer){
+        if(!mounted||generation!=op||video!=completed||video?.value.isCompleted!=true||!autoNext){cancelNextEpisode();return;}
+        if(nextEpisodeSeconds<=1){goEpisode(1);}else{setState(()=>nextEpisodeSeconds--);}
+      });
+    });
+  }
   bool get ar => playerLocale.value.languageCode == 'ar';
   bool busy=false,full=false,locked=false,controls=true;
   double speed=1, volume=1;
@@ -121,6 +140,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
   void changeAutoNext(bool value){
     setState(()=>autoNext=value);
+    if(!value)cancelNextEpisode();
     unawaited(SharedPreferences.getInstance().then((p)=>p.setBool('player_auto_next',value)).then<void>((_){}).catchError((Object _){}));
   }
   Future<void> chooseSpeed() async {
@@ -156,7 +176,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> syncFullscreenOrientation() async {
     if(!full||!mounted)return;
     final ratio=video?.value.aspectRatio??16/9;
-    await SystemChrome.setPreferredOrientations(ratio<1?[DeviceOrientation.portraitUp]:[DeviceOrientation.landscapeLeft,DeviceOrientation.landscapeRight]);
+    try{await SystemChrome.setPreferredOrientations(ratio<1?[DeviceOrientation.portraitUp]:[DeviceOrientation.landscapeLeft,DeviceOrientation.landscapeRight]);}catch(_){}
   }
   String titleAr='', titleEn='';
   String errorAr='', errorEn='';
@@ -247,7 +267,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final op=++generation;
     final old=video;video=null;
     final local=uri.scheme=='content';
-    episodes=[];episodeTransition=false;recoveryAttempts=0;scrubPosition=null;scrubController=null;
+    cancelNextEpisode(refresh:false);episodes=[];episodeTransition=false;recoveryAttempts=0;scrubPosition=null;scrubController=null;
     String name='';
     setState((){target=null;externalMedia=uri;externalName=name;setTitles(local?'فيديو من الهاتف':'فيديو عبر الإنترنت',local?'Local video':'Network video');sources=[];index=-1;busy=true;clearError();locked=false;});
     await old?.dispose();
@@ -309,7 +329,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     recoveryAttempts=0;
     final op=++generation;
     final old=video;video=null;
-    scrubPosition=null;scrubController=null;
+    cancelNextEpisode(refresh:false);scrubPosition=null;scrubController=null;
     setState((){target=next;episodes=[];episodeTransition=false;externalMedia=null;externalName='';setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;});
     await old?.dispose();
     try {
@@ -332,7 +352,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final resume=old?.value.isInitialized==true?old!.value.position:await savedProgress();
     if(!mounted||generation!=op)return;
     video=null;
-    scrubPosition=null;scrubController=null;
+    cancelNextEpisode(refresh:false);episodeTransition=false;scrubPosition=null;scrubController=null;
     setState((){busy=true;index=next;clearError();controls=true;});
     await old?.dispose();
     final order=automatic?List<int>.generate(sources.length,(offset)=>(next+offset)%sources.length):[next];
@@ -388,7 +408,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String stamp(Duration d)=>'${d.inHours>0?'${d.inHours}:':''}${(d.inMinutes%60).toString().padLeft(2,'0')}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
   @override void dispose(){
     ads.removeListener(onAdChanged);ads.dispose();
-    unawaited(saveProgress());progressTimer?.cancel();generation++;hideTimer?.cancel();bridge.setMethodCallHandler(null);video?.dispose();client.close();
+    unawaited(saveProgress());progressTimer?.cancel();nextEpisodeTimer?.cancel();generation++;hideTimer?.cancel();bridge.setMethodCallHandler(null);video?.dispose();client.close();
     SystemChrome.setPreferredOrientations([]);SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);super.dispose();
   }
   Widget surface(){
@@ -401,10 +421,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ])));
     return ValueListenableBuilder<VideoPlayerValue>(valueListenable:v,builder:(context,state,_){
       if(state.isCompleted)episodeEnded();
+      if(!state.isCompleted&&nextEpisodeTimer==null&&episodeTransition)episodeTransition=false;
       if(state.hasError)recoverPlayback(v);
       final duration=state.duration.inMilliseconds;
       final position=(scrubController==v&&scrubPosition!=null?scrubPosition!:state.position.inMilliseconds.toDouble()).clamp(0.0,duration>0?duration.toDouble():0.0).toDouble();
-      return LayoutBuilder(builder:(context,constraints)=>GestureDetector(onDoubleTapDown:(details){tapX=details.localPosition.dx;tapWidth=constraints.maxWidth;},onDoubleTap:(){if(!locked&&!state.hasError)unawaited(seek(tapX<tapWidth/2?-10:10));},onTap:()=>locked?showControls():(controls?setState(()=>controls=false):showControls()),
+      return LayoutBuilder(builder:(context,constraints)=>GestureDetector(onDoubleTapDown:(details){tapX=details.localPosition.dx;tapWidth=constraints.maxWidth;},onDoubleTap:(){if(!locked&&!state.hasError)unawaited(seek(tapX<tapWidth/2?-10:10));},
+        onVerticalDragStart:full&&state.aspectRatio<1&&!locked&&episodeIndex>=0?(_)=>swipeDistance=0:null,
+        onVerticalDragUpdate:full&&state.aspectRatio<1&&!locked&&episodeIndex>=0?(d)=>swipeDistance+=d.delta.dy:null,
+        onVerticalDragEnd:full&&state.aspectRatio<1&&!locked&&episodeIndex>=0?(_){if(swipeDistance.abs()>60)goEpisode(swipeDistance<0?1:-1);swipeDistance=0;}:null,
+        onTap:()=>locked?showControls():(controls?setState(()=>controls=false):showControls()),
         child:Stack(fit:StackFit.expand,children:[
           const ColoredBox(color:Colors.black),
           ClipRect(child:LayoutBuilder(builder:(context,space){final ratio=state.aspectRatio>0?state.aspectRatio:16/9;final boxRatio=space.maxWidth/space.maxHeight;final useWidth=fillVideo?boxRatio>ratio:boxRatio<ratio;final width=useWidth?space.maxWidth:space.maxHeight*ratio;final height=width/ratio;return Center(child:OverflowBox(minWidth:width,maxWidth:width,minHeight:height,maxHeight:height,child:VideoPlayer(v)));})),
@@ -435,7 +460,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if(!locked)Padding(padding:const EdgeInsets.fromLTRB(12,0,12,8),child:Row(children:[
               Text(stamp(Duration(milliseconds:position.round()))),const Spacer(),Text(stamp(state.duration)),
             ])),
-          ])))
+          ]))),
+          if(nextEpisodeSeconds>0&&!locked)Center(child:Card(color:const Color(0xee141418),child:Padding(padding:const EdgeInsets.all(12),child:Column(mainAxisSize:MainAxisSize.min,children:[Text(t('الحلقة التالية خلال $nextEpisodeSeconds ثوانٍ','Next episode in $nextEpisodeSeconds seconds')),Wrap(spacing:8,children:[TextButton(onPressed:()=>cancelNextEpisode(),child:Text(t('إلغاء','Cancel'))),FilledButton(onPressed:()=>goEpisode(1),child:Text(t('تشغيل الآن','Play now')))])])))),
         ])));
     });
   }

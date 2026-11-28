@@ -130,6 +130,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     try{await (await SharedPreferences.getInstance()).setString('player_language',choice);}catch(_){}
   }
   Timer? hideTimer, progressTimer;
+  int recoveryAttempts=0;
+  bool recovering=false;
+  void recoverPlayback(VideoPlayerController controller){
+    if(!mounted||busy||recovering||video!=controller||!controller.value.hasError||recoveryAttempts>=2)return;
+    recovering=true;recoveryAttempts++;
+    final op=generation;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {if(mounted&&generation==op&&video==controller){await saveProgress();if(mounted&&generation==op)await retryCurrent();}} finally {recovering=false;}
+    });
+  }
   String? get progressKey => target==null?null:'resume_${target!.type}_${target!.id}';
   Future<void> saveProgress() async {final key=progressKey;final v=video?.value;if(key==null||v==null||!v.isInitialized)return;try{final p=await SharedPreferences.getInstance();if(v.isCompleted){await p.remove(key);}else if(v.position.inSeconds>=5){await p.setInt(key,v.position.inMilliseconds);}}catch(_){}}
   Future<Duration> savedProgress() async {final key=progressKey;if(key==null)return Duration.zero;try{return Duration(milliseconds:(await SharedPreferences.getInstance()).getInt(key)??0);}catch(_){return Duration.zero;}}
@@ -240,6 +250,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final next=PlayTarget.parse(input);
     if(next==null||!mounted){if(initial)unawaited(ads.finishStartup());return;}
     if(!initial)unawaited(ads.finishStartup());
+    await saveProgress();
+    if(!mounted)return;
+    recoveryAttempts=0;
     final op=++generation;
     final old=video;video=null;
     setState((){target=next;episodes=[];episodeTransition=false;externalMedia=null;externalName='';setTitles('','');sources=[];index=-1;busy=true;clearError();locked=false;});
@@ -330,6 +343,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ])));
     return ValueListenableBuilder<VideoPlayerValue>(valueListenable:v,builder:(context,state,_){
       if(state.isCompleted)episodeEnded();
+      if(state.hasError)recoverPlayback(v);
       final duration=state.duration.inMilliseconds;
       final position=state.position.inMilliseconds.clamp(0,duration>0?duration:0).toDouble();
       return GestureDetector(onTap:()=>locked?showControls():(controls?setState(()=>controls=false):showControls()),
@@ -337,7 +351,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           const ColoredBox(color:Colors.black),
           Center(child:AspectRatio(aspectRatio:state.aspectRatio>0?state.aspectRatio:16/9,child:VideoPlayer(v))),
           if(state.isBuffering)const Center(child:CircularProgressIndicator(color:red)),
-          if(state.hasError)Center(child:FilledButton.icon(onPressed:retryCurrent,icon:const Icon(Icons.refresh),label:Text(t('إعادة التشغيل','Retry playback')))),
+          if(state.hasError)Center(child:FilledButton.icon(onPressed:recovering?null:(){recoveryAttempts=0;unawaited(retryCurrent());},icon:const Icon(Icons.refresh),label:Text(t('إعادة التشغيل','Retry playback')))),
           if(controls&&!state.hasError)DecoratedBox(decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Color(0x66000000),Colors.transparent,Color(0xaa000000)])),child:Column(children:[
             Row(children:[
               IconButton(tooltip:locked?t('إلغاء القفل','Unlock'):t('قفل الشاشة','Lock controls'),onPressed:()=>setState(()=>locked=!locked),icon:Icon(locked?Icons.lock:Icons.lock_open)),
